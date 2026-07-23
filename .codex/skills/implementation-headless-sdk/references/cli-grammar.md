@@ -35,7 +35,7 @@ agentx [root-options] [prompt]
 
 `CLIG-010` — Before constructing the ordinary parser, apply the following ordered recognizers:
 
-1. Sole `--version`, `-v`, or compatibility `-V`: print `<version> (AgentX)` with no ordinary imports. The full root parser advertises only `-v, --version`; `-V` is accepted only in this sole-argument fast path.
+1. Sole `--version`, `-v`, or compatibility `-V`: print the resolved build-identity banner beginning with `agentx <version>` and append only available Git and build facts, with no ordinary imports. The full root parser advertises only `-v, --version`; `-V` is accepted only in this sole-argument fast path.
 2. Feature-gated `--dump-system-prompt` in argument position zero; an optional `--model <model>` is found in the remaining tokens.
 3. Position-zero standalone hosts `--agentx-in-chrome-mcp`, `--chrome-native-host`, and gated `--computer-use-mcp`.
 4. Gated `--daemon-worker <kind>` in position zero.
@@ -295,7 +295,7 @@ SSH's help stub is `agentx ssh <host> [dir] [--permission-mode <mode>] [--danger
 
 ## Acceptance scenarios
 
-1. Invoke sole `-V` and then `-V prompt`. Only the first takes the compatibility version fast path; the second follows ordinary unknown-option behavior.
+1. Invoke sole `-V` for a source-default build and a linker-stamped build, then invoke `-V prompt`. The first two print their corresponding build-identity banners; the last follows ordinary unknown-option behavior.
 2. Invoke `-p mcp list`. Verify no MCP subcommand registration or MCP health check occurs and the tokens route through the default print action.
 3. Invoke `--plugin-dir A --plugin-dir B mcp list`. Verify two paths are retained and `mcp list` remains a subcommand.
 4. Put a root option after `mcp add` where no same-named child option exists. Verify it is rejected by child grammar instead of globally consumed.

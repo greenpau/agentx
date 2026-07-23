@@ -82,6 +82,8 @@ pnpm-debug.log*
 
 # Repository-local working artifacts
 tmp/
+/bin/
+.doc/
 
 # Operating-system metadata
 .DS_Store

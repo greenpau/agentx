@@ -24,6 +24,8 @@
 
 **PLAT-004 — Portable failure.** Platform-specific failures remain within the integration unless the requested semantic operation cannot proceed safely. Diagnostic reporting itself is best effort.
 
+**PLAT-005 — Immutable build identity.** Resolve one process-wide build identity before ordinary surface and runtime initialization. A source-controlled release version is always available when linker metadata is absent; non-empty linker values may override the release version, Git branch and commit, build user, and build date. The resolved semantic version is immutable for the process and is shared by session metadata, structured/SDK initialization, MCP server identity, interactive startup, and diagnostics. Version-only output may add the resolved Git and build facts to its banner, but downstream semantic version fields contain only the version. Version-only execution does not require credentials, provider setup, workspace configuration, or session construction.
+
 ## Filesystem and path operations
 
 **PLAT-010 — Unified operations.** Provide async and explicitly justified sync forms for read, range read, reverse-line read, append, write, exclusive create, stat/lstat, realpath, rename, unlink, directory traversal, mkdir/rmdir, chmod, symlink, readlink, access, and file descriptor operations. Test domain services against an injected implementation.
@@ -171,6 +173,10 @@ On an unsupported Linux terminal, browser open, desktop notification, clipboard 
 ### `PLAT-A06` — Hanging cleanup
 
 One registered cleanup callback never resolves, and another returns an error whose `Unwrap` blocks forever. Other callbacks run concurrently. Critical cleanup times out after two seconds, error projection invokes none of the returned error's methods, later bounded phases run while the global failsafe remains armed, and the process exits no later than the declared failsafe budget with the terminal restored.
+
+### `PLAT-A07` — Build metadata stamping
+
+Build the entrypoint once without linker values and once with distinct release, branch, commit, build-user, and build-date values. The first binary reports the source-controlled version without loading broken runtime configuration. The second binary's version banner reports the injected facts. Configure an isolated application process with a distinct semantic version and rich banner; verify repeat configuration cannot replace it, version-only output uses the banner, and semantic projections read the version without copying the banner. Missing optional linker values retain their declared source fallback or remain absent; they never erase the release version.
 
 ## Provenance
 

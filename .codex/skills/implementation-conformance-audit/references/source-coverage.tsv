@@ -1,19 +1,19 @@
 path	lines	bytes	sha256	primary_owner	contract_scope
-main.go	58	1673	960c262716d8eca603aa38025a4e61216fa03d3fa9d662411f855ca73e12e77b	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
-pkg/app/app.go	279	9428	ee645414aa728260152e0968d46be97f48ed3d3097750c2912ef6c949d0e15d3	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
+main.go	81	2310	a759a73f1e5546f903f8ccbd9d42cc9c786504fc73a43bbd138523ca720167df	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
+pkg/app/app.go	318	10360	f39aec545d48f2641ac4c2a944e8f4e6a5c8a921ec830d71ce09ad1666b86200	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
 pkg/app/capabilities.go	291	10491	764544f6cc7bb3c0ed792ef65ebfbb81e304c6a02c19ecca465ae31c780264b7	implementation-tool-protocol	generic tool schema, orchestration, hook/permission integration, progress, or result behavior
 pkg/app/commands.go	282	11329	5fa2af002ac7465e9f561db9050962c386b0765c228ee44868152cffba52de25	implementation-commands-input	command discovery/invocation, user-input normalization, suggestions, or local routing
 pkg/app/error_projection.go	186	5254	9bf1018e8e4be425d569a26c8438961b92460290ba6aecbfcbf0eb95ca375b36	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
 pkg/app/extensions_runtime.go	1141	41256	43546833dd0273dbda9d3504c70dbb34b2ef933923238a47db9d866ccb6e7e18	implementation-plugins-hooks	plugin/marketplace lifecycle, extension hooks, or attributed registry behavior
 pkg/app/input.go	250	5849	c2486a431e4d67097af06bb40535178825754622f8cdcf08f63e7bbb02222df3	implementation-commands-input	command discovery/invocation, user-input normalization, suggestions, or local routing
 pkg/app/interactions.go	360	13406	5defbeb523337429a230873760a12b2610a9a6af076426fb222683b601ed33a3	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
-pkg/app/mcp_server.go	372	12285	feb37dd1d8b12ccdb2f33fe9954802ff721f80acfb15bb662bfba9910bef10f4	implementation-mcp-lsp	MCP/LSP configuration, transport, discovery, authentication, protocol, or tool adaptation
+pkg/app/mcp_server.go	372	12294	84671f7bd2587376738a30204e915ae41183daea745f574af9eadd04567ef6f8	implementation-mcp-lsp	MCP/LSP configuration, transport, discovery, authentication, protocol, or tool adaptation
 pkg/app/renderers.go	278	8394	39d9eae13b892ce4ff043e4fcd72b4c66af041423477ce2ea9724ad97aab075e	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
-pkg/app/runtime.go	1128	40113	55bd3459c56f1750f3b8d5c55d78ae8397e8ca84a0d8e2ee12e252aeeee7edcf	implementation-transcript-recovery	session persistence, message graph, resume/fork/rewind, file history, or attribution
-pkg/app/runtime_services.go	313	12446	c3c4b5975e1ecb2cf8591f1690935d832bd1c0802e510202448f8c40aee472f7	implementation-observability	usage, cost, diagnostics, logging, telemetry, feature evaluation, or operational metrics
+pkg/app/runtime.go	1128	40122	eabaeab04142ae700daf3fb0e4d351de84c374d12493899d9db37999da9cf2e2	implementation-transcript-recovery	session persistence, message graph, resume/fork/rewind, file history, or attribution
+pkg/app/runtime_services.go	313	12455	cd8927ba1c341b0a81672826eb95065cd7ff44b57804c6b2e9b180345cdf35be	implementation-observability	usage, cost, diagnostics, logging, telemetry, feature evaluation, or operational metrics
 pkg/app/session_directory_sync_other.go	21	550	ffbd004766dd9d4c7ea6a5063aaff7cb28ebb3e561b596675fb3fa348f8fa997	implementation-transcript-recovery	session persistence, message graph, resume/fork/rewind, file history, or attribution
 pkg/app/session_directory_sync_unix.go	16	230	9e4f7fdd89625df1a647f6d4c020065fc7d0b515f68c4d3a9328d2446b48f8e2	implementation-transcript-recovery	session persistence, message graph, resume/fork/rewind, file history, or attribution
-pkg/app/structured.go	1132	36352	2871ec03e2f2b1460bbb9026c5f0bd021010600e5aed6bcab6cdee2cce14dfdc	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
+pkg/app/structured.go	1132	36361	cd1e623a047094fcec98e3fc3dbe0b3bf2501ed887b5666cc2af3b751f829aeb	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
 pkg/app/terminal_text.go	137	4019	b7e5e7b13c57886e104349f3f68a111ce30419a29cd048ad8539efce96518beb	implementation-interactive-repl	interactive presentation, prompt editing, keybinding, history, dialog, or UI state behavior
 pkg/childenv/environment.go	811	26983	d7a54bf5b43f89271804434e9a734cb5a590c81e28c6579eb56413eeda79b390	implementation-auth-network	credential, provider, TLS, proxy, API client, or network boundary behavior
 pkg/cli/options.go	466	15553	eac8f92a20db15f14cd3fe90ceeab8e6a32ded67dbef2aa18a7abc7e22e5a2d2	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior

@@ -6,10 +6,33 @@ import (
 	"io"
 	"os"
 
-	"github.com/greenpau/agentx/pkg/app"
+	"github.com/greenpau/versioned"
+
+	agentapp "github.com/greenpau/agentx/pkg/app"
 	"github.com/greenpau/agentx/pkg/cli"
 	"github.com/greenpau/agentx/pkg/signals"
 )
+
+var (
+	app        *versioned.PackageManager
+	appVersion string
+	gitBranch  string
+	gitCommit  string
+	buildUser  string
+	buildDate  string
+)
+
+func init() {
+	app = versioned.NewPackageManager("agentx")
+	app.Description = "Terminal-first agentic software-engineering client"
+	app.Documentation = "https://github.com/greenpau/agentx/"
+	app.SetVersion(appVersion, "1.0.1")
+	app.SetGitBranch(gitBranch, "")
+	app.SetGitCommit(gitCommit, "1.0.1")
+	app.SetBuildUser(buildUser, "")
+	app.SetBuildDate(buildDate, "")
+	agentapp.ConfigureBuildIdentity(app.Version, app.Banner())
+}
 
 func main() {
 	code := runProcess(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Exit)
@@ -29,19 +52,19 @@ func runProcess(args []string, stdin io.Reader, stdout, stderr io.Writer, forceE
 	}
 	stopSignals, err := signals.StartProcessMonitor(cancel, shutdownState, interruptOwner)
 	if err != nil {
-		fmt.Fprintln(stderr, app.TerminalSafeText(err.Error()))
+		fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
 		return 1
 	}
 	defer func() { _ = stopSignals() }()
 
-	err = app.Run(ctx, args, stdin, stdout, stderr)
+	err = agentapp.Run(ctx, args, stdin, stdout, stderr)
 	if stopErr := stopSignals(); stopErr != nil {
-		fmt.Fprintln(stderr, app.TerminalSafeText(stopErr.Error()))
+		fmt.Fprintln(stderr, agentapp.TerminalSafeText(stopErr.Error()))
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, app.TerminalSafeText(err.Error()))
-		return shutdownState.ExitCode(app.ExitCode(err))
+		fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
+		return shutdownState.ExitCode(agentapp.ExitCode(err))
 	}
 	// A surface may finish graceful cleanup and return nil after its context is
 	// cancelled. Preserve the initiating signal's process contract even then.

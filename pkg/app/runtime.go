@@ -144,7 +144,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	validateJSON := credentialJSONValidator(credentialSet)
 	var store *transcript.Store
 	if !options.CLI.NoSessionPersistence {
-		metadata := protocol.SessionMetadata{WorkingDirectory: options.Workspace, Entrypoint: "main.go", Surface: surfaceName(options.CLI), ProductVersion: Version}
+		metadata := protocol.SessionMetadata{WorkingDirectory: options.Workspace, Entrypoint: "main.go", Surface: surfaceName(options.CLI), ProductVersion: ProductVersion()}
 		if options.CLI.ForkSession && sourceSnapshot != nil {
 			metadata.ParentSessionID = sourceSnapshot.SessionID
 		}

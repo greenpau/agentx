@@ -90,7 +90,7 @@ func buildRuntimeServices(opts buildOptions, runtimeExt runtimeExtensions, query
 	profile := platform.DetectProfile(func() ([]byte, error) { return os.ReadFile("/proc/version") })
 	states := evaluateFeatureProfile(opts.CLI.TrustWorkspace, runtimeExt)
 	base := observability.Snapshot{
-		Product:        observability.Fact{Value: "agentx " + Version, Source: observability.SourceBuild},
+		Product:        observability.Fact{Value: "agentx " + ProductVersion(), Source: observability.SourceBuild},
 		Surface:        observability.Fact{Value: surfaceName(opts.CLI), Source: observability.SourceFlag},
 		Platform:       observability.Fact{Value: string(profile), Source: observability.SourceRuntime},
 		Installation:   observability.Fact{Value: runtime.GOOS + "/" + runtime.GOARCH, Source: observability.SourceBuild},

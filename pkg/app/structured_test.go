@@ -258,7 +258,7 @@ func TestSDKInitCarriesRequiredConfiguredModelMetadata(t *testing.T) {
 	if record["type"] != "system" || record["subtype"] != "init" || record["model"] != "gpt-5.6-sol" || record["permissionMode"] != "default" {
 		t.Fatalf("init identity = %#v", record)
 	}
-	if record["apiKeySource"] != "project" || record["agentx_version"] != Version || record["cwd"] != "/work/project" || record["session_id"] != "ses_sdk_wire" {
+	if record["apiKeySource"] != "project" || record["agentx_version"] != ProductVersion() || record["cwd"] != "/work/project" || record["session_id"] != "ses_sdk_wire" {
 		t.Fatalf("init metadata = %#v", record)
 	}
 	for _, key := range []string{"tools", "mcp_servers", "slash_commands", "output_style", "skills", "plugins", "uuid"} {

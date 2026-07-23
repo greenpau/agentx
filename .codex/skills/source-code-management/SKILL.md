@@ -108,19 +108,6 @@ Tests: name the command or manual check, or say not run and why.
 More info: summarize important implementation details and decisions.
 ```
 
-## Commit-message file workflow
-
-When the user asks to create a commit message for a change:
-
-1. Inspect the complete intended commit scope.
-2. Draft and validate the subject and body.
-3. Create `tmp/commits` if it does not exist.
-4. Write the message to `tmp/commits/YYYYMMDD_HHMM_<short-slug>.txt` using local repository time.
-5. Add a numeric suffix rather than overwrite an existing file.
-6. Return the path and a concise summary of the selected indicator.
-
-Treat files in `tmp/commits` as untracked working artifacts. Do not stage or commit them unless the user explicitly asks.
-
 ## Acceptance scenarios
 
 - A change limited to `AGENTS.md` and `.codex/skills` uses `skills`.
@@ -128,3 +115,23 @@ Treat files in `tmp/commits` as untracked working artifacts. Do not stage or com
 - A dependency-only update uses `ops`.
 - A behavior-preserving reorganization across several subsystems uses `refactor`.
 - A mixed change uses its dominant subsystem or is split; use `various` only when the mixture is intentional.
+
+## Commit Message File Workflow
+
+Before drafting a message, inspect `git status --short`, the staged diff, and
+the unstaged diff separately. Describe exactly the change set the user intends
+to commit, flag relevant excluded changes, and never stage, unstage, or modify
+the index unless explicitly asked.
+
+Derive runtime claims from actual call sites, not helper names or intent. In
+particular, do not call a repair, migration, or cleanup "startup" or
+"automatic" unless the staged implementation wires it into that lifecycle.
+
+When asked to "create commit message for the change", create a file in
+`tmp/commits` and place the commit message in that file. Commit message files in
+`tmp/commits` are working artifacts and should not be committed unless explicitly
+requested. Prefix the file name with `YYYYMMDD_HHMM_` prefix.
+
+Additionally, output git command to copy-paste for user. So it fill be easier to
+commit for the user after reviewing the text file,
+e.g. `git commit -F tmp/commits/YYYYMMDD_HHMM_<short-slug>.txt`

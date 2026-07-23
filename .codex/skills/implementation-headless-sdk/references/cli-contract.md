@@ -19,7 +19,7 @@ Parse mode-defining arguments before loading the general runtime so special entr
 
 Preserve this precedence:
 
-1. Version-only invocation; print product version and name with no normal initialization.
+1. Version-only invocation; print the resolved product build-identity banner with no normal initialization.
 2. Profiler entry.
 3. Build-only system-prompt dump.
 4. Browser/native/computer-use MCP host modes.
@@ -142,7 +142,7 @@ Regular headless MCP connections required for turn one are awaited. Account-host
 
 ## Acceptance scenarios
 
-1. Run version-only with broken user configuration; verify version prints and configuration is never loaded.
+1. Run version-only with broken user configuration for both a source-default build and a linker-stamped build; verify the corresponding build-identity banner prints and configuration is never loaded.
 2. Pipe no data into text mode; verify a warning after 3 seconds and no indefinite block.
 3. Supply positional and stdin prompts; verify newline joining and one user workload.
 4. Request stream input with text output; verify fail-fast validation and no protocol records.

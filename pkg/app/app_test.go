@@ -30,6 +30,59 @@ import (
 )
 
 const appLockHelperPathEnv = "AGENTX_TEST_APP_SESSION_LOCK_PATH"
+const buildIdentityHelperEnv = "AGENTX_TEST_BUILD_IDENTITY"
+
+func TestConfiguredBuildIdentityIsImmutable(t *testing.T) {
+	if os.Getenv(buildIdentityHelperEnv) == "1" {
+		const version = "9.8.7"
+		const banner = "agentx 9.8.7, branch: test, commit: deadbeef"
+		ConfigureBuildIdentity(version, banner)
+		ConfigureBuildIdentity("1.0.0", "agentx 1.0.0")
+		if got := ProductVersion(); got != version {
+			t.Fatalf("product version = %q, want %q", got, version)
+		}
+
+		var versionOutput bytes.Buffer
+		if err := Run(t.Context(), []string{"--version"}, strings.NewReader(""), &versionOutput, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(versionOutput.String()); got != banner {
+			t.Fatalf("version banner = %q, want %q", got, banner)
+		}
+
+		var sdkOutput bytes.Buffer
+		if err := encodeSDKInit(surface.NewEncoder(&sdkOutput), newSDKWireSession(t), cli.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		var sdkRecord map[string]any
+		if err := json.Unmarshal(sdkOutput.Bytes(), &sdkRecord); err != nil {
+			t.Fatal(err)
+		}
+		if got := sdkRecord["agentx_version"]; got != version {
+			t.Fatalf("SDK version = %#v, want %q", got, version)
+		}
+
+		result, code, message := handleMCPRequest(t.Context(), nil, nil, mcpRPCRequest{Method: "initialize"})
+		if code != 0 || message != "" {
+			t.Fatalf("MCP initialize = code %d, message %q", code, message)
+		}
+		payload, ok := result.(map[string]any)
+		if !ok {
+			t.Fatalf("MCP initialize result = %#v", result)
+		}
+		serverInfo, ok := payload["serverInfo"].(map[string]string)
+		if !ok || serverInfo["version"] != version {
+			t.Fatalf("MCP server info = %#v, want version %q", result, version)
+		}
+		return
+	}
+
+	command := exec.Command(os.Args[0], "-test.run=^TestConfiguredBuildIdentityIsImmutable$")
+	command.Env = append(os.Environ(), buildIdentityHelperEnv+"=1")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build identity helper: %v\n%s", err, output)
+	}
+}
 
 func TestAppSessionLockHelperProcess(t *testing.T) {
 	path := os.Getenv(appLockHelperPathEnv)
@@ -121,7 +174,7 @@ func TestVersionDoesNotRequireCredentials(t *testing.T) {
 	if err := Run(t.Context(), []string{"--version"}, strings.NewReader(""), &output, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if output.String() != "agentx "+Version+"\n" {
+	if output.String() != productVersionBanner()+"\n" {
 		t.Fatalf("output=%q", output.String())
 	}
 }

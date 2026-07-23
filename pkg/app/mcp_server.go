@@ -327,7 +327,7 @@ func handleMCPRequest(ctx context.Context, registry *tool.Registry, scheduler *t
 		return map[string]any{
 			"protocolVersion": mcp.ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]string{"name": "agentx-core", "version": Version},
+			"serverInfo":      map[string]string{"name": "agentx-core", "version": ProductVersion()},
 			"instructions":    "Core workstation capabilities use AgentX validation and permission policy. Mutations require explicit allow rules or bypass mode because stdio has no approval UI.",
 		}, 0, ""
 	case "ping":

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -23,9 +25,46 @@ import (
 	"github.com/greenpau/agentx/pkg/surface"
 )
 
-const Version = "0.1.0"
+type buildIdentity struct {
+	version string
+	banner  string
+}
+
+var currentBuildIdentity atomic.Pointer[buildIdentity]
+var configureBuildIdentityOnce sync.Once
+
 const maxStdinBytes = 8 << 20
 const stdinFirstByteTimeout = 3 * time.Second
+
+func init() {
+	currentBuildIdentity.Store(&buildIdentity{
+		version: "development",
+		banner:  "agentx development",
+	})
+}
+
+// ConfigureBuildIdentity installs process-wide build metadata before runtime
+// services start. The root entrypoint is the sole production caller.
+func ConfigureBuildIdentity(version, banner string) {
+	if version == "" {
+		return
+	}
+	configureBuildIdentityOnce.Do(func() {
+		if banner == "" {
+			banner = "agentx " + version
+		}
+		currentBuildIdentity.Store(&buildIdentity{version: version, banner: banner})
+	})
+}
+
+// ProductVersion returns the immutable process-wide semantic version.
+func ProductVersion() string {
+	return currentBuildIdentity.Load().version
+}
+
+func productVersionBanner() string {
+	return currentBuildIdentity.Load().banner
+}
 
 func ExitCode(err error) int {
 	if err == nil {
@@ -50,7 +89,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return writeStringExact(stdout, cli.Usage()+"\n")
 	}
 	if opts.Version {
-		return writeStringExact(stdout, fmt.Sprintf("agentx %s\n", Version))
+		return writeStringExact(stdout, productVersionBanner()+"\n")
 	}
 	opts = cli.InferPrint(opts, writerIsTerminal(stdout))
 	if err := opts.Validate(); err != nil {
@@ -160,7 +199,7 @@ func runInteractive(ctx context.Context, opts cli.Options, workspace string, std
 	}()
 	interactions.SetCredentialSanitizer(session.credentials)
 	sink.SetCredentialSanitizer(session.credentials)
-	if err := writeTerminalRecord(stdout, session.credentials, fmt.Sprintf("AgentX %s — %s via Azure OpenAI — session %s\n", Version, session.config.Azure.ModelName, session.engine.SessionID())); err != nil {
+	if err := writeTerminalRecord(stdout, session.credentials, fmt.Sprintf("AgentX %s — %s via Azure OpenAI — session %s\n", ProductVersion(), session.config.Azure.ModelName, session.engine.SessionID())); err != nil {
 		return err
 	}
 	for {

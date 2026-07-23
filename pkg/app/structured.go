@@ -834,7 +834,7 @@ func encodeSDKInit(encoder *surface.Encoder, session *runtimeSession, opts cli.O
 	mode := effectivePermissionMode(opts)
 	return encoder.Encode(map[string]any{
 		"type": "system", "subtype": "init", "apiKeySource": sdkAPIKeySource(session.config),
-		"agentx_version": Version, "cwd": session.workspace, "tools": toolNames(session),
+		"agentx_version": ProductVersion(), "cwd": session.workspace, "tools": toolNames(session),
 		"mcp_servers": sdkMCPServers(session), "model": session.config.Azure.ModelName, "permissionMode": mode,
 		"slash_commands": commandNames, "output_style": sdkOutputStyle(session), "skills": sdkSkillNames(session),
 		"plugins": sdkPlugins(session), "agents": []any{}, "uuid": uuid, "session_id": session.engine.SessionID(),

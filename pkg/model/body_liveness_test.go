@@ -151,22 +151,35 @@ func TestAzureHostileStreamingBodiesCannotBlockCoordinator(t *testing.T) {
 			watchdog: time.Second, maxRetries: 1,
 		}, options)
 
-		started := time.Now()
 		stream, err := client.Stream(context.Background(), basicRequest())
 		if err != nil {
 			t.Fatal(err)
 		}
-		events, err := Drain(stream)
+		events := make([]Event, 0, 3)
+		for range 2 {
+			event, err := stream.Next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			events = append(events, event)
+		}
+		// Leave the terminal record buffered until the pump has advanced into
+		// the hostile post-terminal read. This removes scheduler ordering from
+		// the liveness assertion below.
+		waitForAtomicValue(t, &reads, 1)
+
+		started := time.Now()
+		remaining, err := Drain(stream)
 		if err != nil {
 			t.Fatal(err)
 		}
+		events = append(events, remaining...)
 		if elapsed := time.Since(started); elapsed > time.Second {
 			t.Fatalf("terminal response waited for Close for %s", elapsed)
 		}
 		if len(events) != 3 || events[len(events)-1].Type != EventResponseCompleted {
 			t.Fatalf("terminal events = %v", eventTypes(events))
 		}
-		waitForAtomicValue(t, &reads, 1)
 		waitForAtomicValue(t, &closes, 1)
 		if activeReads.Load() != 1 || activeCloses.Load() != 1 {
 			t.Fatalf("active reads=%d closes=%d, want 1 each", activeReads.Load(), activeCloses.Load())
