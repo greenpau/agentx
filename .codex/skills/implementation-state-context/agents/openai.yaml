@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation State and Context"
+  short_description: "Implement Implementation State and Context contracts"
+  default_prompt: "Use $implementation-state-context to implement this architectural domain."

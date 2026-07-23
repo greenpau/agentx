@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Interactive REPL"
+  short_description: "Implement Implementation Interactive REPL contracts"
+  default_prompt: "Use $implementation-interactive-repl to implement this architectural domain."

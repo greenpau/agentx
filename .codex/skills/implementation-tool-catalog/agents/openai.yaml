@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Tool Catalog"
+  short_description: "Implement Implementation Tool Catalog contracts"
+  default_prompt: "Use $implementation-tool-catalog to implement this architectural domain."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Auth and Network"
+  short_description: "Implement Implementation Auth and Network contracts"
+  default_prompt: "Use $implementation-auth-network to implement this architectural domain."

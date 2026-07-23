@@ -1,0 +1,351 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-21T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='portable-data-primitives' name='Portable data primitives'>
+    <mxGraphModel dx='1600' dy='1050' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1654' pageHeight='1602' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='title' value='Portable parsing, caching, recovery, and bounded-text contracts' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=24;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='390' width='1120' height='45' as='geometry'/>
+        </mxCell>
+        <mxCell id='input' value='&lt;b&gt;Owning-domain invocation&lt;/b&gt;&lt;br&gt;text · bytes · files · values · call arguments&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-001..002&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='55' y='538' width='250' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='bom' value='&lt;b&gt;Select primitive family&lt;/b&gt;&lt;br&gt;preserve the input representation&lt;br&gt;each family applies its own units and recovery&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-001, PRIM-080..082&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='370' y='538' width='250' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='parseRoute' value='&lt;b&gt;Select semantic parser&lt;/b&gt;&lt;br&gt;strict JSON · comment-aware&lt;br&gt;JSON-lines · array editor&lt;br&gt;parser-specific BOM handling' style='rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='685' y='525' width='255' height='120' as='geometry'/>
+        </mxCell>
+        <mxCell id='strict' value='&lt;b&gt;Strict safe parse&lt;/b&gt;&lt;br&gt;null/invalid collapse publicly&lt;br&gt;50-entry small-input cache&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-011..014&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1005' y='528' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='jsonc' value='&lt;b&gt;Comment-aware edit&lt;/b&gt;&lt;br&gt;localized array insertion&lt;br&gt;destructive serialized fallback&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-020..023&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1005' y='698' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='jsonl' value='&lt;b&gt;JSON-lines recovery&lt;/b&gt;&lt;br&gt;line-isolated malformed-record skip&lt;br&gt;large-file 100 MiB positional tail&lt;br&gt;discard through first LF only when it precedes final byte&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-030..035&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='685' y='698' width='255' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='cacheRoute' value='&lt;b&gt;Memoization policy&lt;/b&gt;&lt;br&gt;TTL stale-while-revalidate&lt;br&gt;or bounded LRU' style='rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='365' y='688' width='260' height='125' as='geometry'/>
+        </mxCell>
+        <mxCell id='ttl' value='&lt;b&gt;TTL cache&lt;/b&gt;&lt;br&gt;ordinary stale refresh returns old value&lt;br&gt;identity-guarded completion&lt;br&gt;async synchronous throw rejects and latches&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-040..046&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='55' y='693' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='lru' value='&lt;b&gt;LRU cache&lt;/b&gt;&lt;br&gt;hit promotes · admin peek does not&lt;br&gt;undefined collides with absence&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-050..052&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='55' y='888' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='text' value='&lt;b&gt;Text transformations&lt;/b&gt;&lt;br&gt;literal escaping · first-unit case&lt;br&gt;full-width digits/space · line count&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-060..065&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='370' y='888' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='bounded' value='&lt;b&gt;Bounded text&lt;/b&gt;&lt;br&gt;safe join stops at first overflow&lt;br&gt;accumulator counts every later append&lt;br&gt;diagnostic marker may exceed payload cap&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-070..074&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='685' y='888' width='255' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='owner' value='&lt;b&gt;Owning domain&lt;/b&gt;&lt;br&gt;settings · transcript · task · tool&lt;br&gt;decides trust, authority, and stale acceptability&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-080..082&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1005' y='888' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='collections' value='&lt;b&gt;Collections + hashes&lt;/b&gt;&lt;br&gt;stable set order · null-prototype groups&lt;br&gt;profile-dependent change hashes&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-053..059&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='55' y='1053' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='generators' value='&lt;b&gt;Async sequence merge&lt;/b&gt;&lt;br&gt;one pending next per active source&lt;br&gt;completion order · no sibling cancellation&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-066..069&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1005' y='1053' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='fifo' value='&lt;b&gt;FIFO + rolling window&lt;/b&gt;&lt;br&gt;one async invocation at a time&lt;br&gt;oldest overwritten at fixed capacity&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-075..077&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='55' y='1238' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='errors' value='&lt;b&gt;Error normalization&lt;/b&gt;&lt;br&gt;typed evidence · short stack projection&lt;br&gt;HTTP bucket, not retry authority&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PRIM-083..089&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1005' y='1238' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='race' value='&lt;b&gt;Clear/refresh race invariant&lt;/b&gt;&lt;br&gt;old work may finish but cannot repopulate, overwrite, or delete newer state because every completion checks entry/promise identity' style='shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='350' y='1083' width='600' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='e1' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.100;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='input' target='bom' value='handoff · Select…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Select primitive family' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.280' y='0'>
+            <Array as='points'>
+              <mxPoint x='317' y='585.5'/>
+              <mxPoint x='317' y='547.5'/>
+            </Array>
+            <mxPoint x='0' y='-36' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e2' value='parser input' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.400;entryX=0;entryY=0.200;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='parseRoute' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.817' y='0'>
+            <Array as='points'>
+              <mxPoint x='673' y='576'/>
+              <mxPoint x='673' y='549'/>
+            </Array>
+            <mxPoint x='0' y='-76' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e3' value='strict' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.400;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parseRoute' target='strict' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.920' y='0'>
+            <Array as='points'>
+              <mxPoint x='952' y='573'/>
+              <mxPoint x='952' y='598'/>
+            </Array>
+            <mxPoint x='0' y='-76' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e4' value='comments/edit' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.600;exitY=1;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parseRoute' target='jsonc' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.679' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='993' y='645'/>
+              <mxPoint x='993' y='768'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e5' value='line stream' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.800;exitY=1;entryX=0.667;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parseRoute' target='jsonl' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.529' y='0'>
+            <Array as='points'>
+              <mxPoint x='889' y='686'/>
+              <mxPoint x='855' y='686'/>
+            </Array>
+            <mxPoint x='-120' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e6' value='call arguments' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.800;exitY=1;entryX=0.250;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='cacheRoute' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.128' y='0'>
+            <Array as='points'>
+              <mxPoint x='570' y='676'/>
+              <mxPoint x='430' y='676'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e7' value='TTL' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.500;entryX=0.750;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='cacheRoute' target='ttl' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.130' y='0'>
+            <Array as='points'>
+              <mxPoint x='353' y='750.5'/>
+              <mxPoint x='353' y='686'/>
+              <mxPoint x='242.5' y='686'/>
+            </Array>
+            <mxPoint x='0' y='-58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e8' value='LRU' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.750;entryX=0.667;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='cacheRoute' target='lru' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.437' y='0'>
+            <Array as='points'>
+              <mxPoint x='338' y='781.75'/>
+              <mxPoint x='338' y='876'/>
+              <mxPoint x='221.667' y='876'/>
+            </Array>
+            <mxPoint x='0' y='-58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e9' value='text helper' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.900;entryX=0.667;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='text' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.674' y='0'>
+            <Array as='points'>
+              <mxPoint x='637' y='623.5'/>
+              <mxPoint x='637' y='876'/>
+              <mxPoint x='536.667' y='876'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e10' value='bounded output helper' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.200;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='bounded' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.983' y='0'>
+            <Array as='points'>
+              <mxPoint x='632' y='557'/>
+              <mxPoint x='632' y='923'/>
+            </Array>
+            <mxPoint x='0' y='-58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e11' value='normalized result' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.083;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bounded' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.748' y='0'>
+            <Array as='points'>
+              <mxPoint x='952' y='958'/>
+              <mxPoint x='952' y='896.75'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e12' value='parsed values' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=1;entryY=0.167;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='strict' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.374' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1267' y='563'/>
+              <mxPoint x='1267' y='905.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e13' value='specified values' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0.250;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='jsonl' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.670' y='0'>
+            <Array as='points'>
+              <mxPoint x='952' y='733'/>
+              <mxPoint x='952' y='876'/>
+              <mxPoint x='1067.5' y='876'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e14' value='clear + identity guard' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;strokeColor=#d6b656;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.250;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='ttl' target='race' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.407' y='0'>
+            <Array as='points'>
+              <mxPoint x='317' y='719.25'/>
+              <mxPoint x='317' y='1135.5'/>
+            </Array>
+            <mxPoint x='-80' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e15' value='ordered values' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0.333;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='collections' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.223' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='338' y='1088'/>
+              <mxPoint x='338' y='1005'/>
+              <mxPoint x='1088.333' y='1005'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e16' value='completion-ordered values' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.333;exitY=0;entryX=0.417;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='generators' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.406' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1088.333' y='1005'/>
+              <mxPoint x='1109.167' y='1005'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e17' value='serialized effects' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='fifo' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.473' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='317' y='1273'/>
+              <mxPoint x='317' y='1226'/>
+              <mxPoint x='1267' y='1226'/>
+              <mxPoint x='1267' y='940.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e18' value='typed failure evidence' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.333;entryX=0;entryY=0.583;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='errors' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.372' y='0'>
+            <Array as='points'>
+              <mxPoint x='993' y='1273'/>
+              <mxPoint x='993' y='949.25'/>
+            </Array>
+            <mxPoint x='40' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e19' value='collection/hash helper' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.300;exitY=1;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='collections' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.529' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='445' y='645'/>
+              <mxPoint x='43' y='645'/>
+              <mxPoint x='43' y='1123'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e20' value='generator helper' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.500;entryX=0.667;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='generators' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.352' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='358' y='585.5'/>
+              <mxPoint x='358' y='1041'/>
+              <mxPoint x='1171.667' y='1041'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e21' value='queue/buffer helper' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.600;exitY=0;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='fifo' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.455' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='520' y='526'/>
+              <mxPoint x='18' y='526'/>
+              <mxPoint x='18' y='1308'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e22' value='caught failure' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.700;exitY=0;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='bom' target='errors' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.638' y='0'>
+            <Array as='points'>
+              <mxPoint x='545' y='516'/>
+              <mxPoint x='962' y='516'/>
+              <mxPoint x='962' y='1308'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e23' value='edited or replacement text' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.333;exitY=1;entryX=0.667;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='jsonc' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.566' y='0'>
+            <Array as='points'>
+              <mxPoint x='1088.333' y='876'/>
+              <mxPoint x='1171.667' y='876'/>
+            </Array>
+            <mxPoint x='40' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e24' value='cached value' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=0;entryX=0.750;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='ttl' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.696' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='180' y='681'/>
+              <mxPoint x='1636' y='681'/>
+              <mxPoint x='1636' y='876'/>
+              <mxPoint x='1192.5' y='876'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e25' value='memoized value' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0.833;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='lru' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.078' y='0'>
+            <Array as='points'>
+              <mxPoint x='353' y='923'/>
+              <mxPoint x='353' y='825'/>
+              <mxPoint x='1213.333' y='825'/>
+            </Array>
+            <mxPoint x='0' y='18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e26' value='transformed text' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0;entryY=0.917;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='text' target='owner' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.174' y='0'>
+            <Array as='points'>
+              <mxPoint x='632' y='923'/>
+              <mxPoint x='632' y='1071'/>
+              <mxPoint x='952' y='1071'/>
+              <mxPoint x='952' y='984.25'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='1614' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-operations → implementation-platform-lifecycle → portable-data-primitives / Portable data primitives' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='1558' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;YOU ARE HERE · cross-cutting&lt;/b&gt;&lt;/font&gt; across startup + policy → state + registries → query + model → capability execution → continuity + tasks → surface + remote' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='1558' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Portable parsing, caching, recovery, and bounded-text contracts own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='1558' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Owning-domain invocation' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-platform-lifecycle · Portable parsing, caching, recovery, and bounded-text contracts' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='440.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; Owning domain / Clear/refresh race invariant' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='833' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-operations/architecture.drawio owns domain placement · implementation-auth-network + implementation-observability own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='1225.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; PRIM-001 · PRIM-080 · PRIM-011 · PRIM-020 · PRIM-030 · prose: portable-data-primitives.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='903' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-operations overview → implementation-platform-lifecycle/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='963' y='225' width='643' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='1558' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='1558' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

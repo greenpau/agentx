@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-conformance:
+    name: Go conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check whitespace and Go formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nI -E '[[:blank:]]+$' -- .; then
+            echo "Tracked files contain trailing whitespace."
+            exit 1
+          fi
+          unformatted="$(gofmt -l ./*.go $(find ./pkg -name '*.go' -type f -print))"
+          if [[ -n "$unformatted" ]]; then
+            echo "The following Go files require gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet Go packages
+        run: go vet ./...
+
+      - name: Test Go packages
+        run: go test ./...
+
+      - name: Test Go packages with the race detector
+        run: go test -race ./...
+
+      - name: Test order independence
+        run: go test ./... -shuffle=on -count=3
+
+      - name: Test signal and test-only capability boundaries
+        run: go test -count=1 -v ./pkg/signals ./pkg/testing
+
+      - name: Cross-compile supported portable profiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build ./...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+          for arch in amd64 386 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build ./...
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go test -run '^$' -exec=/usr/bin/true ./...
+          done
+
+      - name: Audit implementation evidence and diagrams
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby .codex/skills/implementation-conformance-audit/scripts/build_source_coverage.rb --check
+          ruby .codex/skills/implementation-conformance-audit/scripts/build_contract_scenario_coverage.rb --check
+          ruby .codex/skills/implementation-conformance-audit/scripts/audit_architecture.rb --source-evidence-self-test
+          ruby .codex/skills/implementation-architecture/scripts/generate_drawio.rb --check
+          ruby .codex/skills/implementation-architecture/scripts/enhance_custom_drawio.rb --check
+          ruby .codex/skills/implementation-conformance-audit/scripts/audit_architecture.rb

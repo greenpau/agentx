@@ -1,0 +1,357 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-21T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='browser-adapter' name='Browser Adapter'>
+    <mxGraphModel dx='1365' dy='827' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1169' pageHeight='1252' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='bt' value='Browser automation: registration, transport, and tab provenance' style='text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='40' y='390' width='1020' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='b0' value='&lt;b&gt;Feature profile&lt;/b&gt;&lt;br&gt;build · identity · policy · platform' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;' vertex='1' parent='1'>
+          <mxGeometry x='40' y='530' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b1' value='&lt;b&gt;Portable discovery&lt;/b&gt;&lt;br&gt;browser → profile → recognized extension' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;' vertex='1' parent='1'>
+          <mxGeometry x='320' y='530' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b2' value='&lt;b&gt;Attributed MCP registry&lt;/b&gt;&lt;br&gt;allowed tools · prompt · renderer' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;' vertex='1' parent='1'>
+          <mxGeometry x='600' y='530' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b3' value='&lt;b&gt;Transport selector&lt;/b&gt;&lt;br&gt;authenticated bridge OR private local socket' style='rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;' vertex='1' parent='1'>
+          <mxGeometry x='875' y='520' width='220' height='90' as='geometry'/>
+        </mxCell>
+        <mxCell id='b4' value='&lt;b&gt;Bridge&lt;/b&gt;&lt;br&gt;account identity · OAuth callback · pairing' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='695' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b5' value='&lt;b&gt;Native host&lt;/b&gt;&lt;br&gt;0700 directory · 0600 socket · per-client ownership' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;' vertex='1' parent='1'>
+          <mxGeometry x='960' y='695' width='170' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b6' value='&lt;b&gt;Frame decoder&lt;/b&gt;&lt;br&gt;4-byte LE length · 1..1 MiB JSON · incremental' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;' vertex='1' parent='1'>
+          <mxGeometry x='960' y='830' width='170' height='80' as='geometry'/>
+        </mxCell>
+        <mxCell id='b7' value='&lt;b&gt;Paired extension&lt;/b&gt;&lt;br&gt;request/response correlation · notifications' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='840' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b8' value='&lt;b&gt;Fresh tab context&lt;/b&gt;&lt;br&gt;explicit existing tab OR create new' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;' vertex='1' parent='1'>
+          <mxGeometry x='430' y='840' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='b9' value='&lt;b&gt;Normalized tool result&lt;/b&gt;&lt;br&gt;tracked tab link · bounded error · transcript' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;' vertex='1' parent='1'>
+          <mxGeometry x='150' y='840' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='be0' edge='1' parent='1' source='b0' target='b1' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Portable…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Portable discovery' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.900' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='272' y='565'/>
+              <mxPoint x='272' y='553.333'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be1' edge='1' parent='1' source='b1' target='b2' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Attributed MCP…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Attributed MCP registry' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.194' y='0'>
+            <Array as='points'>
+              <mxPoint x='552' y='576.667'/>
+              <mxPoint x='552' y='553.333'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be2' edge='1' parent='1' source='b2' target='b3' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Transport…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Transport selector' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.325' y='0'>
+            <mxPoint x='0' y='-36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='832' y='576.667'/>
+              <mxPoint x='832' y='542.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be3' value='bridge enabled' edge='1' parent='1' source='b3' target='b4' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=1;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.036' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='985' y='622'/>
+              <mxPoint x='952' y='622'/>
+              <mxPoint x='952' y='718.333'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be4' value='native path' edge='1' parent='1' source='b3' target='b5' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.750;exitY=1;entryX=0.333;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.596' y='0'>
+            <mxPoint x='20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1040' y='683'/>
+              <mxPoint x='1016.667' y='683'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be5' edge='1' parent='1' source='b5' target='b6' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=1;entryX=0.333;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Frame decoder' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='continues to Frame decoder' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.151' y='0'>
+            <Array as='points'>
+              <mxPoint x='1073.333' y='818'/>
+              <mxPoint x='1016.667' y='818'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be6' edge='1' parent='1' source='b6' target='b7' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.400;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Paired extension' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='continues to Paired extension' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.683' y='0'>
+            <Array as='points'>
+              <mxPoint x='948' y='883.333'/>
+              <mxPoint x='948' y='868'/>
+            </Array>
+            <mxPoint x='0' y='58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be7' edge='1' parent='1' source='b4' target='b7' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=1;entryX=0.600;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Paired extension' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='continues to Paired extension' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.578' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='866.667' y='828'/>
+              <mxPoint x='852' y='828'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be8' edge='1' parent='1' source='b7' target='b8' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.800;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Fresh tab…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Fresh tab context' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.921' y='0'>
+            <mxPoint x='0' y='36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='708' y='896'/>
+              <mxPoint x='708' y='875'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be9' edge='1' parent='1' source='b8' target='b9' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.750;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Normalized…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customSemanticLabelOrigin='topology-derived' customFullSemanticLabel='handoff · Normalized tool result'>
+          <mxGeometry relative='1' as='geometry' x='-0.907' y='0'>
+            <mxPoint x='0' y='36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='418' y='892.5'/>
+              <mxPoint x='418' y='875'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='be10' value='invalid tab → refresh' edge='1' parent='1' source='b8' target='b7' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.250;entryX=0;entryY=0.200;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.105' y='0'>
+            <mxPoint x='0' y='-36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='662' y='857.5'/>
+              <mxPoint x='662' y='854'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='1129' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-user-surfaces → implementation-optional-experiences → browser-computer-use / Browser Adapter' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='1073' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; startup + policy → state + registries → query + model → capability execution → continuity + tasks → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · surface + remote]&lt;/b&gt;&lt;/font&gt;' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='1073' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Browser automation: registration, transport, and tab provenance own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='1073' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Feature profile' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-optional-experiences · Browser automation: registration, transport, and tab provenance' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='319.25' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; Normalized tool result' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='590.5' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-user-surfaces/architecture.drawio owns domain placement · implementation-terminal-engine + implementation-interactive-repl own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='861.75' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; OPT-BR-001 · OPT-BR-002 · OPT-BR-003 · OPT-BR-004 · OPT-BR-005 · prose: browser-computer-use.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='622' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-user-surfaces overview → implementation-optional-experiences/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='682' y='225' width='439' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='1073' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='1073' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id='computer-use' name='Computer Use'>
+    <mxGraphModel dx='1365' dy='827' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1169' pageHeight='1252' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='c0'/>
+        <mxCell id='c1' parent='c0'/>
+        <mxCell id='ct' value='Desktop control: exclusive ownership, native action, and restoration' style='text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;' vertex='1' parent='c1'>
+          <mxGeometry x='40' y='390' width='1020' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='c2' value='&lt;b&gt;Default-disabled gates&lt;/b&gt;&lt;br&gt;subscription · platform · native modules' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;' vertex='1' parent='c1'>
+          <mxGeometry x='40' y='530' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='c3' value='&lt;b&gt;Lock check&lt;/b&gt;&lt;br&gt;exclusive create · owner · PID liveness' style='rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;' vertex='1' parent='c1'>
+          <mxGeometry x='320' y='520' width='220' height='90' as='geometry'/>
+        </mxCell>
+        <mxCell id='c4' value='&lt;b&gt;Blocked result&lt;/b&gt;&lt;br&gt;preserve live owner&apos;s lock and state' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;' vertex='1' parent='c1'>
+          <mxGeometry x='600' y='530' width='220' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='c5' value='&lt;b&gt;Fresh owner setup&lt;/b&gt;&lt;br&gt;enter notice · Escape tap · shutdown cleanup' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;' vertex='1' parent='c1'>
+          <mxGeometry x='320' y='675' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c6' value='&lt;b&gt;Access and target validation&lt;/b&gt;&lt;br&gt;sanitized app · permission · frozen coordinates' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;' vertex='1' parent='c1'>
+          <mxGeometry x='40' y='685' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c7' value='&lt;b&gt;Prepare display&lt;/b&gt;&lt;br&gt;exclude terminal · activate · record hidden apps' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;' vertex='1' parent='c1'>
+          <mxGeometry x='40' y='845' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c8' value='&lt;b&gt;Native action&lt;/b&gt;&lt;br&gt;30 s pump bound · input finally-release · capture' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;' vertex='1' parent='c1'>
+          <mxGeometry x='320' y='845' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c9' value='&lt;b&gt;Terminal result&lt;/b&gt;&lt;br&gt;filtered JPEG or bounded action/error' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;' vertex='1' parent='c1'>
+          <mxGeometry x='600' y='845' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c10' value='&lt;b&gt;Convergent cleanup&lt;/b&gt;&lt;br&gt;natural stop · Escape · Ctrl+C · stream/tool abort' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;' vertex='1' parent='c1'>
+          <mxGeometry x='875' y='845' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='c11' value='&lt;b&gt;Restore and release&lt;/b&gt;&lt;br&gt;unhide ≤5 s → unregister Escape → owner-only unlink' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;' vertex='1' parent='c1'>
+          <mxGeometry x='875' y='685' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='ce0' edge='1' parent='c1' source='c2' target='c3' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Lock check' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='evaluates Lock check' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.052' y='0'>
+            <Array as='points'>
+              <mxPoint x='272' y='553.333'/>
+              <mxPoint x='272' y='542.5'/>
+            </Array>
+            <mxPoint x='0' y='-36' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce1' value='live other owner' edge='1' parent='c1' source='c3' target='c4' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce2' value='fresh / specified' edge='1' parent='c1' source='c3' target='c5' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.000' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='552' y='587.5'/>
+              <mxPoint x='552' y='700'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce3' edge='1' parent='c1' source='c5' target='c6' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Access and…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Access and target validation' customSemanticLabelOrigin='topology-derived' customLabelLayoutLocked='1'>
+          <mxGeometry relative='1' as='geometry' x='0.104' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='308' y='725'/>
+              <mxPoint x='308' y='710'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce4' edge='1' parent='c1' source='c6' target='c7' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=1;entryX=0.333;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Prepare display' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.200' y='0'>
+            <Array as='points'>
+              <mxPoint x='186.667' y='833'/>
+              <mxPoint x='113.333' y='833'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce5' edge='1' parent='c1' source='c7' target='c8' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Native action' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='continues to Native action' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.264' y='0'>
+            <Array as='points'>
+              <mxPoint x='272' y='895'/>
+              <mxPoint x='272' y='863.75'/>
+            </Array>
+            <mxPoint x='0' y='-76' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce6' edge='1' parent='c1' source='c8' target='c9' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Terminal result' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='terminates at Terminal result' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.901' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='552' y='882.5'/>
+              <mxPoint x='552' y='870'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce7' edge='1' parent='c1' source='c9' target='c10' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Convergent…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customSemanticLabelOrigin='topology-derived' customFullSemanticLabel='handoff · Convergent cleanup'>
+          <mxGeometry relative='1' as='geometry' x='0.302' y='0'>
+            <mxPoint x='0' y='-36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='832' y='895'/>
+              <mxPoint x='832' y='863.75'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce8' edge='1' parent='c1' source='c10' target='c11' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=0;entryX=0.667;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' value='handoff · Restore and…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customSemanticLabelOrigin='topology-derived' customFullSemanticLabel='handoff · Restore and release'>
+          <mxGeometry relative='1' as='geometry' x='-0.640' y='0'>
+            <Array as='points'>
+              <mxPoint x='985' y='772'/>
+              <mxPoint x='1021.667' y='772'/>
+            </Array>
+            <mxPoint x='20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce9' value='physical Escape / abort' edge='1' parent='c1' source='c8' target='c10' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=0;entryY=0.750;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.314' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='552' y='901.25'/>
+              <mxPoint x='552' y='932'/>
+              <mxPoint x='863' y='932'/>
+              <mxPoint x='863' y='901.25'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='ce10' value='cleanup complete' edge='1' parent='c1' source='c11' target='c2' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.333;entryX=1;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.259' y='0'>
+            <Array as='points'>
+              <mxPoint x='863' y='710'/>
+              <mxPoint x='863' y='622'/>
+              <mxPoint x='272' y='622'/>
+              <mxPoint x='272' y='576.667'/>
+            </Array>
+            <mxPoint x='0' y='18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='c1'>
+          <mxGeometry x='20' y='20' width='1129' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-user-surfaces → implementation-optional-experiences → browser-computer-use / Computer Use' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='40' width='1073' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; startup + policy → state + registries → query + model → capability execution → continuity + tasks → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · surface + remote]&lt;/b&gt;&lt;/font&gt;' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='67' width='1073' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Desktop control: exclusive ownership, native action, and restoration own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='108' width='1073' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Native action' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-optional-experiences · Desktop control: exclusive ownership, native action, and restoration' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='c1'>
+          <mxGeometry x='319.25' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; Blocked result' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='c1'>
+          <mxGeometry x='590.5' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-user-surfaces/architecture.drawio owns domain placement · implementation-terminal-engine + implementation-interactive-repl own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='c1'>
+          <mxGeometry x='861.75' y='153' width='259.25' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; OPT-BR-001 · OPT-BR-002 · OPT-BR-003 · OPT-BR-004 · OPT-BR-005 · prose: browser-computer-use.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='225' width='622' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-user-surfaces overview → implementation-optional-experiences/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='c1'>
+          <mxGeometry x='682' y='225' width='439' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='264' width='1073' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='c1'>
+          <mxGeometry x='48' y='298' width='1073' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

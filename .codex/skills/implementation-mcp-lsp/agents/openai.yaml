@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation MCP and LSP"
+  short_description: "Implement Implementation MCP and LSP contracts"
+  default_prompt: "Use $implementation-mcp-lsp to implement this architectural domain."

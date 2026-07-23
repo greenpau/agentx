@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Operations"
+  short_description: "Implement Implementation Operations contracts"
+  default_prompt: "Use $implementation-operations to implement this architectural domain."

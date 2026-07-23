@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Platform and Lifecycle"
+  short_description: "Implement Implementation Platform and Lifecycle contracts"
+  default_prompt: "Use $implementation-platform-lifecycle to implement this architectural domain."

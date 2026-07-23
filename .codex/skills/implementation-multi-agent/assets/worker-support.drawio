@@ -1,0 +1,162 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-21T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='worker-support' name='Worker support lifetimes'>
+    <mxGraphModel dx='1600' dy='1000' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1654' pageHeight='1559' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='title' value='Multi-agent support: durable evidence, volatile coordination, owned resources, display derivation' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=24;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='390' width='1500' height='45' as='geometry'/>
+        </mxCell>
+        <mxCell id='subtitle' value='Only explicit adapters cross lifetime bands; a mailbox send attempt is not append/read acknowledgement, and colors/summaries never flow back into authority.' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=12;fontColor=#666666;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='435' width='1450' height='30' as='geometry'/>
+        </mxCell>
+        <mxCell id='durable-band' value='DURABLE / RECONCILABLE' style='swimlane;html=1;horizontal=1;startSize=30;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='510' width='1450' height='190' as='geometry'/>
+        </mxCell>
+        <mxCell id='memory' value='&lt;b&gt;Scoped agent memory&lt;/b&gt;&lt;br&gt;user · project · local&lt;br&gt;agent type namespace&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-001&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;' vertex='1' parent='durable-band'>
+          <mxGeometry x='45' y='55' width='270' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='snapshot' value='&lt;b&gt;Project snapshot&lt;/b&gt;&lt;br&gt;updatedAt + payload&lt;br&gt;initialize / prompt / mark synced&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-002&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;' vertex='1' parent='durable-band'>
+          <mxGeometry x='390' y='55' width='285' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='transcript' value='&lt;b&gt;Child transcript + task result&lt;/b&gt;&lt;br&gt;authoritative identity and terminal evidence&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-TRN-001 · MA-TASK-001&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;' vertex='1' parent='durable-band'>
+          <mxGeometry x='760' y='55' width='300' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='team-mailbox' value='&lt;b&gt;Append-backed compatibility mailbox&lt;/b&gt;&lt;br&gt;durable only after observed atomic append&lt;br&gt;no ID · retry duplicates · sent may mean attempt&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-MBX-001..003&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=12;' vertex='1' parent='durable-band'>
+          <mxGeometry x='1120' y='45' width='300' height='115' as='geometry'/>
+        </mxCell>
+        <mxCell id='volatile-band' value='PROCESS-LOCAL / LOST ON CRASH' style='swimlane;html=1;horizontal=1;startSize=30;rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='740' width='1450' height='190' as='geometry'/>
+        </mxCell>
+        <mxCell id='plan' value='&lt;b&gt;Frozen invocation plan&lt;/b&gt;&lt;br&gt;built-in role + tools + model&lt;br&gt;listing is only a projection&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-003..004&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='volatile-band'>
+          <mxGeometry x='45' y='55' width='285' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='local-mailbox' value='&lt;b&gt;In-process mailbox&lt;/b&gt;&lt;br&gt;filtered FIFO queue + waiters&lt;br&gt;revision and change signal&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-005&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='volatile-band'>
+          <mxGeometry x='410' y='55' width='285' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='progress' value='&lt;b&gt;Live progress stream&lt;/b&gt;&lt;br&gt;tool-use/result correlation&lt;br&gt;not terminal evidence&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-OUT-001&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='volatile-band'>
+          <mxGeometry x='775' y='55' width='270' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='ops' value='&lt;b&gt;Observed source operations&lt;/b&gt;&lt;br&gt;command + output extraction&lt;br&gt;telemetry is nonauthoritative&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-007..008&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='volatile-band'>
+          <mxGeometry x='1125' y='55' width='280' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='resource-band' value='OWNED EXTERNAL RESOURCE' style='swimlane;html=1;horizontal=1;startSize=30;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='970' width='720' height='210' as='geometry'/>
+        </mxCell>
+        <mxCell id='tmux' value='&lt;b&gt;Process tmux server&lt;/b&gt;&lt;br&gt;socket agentx-{pid}&lt;br&gt;actual path + server PID&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-006&lt;/font&gt;' style='shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='resource-band'>
+          <mxGeometry x='55' y='60' width='245' height='110' as='geometry'/>
+        </mxCell>
+        <mxCell id='pane' value='&lt;b&gt;Pane and child shells&lt;/b&gt;&lt;br&gt;-L socket and TMUX override&lt;br&gt;user server is unreachable&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-PANE-001 · MA-ISO-001&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='resource-band'>
+          <mxGeometry x='400' y='60' width='265' height='110' as='geometry'/>
+        </mxCell>
+        <mxCell id='display-band' value='DISPLAY-ONLY DERIVATION' style='swimlane;html=1;horizontal=1;startSize=30;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='820' y='970' width='675' height='210' as='geometry'/>
+        </mxCell>
+        <mxCell id='display' value='&lt;b&gt;Terminal projection&lt;/b&gt;&lt;br&gt;color · source group · last 3 progress&lt;br&gt;collapsed search/read · badges&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;MA-SUP-009&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='display-band'>
+          <mxGeometry x='45' y='60' width='265' height='110' as='geometry'/>
+        </mxCell>
+        <mxCell id='no-backflow' value='&lt;b&gt;No semantic backflow&lt;/b&gt;&lt;br&gt;hidden or collapsed ≠ deleted&lt;br&gt;quiet UI ≠ completed worker' style='rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1;' vertex='1' parent='display-band'>
+          <mxGeometry x='390' y='55' width='230' height='120' as='geometry'/>
+        </mxCell>
+        <mxCell id='e1' value='initialize / explicit replace' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.500;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='snapshot' target='memory' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='76' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e2' value='live process only' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='local-mailbox' target='progress' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e3' value='best-effort append attempt · no…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=0;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='local-mailbox' target='team-mailbox' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='best-effort append attempt · no dedup/ack'>
+          <mxGeometry relative='1' as='geometry' x='0.723' y='0'>
+            <Array as='points'>
+              <mxPoint x='645' y='783'/>
+              <mxPoint x='1153' y='783'/>
+              <mxPoint x='1153' y='612.5'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e4' value='render' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=1;entryX=0.250;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='progress' target='display' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.632' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1000' y='1018'/>
+              <mxPoint x='931.25' y='1018'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e5' value='summarize' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.500;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='ops' target='display' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1158' y='842.5'/>
+              <mxPoint x='1158' y='1085'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e6' value='socket routing' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='tmux' target='pane' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.000' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e7' value='cannot mutate evidence' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='display' target='no-backflow' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.620' y='0'>
+            <mxPoint x='0' y='58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1198' y='1112.5'/>
+              <mxPoint x='1198' y='1085'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e8' value='cleanup only owner' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='pane' target='tmux' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <mxPoint x='0' y='58' as='offset'/>
+            <Array as='points'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='1614' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-distributed-runtime → implementation-multi-agent → worker-support / Worker support lifetimes' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='1558' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; startup + policy → state + registries → query + model → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · capability execution]&lt;/b&gt;&lt;/font&gt; → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · continuity + tasks]&lt;/b&gt;&lt;/font&gt; → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · surface + remote]&lt;/b&gt;&lt;/font&gt;' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='1558' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Multi-agent support: durable evidence, volatile coordination, owned resources, display derivation own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='1558' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Project snapshot / In-process mailbox / +1 more' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-multi-agent · Multi-agent support: durable evidence, volatile coordination, owned resources, display derivation' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='440.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; Scoped agent memory / Append-backed compatibility m… / +1 more' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='833' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-distributed-runtime/architecture.drawio owns domain placement · implementation-remote-bridge own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='1225.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; MA-SUP-001 · MA-SUP-002 · MA-TRN-001 · MA-TASK-001 · MA-MBX-001 · prose: worker-support.md + SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='903' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-distributed-runtime overview → implementation-multi-agent/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='963' y='225' width='643' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='1558' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='1558' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

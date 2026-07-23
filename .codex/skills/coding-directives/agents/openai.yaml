@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Coding Directives"
+  short_description: "Develop and review the AgentX Go runtime"
+  default_prompt: "Use $coding-directives to develop or review this AgentX runtime change."

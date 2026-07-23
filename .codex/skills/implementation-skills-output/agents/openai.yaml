@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Skills and Output Styles"
+  short_description: "Implement Implementation Skills and Output Styles contracts"
+  default_prompt: "Use $implementation-skills-output to implement this architectural domain."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Remote and Bridge Runtime"
+  short_description: "Implement Implementation Remote and Bridge Runtime contracts"
+  default_prompt: "Use $implementation-remote-bridge to implement this architectural domain."

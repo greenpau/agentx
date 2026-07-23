@@ -1,0 +1,188 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-21T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='native-installer' name='Native installer'>
+    <mxGraphModel dx='1700' dy='1000' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1654' pageHeight='1599' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='title' value='Native installer: verified acquisition, activation, locks, and retention' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=24;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='390' width='1100' height='45' as='geometry'/>
+        </mxCell>
+        <mxCell id='resolve' value='&lt;b&gt;Resolve selector&lt;/b&gt;&lt;br&gt;direct version or stable/latest&lt;br&gt;identity chooses registry/object store&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-020..023&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='535' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='policy' value='&lt;b&gt;Apply update policy&lt;/b&gt;&lt;br&gt;maximum · exact current validity · floor&lt;br&gt;force bypasses policy&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-050..051&lt;/font&gt;' style='rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='355' y='525' width='260' height='125' as='geometry'/>
+        </mxCell>
+        <mxCell id='flight' value='&lt;b&gt;Single flight + version lock&lt;/b&gt;&lt;br&gt;nonforce process-wide promise&lt;br&gt;PID or mtime lock · lockless gate&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-052..055, 060..066&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='680' y='535' width='275' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='download' value='&lt;b&gt;Acquire to unique staging&lt;/b&gt;&lt;br&gt;package integrity or manifest SHA-256&lt;br&gt;5 min total · 60 s stall · 3 attempts&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-030..036&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1020' y='535' width='275' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='install' value='&lt;b&gt;Atomic version replace&lt;/b&gt;&lt;br&gt;copy beside final · chmod · rename&lt;br&gt;old final survives pre-rename failure&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-040..043&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1020' y='745' width='275' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='activate' value='&lt;b&gt;Activate future process&lt;/b&gt;&lt;br&gt;Windows copy/rollback&lt;br&gt;POSIX temporary symlink/rename&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-044..046&lt;/font&gt;' style='rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='680' y='735' width='275' height='125' as='geometry'/>
+        </mxCell>
+        <mxCell id='config' value='&lt;b&gt;Record native protection&lt;/b&gt;&lt;br&gt;installMethod native · legacy updater off&lt;br&gt;return result · current image unchanged&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-003, NINST-054&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='355' y='745' width='260' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='cleanup' value='&lt;b&gt;Deferred cleanup&lt;/b&gt;&lt;br&gt;protect running/link/locked&lt;br&gt;retain 2 newest unprotected&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-080..084&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='745' width='250' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='lifetime' value='&lt;b&gt;Running-version lifetime lock&lt;/b&gt;&lt;br&gt;protect this executable until exit&lt;br&gt;failure is nonfatal&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-065&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='45' y='975' width='275' height='100' as='geometry'/>
+        </mxCell>
+        <mxCell id='retention' value='&lt;b&gt;Retention delete lock&lt;/b&gt;&lt;br&gt;parallel candidates · reacquire each&lt;br&gt;count deleted / contention / errors' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='390' y='975' width='275' height='100' as='geometry'/>
+        </mxCell>
+        <mxCell id='coexist' value='&lt;b&gt;Package-manager coexistence&lt;/b&gt;&lt;br&gt;detect owner before mutation&lt;br&gt;safe symlink/package cleanup heuristics&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-090..102&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='735' y='975' width='300' height='100' as='geometry'/>
+        </mxCell>
+        <mxCell id='fail' value='&lt;b&gt;Fail closed&lt;/b&gt;&lt;br&gt;no unverified fallback · no broad delete&lt;br&gt;known lock/activation approximations explicit&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;NINST-110..113&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='1105' y='975' width='300' height='100' as='geometry'/>
+        </mxCell>
+        <mxCell id='e1' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.333;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='resolve' target='policy' value='handoff · Apply update…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Apply update policy' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.242' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='307' y='570'/>
+              <mxPoint x='307' y='566.667'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e2' value='eligible' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='policy' target='flight' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.545' y='0'>
+            <mxPoint x='20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='627' y='608.333'/>
+              <mxPoint x='627' y='570'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e3' value='needs bytes' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='flight' target='download' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.101' y='0'>
+            <mxPoint x='0' y='-76' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='967' y='605'/>
+              <mxPoint x='967' y='587.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e4' value='verified' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.750;exitY=1;entryX=0.333;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='download' target='install' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.160' y='0'>
+            <Array as='points'>
+              <mxPoint x='1226.25' y='733'/>
+              <mxPoint x='1111.667' y='733'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e5' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='install' target='activate' value='handoff · Activate…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Activate future process' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.282' y='0'>
+            <Array as='points'>
+              <mxPoint x='1008' y='815'/>
+              <mxPoint x='1008' y='776.667'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e6' value='entry validates' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='activate' target='config' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.282' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='668' y='818.333'/>
+              <mxPoint x='668' y='780'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e7' value='async' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='config' target='cleanup' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.838' y='0'>
+            <Array as='points'>
+              <mxPoint x='307' y='815'/>
+              <mxPoint x='307' y='771.25'/>
+            </Array>
+            <mxPoint x='0' y='-58' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e8' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=0;entryX=0.500;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='lifetime' target='cleanup' value='handoff · Deferred cleanup' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.507' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='182.5' y='862'/>
+              <mxPoint x='170' y='862'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e9' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='cleanup' target='retention' value='handoff · Retention…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Retention delete lock' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.343' y='0'>
+            <Array as='points'>
+              <mxPoint x='332' y='823.75'/>
+              <mxPoint x='332' y='1025'/>
+            </Array>
+            <mxPoint x='-80' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e10' value='ownership routes' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=0;entryX=0.667;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='coexist' target='resolve' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.654' y='0'>
+            <Array as='points'>
+              <mxPoint x='885' y='963'/>
+              <mxPoint x='343' y='963'/>
+              <mxPoint x='343' y='652'/>
+              <mxPoint x='211.667' y='652'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e11' value='all failure paths' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;dashed=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.250;entryX=0.500;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='download' target='fail' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.445' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1307' y='561.25'/>
+              <mxPoint x='1307' y='963'/>
+              <mxPoint x='1255' y='963'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='1614' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-operations → implementation-platform-lifecycle → native-installer-state-machine / Native installer' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='1558' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;YOU ARE HERE · cross-cutting&lt;/b&gt;&lt;/font&gt; across startup + policy → state + registries → query + model → capability execution → continuity + tasks → surface + remote' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='1558' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Native installer: verified acquisition, activation, locks, and retention own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='1558' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Running-version lifetime lock / Package-manager coexistence' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-platform-lifecycle · Native installer: verified acquisition, activation, locks, and retention' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='440.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; Retention delete lock / Fail closed' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='833' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-operations/architecture.drawio owns domain placement · implementation-auth-network + implementation-observability own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='1225.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; NINST-020 · NINST-050 · NINST-052 · NINST-030 · NINST-040 · prose: native-installer-contract.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='903' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-operations overview → implementation-platform-lifecycle/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='963' y='225' width='643' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='1558' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='1558' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

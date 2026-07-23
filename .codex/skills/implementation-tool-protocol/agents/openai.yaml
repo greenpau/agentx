@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Tool Protocol"
+  short_description: "Implement Implementation Tool Protocol contracts"
+  default_prompt: "Use $implementation-tool-protocol to implement this architectural domain."

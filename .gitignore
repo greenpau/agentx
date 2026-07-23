@@ -1,0 +1,87 @@
+# Python bytecode and interpreter caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+
+# Python environments and packaging output
+.venv/
+venv/
+env/
+ENV/
+.eggs/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+build/
+dist/
+site/
+
+# Python test, coverage, and analysis caches
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.pytest_cache/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+
+# JavaScript and TypeScript dependencies
+node_modules/
+bower_components/
+jspm_packages/
+.npm/
+.pnpm-store/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# JavaScript and TypeScript build output and caches
+out/
+*.tsbuildinfo
+*.map
+.angular/
+.astro/
+.cache/
+.next/
+.nuxt/
+.output/
+.parcel-cache/
+.rollup.cache/
+.svelte-kit/
+.swc/
+.turbo/
+.vite/
+
+# JavaScript and TypeScript test output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Package-manager and runtime logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Repository-local working artifacts
+tmp/
+
+# Operating-system metadata
+.DS_Store

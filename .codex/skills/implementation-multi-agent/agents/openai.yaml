@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Multi-Agent Runtime"
+  short_description: "Implement Implementation Multi-Agent Runtime contracts"
+  default_prompt: "Use $implementation-multi-agent to implement this architectural domain."

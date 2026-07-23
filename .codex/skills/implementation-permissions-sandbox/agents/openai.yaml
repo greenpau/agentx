@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Permissions and Sandbox"
+  short_description: "Implement Implementation Permissions and Sandbox contracts"
+  default_prompt: "Use $implementation-permissions-sandbox to implement this architectural domain."

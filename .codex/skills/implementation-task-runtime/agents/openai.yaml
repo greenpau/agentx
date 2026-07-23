@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Task Runtime"
+  short_description: "Implement Implementation Task Runtime contracts"
+  default_prompt: "Use $implementation-task-runtime to implement this architectural domain."

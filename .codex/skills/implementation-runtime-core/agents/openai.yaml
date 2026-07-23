@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Runtime Core"
+  short_description: "Implement Implementation Runtime Core contracts"
+  default_prompt: "Use $implementation-runtime-core to implement this architectural domain."

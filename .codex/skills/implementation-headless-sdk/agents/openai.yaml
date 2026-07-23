@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Headless and SDK Surfaces"
+  short_description: "Implement Implementation Headless and SDK Surfaces contracts"
+  default_prompt: "Use $implementation-headless-sdk to implement this architectural domain."

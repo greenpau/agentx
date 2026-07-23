@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Extension Plane"
+  short_description: "Implement Implementation Extension Plane contracts"
+  default_prompt: "Use $implementation-extension-plane to implement this architectural domain."

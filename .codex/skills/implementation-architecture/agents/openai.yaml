@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Architecture"
+  short_description: "Develop the complete AgentX architecture"
+  default_prompt: "Use $implementation-architecture to trace or implement this AgentX architecture change."

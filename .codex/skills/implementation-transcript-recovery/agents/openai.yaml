@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Transcript and Recovery"
+  short_description: "Implement Implementation Transcript and Recovery contracts"
+  default_prompt: "Use $implementation-transcript-recovery to implement this architectural domain."

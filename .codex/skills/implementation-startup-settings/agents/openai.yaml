@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Startup and Settings"
+  short_description: "Implement Implementation Startup and Settings contracts"
+  default_prompt: "Use $implementation-startup-settings to implement this architectural domain."

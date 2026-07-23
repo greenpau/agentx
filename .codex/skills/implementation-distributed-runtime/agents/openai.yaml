@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Distributed Runtime"
+  short_description: "Implement Implementation Distributed Runtime contracts"
+  default_prompt: "Use $implementation-distributed-runtime to implement this architectural domain."

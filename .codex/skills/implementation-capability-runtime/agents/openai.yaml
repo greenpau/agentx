@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Capability Runtime"
+  short_description: "Implement Implementation Capability Runtime contracts"
+  default_prompt: "Use $implementation-capability-runtime to implement this architectural domain."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Optional Experiences"
+  short_description: "Implement Implementation Optional Experiences contracts"
+  default_prompt: "Use $implementation-optional-experiences to implement this architectural domain."

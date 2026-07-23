@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Memory and Compaction"
+  short_description: "Implement Implementation Memory and Compaction contracts"
+  default_prompt: "Use $implementation-memory-compaction to implement this architectural domain."

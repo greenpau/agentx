@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Query and Model Runtime"
+  short_description: "Implement Implementation Query and Model Runtime contracts"
+  default_prompt: "Use $implementation-query-model to implement this architectural domain."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Commands and Input"
+  short_description: "Implement Implementation Commands and Input contracts"
+  default_prompt: "Use $implementation-commands-input to implement this architectural domain."

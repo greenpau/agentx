@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Terminal Engine"
+  short_description: "Implement Implementation Terminal Engine contracts"
+  default_prompt: "Use $implementation-terminal-engine to implement this architectural domain."

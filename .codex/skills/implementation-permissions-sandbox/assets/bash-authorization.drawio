@@ -1,0 +1,397 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-21T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='bash-auth-flow' name='Bash authorization'>
+    <mxGraphModel dx='1600' dy='1100' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='1654' pageHeight='1534' math='0' shadow='0' customDiagramContextVersion='2.1'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='title' value='Bash authorization: proof, precedence, and sandbox handoff' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=24;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='385' width='1050' height='45' as='geometry'/>
+        </mxCell>
+        <mxCell id='legend' value='Blue = parse/normalize&#xa;Yellow = safety/path&#xa;Green = allow path&#xa;Red = deny or mandatory review' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;' vertex='1' parent='1'>
+          <mxGeometry x='1300' y='385' width='240' height='70' as='geometry'/>
+        </mxCell>
+        <mxCell id='input' value='&lt;b&gt;Validated Bash request&lt;/b&gt;&lt;br&gt;command + live permission context + abort signal&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-001..005&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='465' width='260' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='ast' value='&lt;b&gt;Primary Bash AST projection&lt;/b&gt;&lt;br&gt;lexical differential prechecks; bounded allowlisted nodes&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-010..016&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;' vertex='1' parent='1'>
+          <mxGeometry x='360' y='465' width='280' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='parsekind' value='Parse kind?' style='rhombus;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='710' y='467' width='150' height='80' as='geometry'/>
+        </mxCell>
+        <mxCell id='semantic' value='&lt;b&gt;Simple: semantic argv gate&lt;/b&gt;&lt;br&gt;strip safe wrappers; reject eval/source/resolution-changing builtins&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-017..018&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='920' y='465' width='285' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='early' value='&lt;b&gt;Too-complex / semantic failure&lt;/b&gt;&lt;br&gt;exact deny/ask/allow; broad deny; per-span deny on semantic failure&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-019&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='920' y='580' width='285' height='90' as='geometry'/>
+        </mxCell>
+        <mxCell id='earlyask' value='&lt;b&gt;ASK, no suggestions&lt;/b&gt;&lt;br&gt;unless an early exact or deny rule decided&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-F004&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='1270' y='585' width='250' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='legacy' value='&lt;b&gt;Parse unavailable: legacy word parse&lt;/b&gt;&lt;br&gt;malformed syntax asks; deterministic regex security battery&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-030..034&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='360' y='595' width='280' height='90' as='geometry'/>
+        </mxCell>
+        <mxCell id='normalized' value='&lt;b&gt;Trusted segmentation source&lt;/b&gt;&lt;br&gt;AST spans or security-gated legacy text&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-020..034&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='605' width='260' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='sandboxgate' value='Sandbox auto-allow eligible and selected?' style='rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='735' width='230' height='110' as='geometry'/>
+        </mxCell>
+        <mxCell id='sandboxrules' value='&lt;b&gt;Full + every-segment deny/ask&lt;/b&gt;&lt;br&gt;deny globally dominates ask&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-090&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='330' y='750' width='255' height='80' as='geometry'/>
+        </mxCell>
+        <mxCell id='sandboxallow' value='&lt;b&gt;ALLOW with sandbox reason&lt;/b&gt;&lt;br&gt;executor must still prove selected sandbox&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-090,095&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='630' y='750' width='260' height='80' as='geometry'/>
+        </mxCell>
+        <mxCell id='whole' value='&lt;b&gt;Whole-command prechecks&lt;/b&gt;&lt;br&gt;exact deny; parallel prompt deny/ask classifiers; cancellation&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-050..052&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='900' width='280' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='operators' value='&lt;b&gt;Operator recursion&lt;/b&gt;&lt;br&gt;authorize each pipeline/list side; then recheck original safety, redirects, paths&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-060..061&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='380' y='900' width='290' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='split' value='&lt;b&gt;Split + bounded state checks&lt;/b&gt;&lt;br&gt;remove exact cwd no-op; max 50 legacy spans; multiple cd; cd + git&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-062..065&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='900' width='300' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='segment' value='&lt;b&gt;For every executable span&lt;/b&gt;&lt;br&gt;exact/prefix deny + ask first&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-050 step 9&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='1050' width='240' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='path' value='&lt;b&gt;Path + redirect analyzer&lt;/b&gt;&lt;br&gt;command-specific binding; protected paths; dangerous removal review&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-070..075&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='335' y='1050' width='265' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='recognizers' value='&lt;b&gt;Narrow auto-allow recognizers&lt;/b&gt;&lt;br&gt;exact/prefix allow; sed; acceptEdits; read-only catalog&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-080..089&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='645' y='1050' width='290' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='decision-reducer' value='Reduce all spans: deny &gt; ask &gt; allow &gt; passthrough' style='rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;' vertex='1' parent='1'>
+          <mxGeometry x='990' y='1040' width='260' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='origpath' value='&lt;b&gt;Recheck original redirects/paths&lt;/b&gt;&lt;br&gt;merge independent asks; do not hide operations&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-050 steps 11–12&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='1195' width='280' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='finalallow' value='&lt;b&gt;Exact whole allow or all spans allow&lt;/b&gt;&lt;br&gt;only after injection/path proof&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-050 steps 13–14&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='385' y='1195' width='270' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='ask' value='&lt;b&gt;ASK / PASSTHROUGH&lt;/b&gt;&lt;br&gt;bounded exact/prefix suggestions + pending allow classifier&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-065&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='710' y='1195' width='280' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='deny' value='&lt;b&gt;DENY&lt;/b&gt;&lt;br&gt;no spawn; source-attributed reason&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-003&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='1050' y='1195' width='220' height='75' as='geometry'/>
+        </mxCell>
+        <mxCell id='handoff' value='&lt;b&gt;Authorized execution handoff&lt;/b&gt;&lt;br&gt;recompute sandbox selection; no unsandboxed fallback; retain cancellation/task lifecycle&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-092..104&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='385' y='1335' width='360' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='fault' value='&lt;b&gt;Fault invariant&lt;/b&gt;&lt;br&gt;parser/classifier/sandbox/spawn fault never widens authority&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;BASH-AUTH-F001..F008&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;' vertex='1' parent='1'>
+          <mxGeometry x='850' y='1335' width='330' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='e1' value='handoff · Primary Bash…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='input' target='ast' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Primary Bash AST projection' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.888' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='322' y='507.5'/>
+              <mxPoint x='322' y='493.333'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e2' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.200;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='ast' target='parsekind' value='handoff · Parse kind?' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='evaluates Parse kind?' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.253' y='0'>
+            <Array as='points'>
+              <mxPoint x='652' y='521.667'/>
+              <mxPoint x='652' y='483'/>
+            </Array>
+            <mxPoint x='0' y='-36' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e3' value='simple' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.400;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parsekind' target='semantic' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.565' y='0'>
+            <mxPoint x='20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='872' y='499'/>
+              <mxPoint x='872' y='486.25'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e4' value='too-complex' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.600;exitY=1;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parsekind' target='early' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.043' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='800' y='602.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e5' value='unavailable · Parse unavailable:…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.800;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='parsekind' target='legacy' customRouteVersion='2.2' customFullSemanticLabel='unavailable' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.281' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='698' y='531'/>
+              <mxPoint x='698' y='625'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e6' value='failure · Too-complex /…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.500;exitY=1;entryX=0.500;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='semantic' target='early' customRouteVersion='2.2' customFullSemanticLabel='failure' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.000' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e7' value='undecided' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='early' target='earlyask' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.920' y='0'>
+            <mxPoint x='0' y='36' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1217' y='647.5'/>
+              <mxPoint x='1217' y='622.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e8' value='pass' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.750;entryX=1;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='semantic' target='normalized' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.147' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='908' y='528.75'/>
+              <mxPoint x='908' y='692'/>
+              <mxPoint x='322' y='692'/>
+              <mxPoint x='322' y='642.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e9' value='parse + security pass' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=0.750;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='legacy' target='normalized' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.110' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='348' y='655'/>
+              <mxPoint x='348' y='593'/>
+              <mxPoint x='245' y='593'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e10' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.250;exitY=1;entryX=0.250;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='normalized' target='sandboxgate' value='handoff · Sandbox…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Sandbox auto-allow eligible a…' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.312' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='115' y='723'/>
+              <mxPoint x='107.5' y='723'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e11' value='yes · Full + every-segment…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sandboxgate' target='sandboxrules' customRouteVersion='2.2' customFullSemanticLabel='yes' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.240' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='292' y='790'/>
+              <mxPoint x='292' y='770'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e12' value='no explicit deny/ask · ALLOW with…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sandboxrules' target='sandboxallow' customRouteVersion='2.2' customFullSemanticLabel='no explicit deny/ask' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.877' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='597' y='790'/>
+              <mxPoint x='597' y='776.667'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e13' value='not eligible / unresolved' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.750;entryX=0;entryY=0.200;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sandboxgate' target='whole' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.000' y='0'>
+            <Array as='points'>
+              <mxPoint x='38' y='817.5'/>
+              <mxPoint x='38' y='917'/>
+            </Array>
+            <mxPoint x='40' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e14' value='rule says continue' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.750;entryX=1;entryY=0.400;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sandboxrules' target='whole' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.234' y='0'>
+            <Array as='points'>
+              <mxPoint x='318' y='810'/>
+              <mxPoint x='318' y='857'/>
+              <mxPoint x='342' y='857'/>
+              <mxPoint x='342' y='934'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e15' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.600;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='whole' target='operators' value='handoff · Operator…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Operator recursion' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.686' y='0'>
+            <mxPoint x='0' y='58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='368' y='951'/>
+              <mxPoint x='368' y='928.333'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e16' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='operators' target='split' value='handoff · Split +…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Split + bounded state checks' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.321' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='682' y='956.667'/>
+              <mxPoint x='682' y='928.333'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e17' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=1;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='split' target='segment' value='handoff · For every…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · For every executable span' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.365' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='708' y='956.667'/>
+              <mxPoint x='708' y='997'/>
+              <mxPoint x='302' y='997'/>
+              <mxPoint x='302' y='1075'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e18' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='segment' target='path' value='handoff · Path +…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Path + redirect analyzer' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.443' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='302' y='1100'/>
+              <mxPoint x='302' y='1075'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e19' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='path' target='recognizers' value='handoff · Narrow…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Narrow auto-allow recognizers' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.340' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='612' y='1100'/>
+              <mxPoint x='612' y='1075'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e20' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='recognizers' target='decision-reducer' value='handoff · Reduce all…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Reduce all spans: deny &gt; ask…' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.340' y='0'>
+            <mxPoint x='0' y='-58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='947' y='1100'/>
+              <mxPoint x='947' y='1063.75'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e21' value='no deny · Recheck original…' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.500;entryX=1;entryY=0.250;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='decision-reducer' target='origpath' customRouteVersion='2.2' customFullSemanticLabel='no deny' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.833' y='0'>
+            <mxPoint x='-20' y='0' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='978' y='1087.5'/>
+              <mxPoint x='978' y='1137'/>
+              <mxPoint x='342' y='1137'/>
+              <mxPoint x='342' y='1213.75'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e22' value='deny' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.750;exitY=1;entryX=0.333;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='decision-reducer' target='deny' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.092' y='0'>
+            <mxPoint x='0' y='-18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1185' y='1183'/>
+              <mxPoint x='1123.333' y='1183'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e23' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.500;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='origpath' target='finalallow' value='handoff · Exact whole…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Exact whole allow or all span…' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='-0.893' y='0'>
+            <mxPoint x='0' y='76' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='342' y='1232.5'/>
+              <mxPoint x='342' y='1220'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e24' value='unresolved / mandatory ask' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.750;entryX=0;entryY=0.333;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='origpath' target='ask' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.066' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='342' y='1251.25'/>
+              <mxPoint x='342' y='1282'/>
+              <mxPoint x='698' y='1282'/>
+              <mxPoint x='698' y='1220'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e25' value='allow' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#82b366;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.667;entryX=0;entryY=0.200;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='finalallow' target='handoff' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.872' y='0'>
+            <Array as='points'>
+              <mxPoint x='373' y='1245'/>
+              <mxPoint x='373' y='1352'/>
+            </Array>
+            <mxPoint x='0' y='100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e26' value='approved by common permission flow' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#82b366;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0.667;exitY=1;entryX=1;entryY=0.400;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='ask' target='handoff' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.569' y='0'>
+            <Array as='points'>
+              <mxPoint x='896.667' y='1282'/>
+              <mxPoint x='757' y='1282'/>
+              <mxPoint x='757' y='1369'/>
+            </Array>
+            <mxPoint x='0' y='18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e27' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#82b366;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.667;entryX=0.600;entryY=1;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sandboxallow' target='handoff' value='handoff · Authorized…' customSemanticLabelVersion='2.3' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='handoff · Authorized execution handoff' customSemanticLabelOrigin='topology-derived'>
+          <mxGeometry relative='1' as='geometry' x='0.430' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='1282' y='803.333'/>
+              <mxPoint x='1282' y='1432'/>
+              <mxPoint x='601' y='1432'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e28' value='state changed / spawn fault' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=1;exitY=0.800;entryX=0;entryY=0.500;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='handoff' target='fault' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.945' y='0'>
+            <mxPoint x='0' y='58' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='757' y='1403'/>
+              <mxPoint x='757' y='1377.5'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='e29' value='explicit deny' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=8;exitX=0;exitY=0.800;entryX=0;entryY=0.667;exitDx=0;exitDy=0;entryDx=0;entryDy=0;fontSize=9;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='whole' target='deny' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.062' y='0'>
+            <mxPoint x='0' y='18' as='offset'/>
+            <Array as='points'>
+              <mxPoint x='38' y='968'/>
+              <mxPoint x='38' y='1147'/>
+              <mxPoint x='1038' y='1147'/>
+              <mxPoint x='1038' y='1245'/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='1614' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-capability-runtime → implementation-permissions-sandbox → bash-authorization / Bash authorization' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='1558' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; startup + policy → state + registries → query + model → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · capability execution]&lt;/b&gt;&lt;/font&gt; → continuity + tasks → surface + remote' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='1558' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Bash authorization: proof, precedence, and sandbox handoff own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='1558' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; Validated Bash request' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-permissions-sandbox · Bash authorization: proof, precedence, and sandbox handoff' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='440.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; ASK, no suggestions / DENY / +1 more' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='833' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-capability-runtime/architecture.drawio owns domain placement · implementation-tool-protocol + implementation-tool-catalog own adjacent protocols' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='1225.5' y='153' width='380.5' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; BASH-AUTH-001 · BASH-AUTH-010 · BASH-AUTH-017 · BASH-AUTH-019 · BASH-AUTH-F004 · prose: bash-authorization.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='903' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-capability-runtime overview → implementation-permissions-sandbox/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='963' y='225' width='643' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='1558' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='1558' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

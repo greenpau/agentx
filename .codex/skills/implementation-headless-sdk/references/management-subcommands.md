@@ -1,0 +1,104 @@
+# Noninteractive management subcommands
+
+This reference specifies the command adapters that inspect or mutate local product configuration without starting an ordinary model turn. Their domain services remain owned by authentication, MCP, plugin, settings, permission, and platform contracts; this document owns argument-to-service routing, output channels, partial-mutation boundaries, and process status.
+
+## Contents
+
+1. [Shared exit contract](#shared-exit-contract)
+2. [Agent inventory](#agent-inventory)
+3. [Authentication commands](#authentication-commands)
+4. [Automatic-mode rules](#automatic-mode-rules)
+5. [MCP commands](#mcp-commands)
+6. [Plugin and marketplace commands](#plugin-and-marketplace-commands)
+7. [Setup, doctor, and installer](#setup-doctor-and-installer)
+8. [Acceptance scenarios](#acceptance-scenarios)
+
+## Shared exit contract
+
+**CLIM-001 — Human management channel.** Management commands use human stdout and stderr, never SDK NDJSON. A successful terminal helper writes its optional message plus one newline to stdout and selects status 0. An error helper writes its optional message to stderr and selects status 1. A handler that needs cleanup uses graceful shutdown instead of immediate termination; in particular, an MCP health probe must close connection subprocesses before exit.
+
+**CLIM-002 — No semantic session.** Validation, listing, configuration mutation, authentication, diagnostics, and installation commands load only their required services and do not create a query engine, append a conversation message, or interpret their operands as prompts.
+
+**CLIM-003 — Mutation accounting.** Validate every argument and collect every required secret before the first durable mutation. If a downstream domain operation has already committed, report its exact partial outcome; never roll it back by deleting unrelated configuration or claim the whole command was atomic.
+
+## Agent inventory
+
+**CLIM-010 — Source-grouped agent listing.** Resolve every authored and built-in agent candidate in the current directory, determine the active winner for each type under normal source precedence, and retain shadowed candidates for display. Iterate the fixed source groups in their declared order and sort each group by case-insensitive display name with a stable tie rule. A row contains type, then optional resolved model, then optional `<scope> memory`, separated by a centered-dot delimiter. Prefix shadowed rows with the winning source label. The heading counts active winners, not all candidates; no candidates prints `No agents found.`.
+
+The listing is evidence only. It does not initialize required MCP servers, invoke an agent, or change the winning registry.
+
+## Authentication commands
+
+**CLIM-020 — Token installation transaction.** Installing acquired OAuth tokens first clears prior authentication without clearing onboarding, then stores account profile data from the profile endpoint or falls back to token-exchange account data. Save tokens, clear token caches, report storage warnings through privacy-filtered telemetry, and fetch roles best-effort. A first-party subscription token fetches first-token metadata best-effort; a Console token must create and store an API key, and absence of the returned key is fatal. Clear authentication-derived caches last.
+
+**CLIM-021 — Login selection and cleanup.** Reject simultaneous Console and subscription flags before opening a browser. Managed `forceLoginMethod` overrides command preference; managed organization identity is passed to the flow and validated after token installation. When a refresh token is supplied by environment, require a nonempty space-separated scope environment value, exchange it without a browser, install tokens, validate the forced organization, mark onboarding complete, and exit. Otherwise run the browser service with optional login hint and SSO method, print both the opening notice and fallback URL, and always clean up the OAuth listener in a finalizer. SSL-aware failures use stderr and status 1.
+
+**CLIM-022 — Authentication status.** Compute logged-in state from, in priority-independent union, an auth token, configured API-key source, direct API-key environment value outside the managed home surface, or third-party provider. Classify display method in this order: third party, subscription token, API-key helper, other OAuth token, API-key environment/source, managed login key, none. Text mode prints nonempty account/provider properties and an actionable not-logged-in message. Machine-readable mode emits one formatted JSON object with `loggedIn`, `authMethod`, and provider, conditionally key source, and subscription account fields only for subscription auth. Exit 0 only when logged in.
+
+**CLIM-023 — Logout.** Clear credentials and derived caches without resetting onboarding. On any failure print a fixed failure and exit 1; otherwise print confirmation and exit 0.
+
+## Automatic-mode rules
+
+**CLIM-030 — Rules projection.** `defaults` writes the complete external default rule object as formatted JSON. `config` resolves each of `allow`, `soft_deny`, and `environment` independently: a nonempty user list replaces that section, while absent or empty uses the default. Do not concatenate user and default entries within one section.
+
+**CLIM-031 — Rule critique side query.** If every custom rule list is empty, print guidance and return without a model request. Otherwise resolve the optional model or main-loop model, construct a side query containing the complete classifier prompt plus, for each nonempty section, both the replacing custom rules and displaced defaults. Use the dedicated critique system instruction, omit the ordinary system-prefix, cap output at 4,096 tokens, and print the first text block. Transport failure sets exit status 1 without throwing past the handler; a response without text prints a retry suggestion.
+
+## MCP commands
+
+**CLIM-040 — MCP host launch.** Validate the current directory before setup. An inaccessible directory fails before setup; otherwise run noninteractive setup and start the standalone MCP host with the declared debug and verbose values. Startup failure is status 1. The host owns its long-lived exit after successful start.
+
+**CLIM-041 — Scope-safe MCP removal.** Capture the effective pre-removal server so HTTP/SSE OAuth tokens and client registration can be cleared after configuration removal. With an explicit scope, validate and remove only that scope. Without one, inspect local, project `.mcp.json`, and user scopes. Remove automatically only when exactly one contains the name; none is an error, and multiple prints every scope/path plus exact scoped commands and makes no mutation. Secure-storage cleanup follows successful removal only.
+
+**CLIM-042 — MCP inspection and bounded health.** Listing resolves all configs, probes connection health concurrently under the MCP connection batch limit, and renders connected, needs-auth, failed, or exception status. Display HTTP, SSE, proxy, and stdio endpoints according to transport; omit internal IDE-only transport. `get` additionally prints winning scope, transport fields, configured headers/environment, and only whether OAuth secret material exists—not the secret value. Both paths use graceful shutdown after probes so child transports are not orphaned.
+
+**CLIM-043 — MCP JSON add secret ordering.** Parse the supplied JSON and validate scope. If the caller requests a client secret and the object is an HTTP/SSE OAuth configuration with client ID and URL, acquire the secret before writing configuration so cancelled input leaves no partial config. Add config, then store the secret under the server/transport identity, and report the effective transport (`stdio` when absent). Any validation or persistence failure exits 1.
+
+**CLIM-044 — MCP desktop import and approval reset.** Desktop import validates scope, loads platform-specific desktop configuration, exits successfully when none exists, or mounts the selection dialog and remains alive until it unmounts. Reset clears the enabled list, disabled list, and approve-all flag together in project config, leaving server declarations intact so the next startup asks again.
+
+## Plugin and marketplace commands
+
+**CLIM-050 — Plugin validation statuses.** Validate the supplied plugin or marketplace manifest. For a plugin manifest immediately inside its metadata directory, also validate plugin content definitions. Print every error and warning with path. Exit 0 for success with or without warnings, 1 for validation failure, and 2 for an unexpected validator failure. Cowork selection is latched before validation when requested.
+
+**CLIM-051 — Complete plugin inventory.** Load installed records and the active editable-scope set, then load enabled, disabled, session-inline plugins, and load errors once. JSON output includes one record per installation, optional MCP server declarations and load errors; session-inline records use scope `session` and no fabricated install timestamps. A path-level inline failure becomes a disabled error record even when no plugin object was created. `available` adds only marketplace plugins not already installed; marketplace discovery failure is deliberately a best-effort empty addition. Human output presents installed and session-only sections and never hides inline path failures behind the no-installed early exit.
+
+**CLIM-052 — Marketplace declaration lifecycle.** Add accepts parsed repository, Git, URL, directory, or file sources; sparse paths are legal only for Git/GitHub. Validate scope as user, project, or local, materialize/resolve the source, then persist declaration intent at that scope and clear caches. List is deterministic by name and exposes source-specific location plus install path in JSON. Remove and refresh clear caches after success. Refresh without a name exits successfully when none exist; otherwise refreshes all declared marketplaces.
+
+**CLIM-053 — Plugin mutation scopes.** Install/uninstall accept user, project, or local scope, default user, and optional retained data on uninstall. Enable/disable may infer scope; Cowork forces or requires user scope. Disable-all conflicts with a plugin operand and with explicit scope; omitting both plugin and `--all` is an error. Update accepts only the update-scope set and defaults user. Telemetry routes plugin and marketplace identities only through the privileged PII-tagged fields and never general metadata.
+
+## Setup, doctor, and installer
+
+**CLIM-060 — Setup-token dialog.** Render the long-lived subscription-token flow under application/keybinding providers. If another environment/helper credential exists, show a warning but continue. Resolve only when the flow reports done, then unmount and exit 0.
+
+**CLIM-061 — Doctor lifetime.** Render doctor under application, keybinding, plugin-management, and MCP-connection owners. Remain alive until doctor reports done, then unmount and exit 0 so diagnostics do not leave clients or terminal handlers registered.
+
+**CLIM-062 — Installer status adapter.** Run ordinary setup first, then invoke the install command with optional target and force flag. The callback text is the compatibility status boundary: select status 1 when it contains the failure marker and 0 otherwise. Do not start a model turn.
+
+## Acceptance scenarios
+
+### `CLIM-A01` — Ambiguous MCP scope
+
+Place one server name in local and user scope, remove without a scope, and verify both paths and exact scoped examples are printed, no config/token is removed, and status is 1.
+
+### `CLIM-A02` — Refresh-token login is all-or-fail
+
+Supply a refresh token without scopes and verify no browser, credential clearing, or token write occurs. Repeat with scopes and a forced-organization mismatch; verify installed credentials are not misreported as successful and status is 1.
+
+### `CLIM-A03` — Inline plugin failure remains visible
+
+Point a session plugin directory at an absent path with no installed plugins. Verify both human and JSON inventory surface the path-level error and do not print the ordinary empty-inventory message.
+
+### `CLIM-A04` — Content validation exit distinction
+
+Validate a syntactically valid plugin manifest whose bundled command is invalid and verify exit 1; make the validator itself throw and verify exit 2.
+
+### `CLIM-A05` — Auto-rule replacement
+
+Configure only a custom allow list. Verify effective JSON uses custom allow and default deny/environment, and critique explicitly shows both the replacing allow rules and displaced defaults.
+
+### `CLIM-A06` — Health probe cleanup
+
+List a stdio MCP server that starts a child, then complete the listing. Verify bounded concurrency, status output, and child/connection cleanup before status 0.
+
+## Non-normative provenance
+
+Evidence came from noninteractive command adapters for agents, authentication, automatic mode, MCP, plugins, marketplaces, setup-token, doctor, installation, and the centralized exit helper. Paths and private symbols are not implementation requirements.

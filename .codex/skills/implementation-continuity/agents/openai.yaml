@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Continuity"
+  short_description: "Implement Implementation Continuity contracts"
+  default_prompt: "Use $implementation-continuity to implement this architectural domain."

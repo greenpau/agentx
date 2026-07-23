@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Conformance Audit"
+  short_description: "Implement Implementation Conformance Audit contracts"
+  default_prompt: "Use $implementation-conformance-audit to implement this architectural domain."

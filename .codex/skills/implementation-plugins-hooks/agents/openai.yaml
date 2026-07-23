@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Plugins and Hooks"
+  short_description: "Implement Implementation Plugins and Hooks contracts"
+  default_prompt: "Use $implementation-plugins-hooks to implement this architectural domain."

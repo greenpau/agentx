@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-07-21T00:00:00.000Z" agent="Codex" version="24.7.17" type="device" diagramTemplateVersion="2.0-context-flow">
+  <diagram id="0e83a28908b6-context" name="01 — Context &amp; Boundaries">
+  <mxGraphModel dx="1800" dy="1120" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1120" math="0" shadow="0">
+    <root>
+      <mxCell id="0"/>
+      <mxCell id="1" parent="0"/>
+      <mxCell id="ctx-title" value="&lt;b&gt;Context &amp;amp; boundaries — State lifetimes and prompt assembly&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=26;" vertex="1" parent="1"><mxGeometry x="55" y="28" width="1365" height="42" as="geometry"/></mxCell>
+      <mxCell id="ctx-template-version" value="architecture overview · template 2.0-context-flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;fontSize=10;" vertex="1" parent="1"><mxGeometry x="1435" y="29" width="310" height="40" as="geometry"/></mxCell>
+      <mxCell id="ctx-breadcrumb" value="&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-runtime-core → implementation-state-context" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;" vertex="1" parent="1"><mxGeometry x="60" y="78" width="1680" height="28" as="geometry"/></mxCell>
+      <mxCell id="ctx-route-edge-0" value="routes documentation" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#80868b;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-route-0" target="ctx-route-1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-route-edge-1" value="routes documentation" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#80868b;strokeWidth=2;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-route-1" target="ctx-route-2">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+
+      <mxCell id="ctx-route-0" value="&lt;b&gt;implementation-architecture&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;documentation route&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;fontColor=#202124;strokeWidth=1;fontSize=14;" vertex="1" parent="1">
+  <mxGeometry x="110" y="135" width="440" height="66" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-route-1" value="&lt;b&gt;implementation-runtime-core&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;documentation route&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;fontColor=#202124;strokeWidth=1;fontSize=14;" vertex="1" parent="1">
+  <mxGeometry x="680" y="135" width="440" height="66" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-route-2" value="&lt;b&gt;implementation-state-context&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;YOU ARE HERE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a73e8;strokeColor=#174ea6;fontColor=#ffffff;strokeWidth=3;fontSize=14;" vertex="1" parent="1">
+  <mxGeometry x="1250" y="135" width="440" height="66" as="geometry"/>
+</mxCell>
+
+      <mxCell id="ctx-lifecycle" value="&lt;b&gt;Canonical product lifecycle — broader context, not a replacement for the detailed flow&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;" vertex="1" parent="1"><mxGeometry x="70" y="232" width="1500" height="28" as="geometry"/></mxCell>
+      <mxCell id="ctx-life-edge-0" value="establishes · session" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#5f6368;strokeWidth=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-life-0" target="ctx-life-1">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-edge-1" value="composes · request" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#5f6368;strokeWidth=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-life-1" target="ctx-life-2">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-edge-2" value="requests · capability" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#5f6368;strokeWidth=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-life-2" target="ctx-life-3">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-edge-3" value="records · outcome" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#5f6368;strokeWidth=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-life-3" target="ctx-life-4">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-edge-4" value="projects · event" style="edgeStyle=none;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=block;endFill=1;strokeColor=#5f6368;strokeWidth=1;fontSize=9;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="ctx-life-4" target="ctx-life-5">
+  <mxGeometry relative="1" as="geometry"/>
+</mxCell>
+
+      <mxCell id="ctx-life-0" value="&lt;b&gt;Entrypoint · identity · policy&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;YOU ARE HERE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=3;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="70" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-1" value="&lt;b&gt;Session state · registries · context&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;YOU ARE HERE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=3;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="361" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-2" value="&lt;b&gt;Query engine · model stream&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;YOU ARE HERE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=3;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="652" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-3" value="&lt;b&gt;Capability decision · execution&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;context 4&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#bdc1c6;strokeWidth=1;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="943" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-4" value="&lt;b&gt;Transcript · tasks · continuity&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;context 5&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#bdc1c6;strokeWidth=1;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="1234" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+<mxCell id="ctx-life-5" value="&lt;b&gt;Surface · remote projection&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;context 6&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#bdc1c6;strokeWidth=1;fontSize=12;" vertex="1" parent="1">
+  <mxGeometry x="1525" y="275" width="200" height="78" as="geometry"/>
+</mxCell>
+
+      <mxCell id="ctx-crosscut" value="&lt;b&gt;Cross-cutting operations and evidence&lt;/b&gt; · authentication · networking · platform ownership · cleanup · observability · implementation audit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;strokeWidth=1;dashed=1;fontSize=12;" vertex="1" parent="1"><mxGeometry x="70" y="370" width="1655" height="46" as="geometry"/></mxCell>
+      <mxCell id="ctx-owner-boundary" value="CURRENT OWNERSHIP BOUNDARY" style="swimlane;html=1;horizontal=1;startSize=34;rounded=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="60" y="450" width="1120" height="430" as="geometry"/></mxCell>
+      <mxCell id="ctx-question" value="&lt;b&gt;Question&lt;/b&gt;&lt;br&gt;Where does implementation-state-context sit, what does it own, and how does it hand off its result?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8ab4f8;fontSize=13;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="505" width="1060" height="70" as="geometry"/></mxCell>
+      <mxCell id="ctx-starts" value="&lt;b&gt;Starts with&lt;/b&gt;&lt;br&gt;Process bootstrap&lt;br&gt;Durable transcript" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="605" width="300" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-owns" value="&lt;b&gt;Owns&lt;/b&gt;&lt;br&gt;State lifetimes and prompt assembly&lt;br&gt;&lt;br&gt;Owns state lifetimes and prompt assembly: accepts Process bootstrap / Durable transcript, governs the responsibilities and branches shown on the flow page, and produces Effective prompt." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="430" y="605" width="380" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-ends" value="&lt;b&gt;Ends with&lt;/b&gt;&lt;br&gt;Effective prompt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="850" y="605" width="300" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-defers" value="&lt;b&gt;Defers to / collaborates with&lt;/b&gt;&lt;br&gt;implementation-runtime-core&lt;br&gt;implementation-startup-settings&lt;br&gt;implementation-query-model&lt;br&gt;&lt;br&gt;&lt;b&gt;Boundary&lt;/b&gt;&lt;br&gt;Defers tool semantics, presentation, remote placement, and operating-system mechanisms to their authoritative domains." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#9aa0a6;dashed=1;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1210" y="450" width="515" height="305" as="geometry"/></mxCell>
+      <mxCell id="ctx-contracts" value="&lt;b&gt;Contracts&lt;/b&gt;&lt;br&gt;SC-INSTR-001 · SC-INSTR-002 · SC-INSTR-003 · SC-INSTR-004 · SC-INSTR-005&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Read SKILL.md and references for the complete numbered contract set.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e0;strokeColor=#f9ab00;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="790" width="520" height="70" as="geometry"/></mxCell>
+      <mxCell id="ctx-authority" value="&lt;b&gt;Authority&lt;/b&gt;&lt;br&gt;This page is authoritative for product position and the highlighted ownership boundary. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility behavior." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="640" y="790" width="510" height="70" as="geometry"/></mxCell>
+      <mxCell id="ctx-legend" value="&lt;b&gt;How to read this page&lt;/b&gt; · blue border = current owner · gray = external/deferred context · green = downstream outcome · arrows in the breadcrumb are documentation routes · arrows in the lifecycle strip are product-semantic progression" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#bdc1c6;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="60" y="930" width="1665" height="70" as="geometry"/></mxCell>
+    </root>
+  </mxGraphModel>
+</diagram>
+
+  <diagram id="0e83a28908b6-flow" name="02 — Responsibility Flow">
+  <mxGraphModel dx="2200" dy="1420" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1420" math="0" shadow="0">
+    <root>
+      <mxCell id="0"/>
+      <mxCell id="1" parent="0"/>
+      <mxCell id="flow-title" value="&lt;b&gt;Responsibility flow — State lifetimes and prompt assembly&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=26;" vertex="1" parent="1"><mxGeometry x="55" y="26" width="1750" height="42" as="geometry"/></mxCell>
+      <mxCell id="flow-breadcrumb" value="&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-runtime-core → implementation-state-context&lt;br&gt;&lt;b&gt;Lifecycle focus:&lt;/b&gt; Entrypoint · identity · policy + Session state · registries · context + Query engine · model stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#bdc1c6;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="55" y="78" width="2080" height="64" as="geometry"/></mxCell>
+      <mxCell id="flow-owned-boundary" value="CURRENT SKILL — RESPONSIBILITY TOPOLOGY (INTERFACES + OWNED WORK)" style="swimlane;html=1;horizontal=1;startSize=34;rounded=1;fillColor=#ffffff;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="45" y="175" width="1510" height="1170" as="geometry"/></mxCell>
+      <mxCell id="flow-reading-direction" value="Read top → bottom by dependency depth. CONSUMED and PRODUCED mark the skill boundary; INTERFACE marks an external actor; IN SCOPE does not transfer that actor's authority." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;fontSize=10;" vertex="1" parent="1"><mxGeometry x="245" y="220" width="1120" height="48" as="geometry"/></mxCell>
+      <mxCell id="flow-edge-0" value="handoff · Session application&lt;br&gt;state" semanticLabel="handoff · Session application state" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.333;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-0" target="flow-node-1">
+  <mxGeometry x="-0.48" y="0" width="186.2" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-1" value="handoff · Turn snapshot" semanticLabel="handoff · Turn snapshot" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.333;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-1" target="flow-node-2">
+  <mxGeometry x="0.48" y="0" width="151.4" height="24.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-2" value="handoff · Session application&lt;br&gt;state" semanticLabel="handoff · Session application state" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.667;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-3" target="flow-node-1">
+  <mxGeometry x="-0.48" y="0" width="186.2" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="0" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-3" value="handoff · Ordered context&lt;br&gt;sections" semanticLabel="handoff · Ordered context sections" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=0;exitY=0.667;entryX=0.000;entryY=0.333;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-1" target="flow-node-4">
+  <mxGeometry x="0.00" y="0" width="163.0" height="32.0" relative="1" as="geometry">
+  <mxPoint x="0.0" y="12" as="offset"/>
+  <Array as="points">
+    <mxPoint x="618.0" y="532.4"/>
+            <mxPoint x="618.0" y="847.2"/>
+  </Array>
+</mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-4" value="handoff · Ordered context&lt;br&gt;sections" semanticLabel="handoff · Ordered context sections" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.667;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-2" target="flow-node-4">
+  <mxGeometry x="-0.48" y="0" width="163.0" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="0" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-5" value="handoff · Cacheable / volatile&lt;br&gt;boundary" semanticLabel="handoff · Cacheable / volatile boundary" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-4" target="flow-node-5">
+  <mxGeometry x="0.00" y="0" width="192.0" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-6" value="handoff · Effective prompt" semanticLabel="handoff · Effective prompt" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-5" target="flow-node-6">
+  <mxGeometry x="0.00" y="0" width="168.8" height="24.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+
+      <mxCell id="flow-node-0" value="&lt;b&gt;Process bootstrap&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;CONSUMED · ENTRY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="458.0" y="310.0" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-1" value="&lt;b&gt;Session application state&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · FAN-OUT&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef7e0;strokeColor=#f9ab00;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="640.0" y="480.4" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-2" value="&lt;b&gt;Turn snapshot&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="640.0" y="650.8" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-3" value="&lt;b&gt;Durable transcript&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;CONSUMED · ENTRY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="822.0" y="310.0" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-4" value="&lt;b&gt;Ordered context sections&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · MERGE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#188038;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="640.0" y="821.2" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-5" value="&lt;b&gt;Cacheable / volatile boundary&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="640.0" y="991.6" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+<mxCell id="flow-node-6" value="&lt;b&gt;Effective prompt&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;PRODUCED · OUTCOME&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+  <mxGeometry x="640.0" y="1162.0" width="330.0" height="78.0" as="geometry"/>
+</mxCell>
+
+      <mxCell id="flow-question" value="&lt;b&gt;Question&lt;/b&gt;&lt;br&gt;How do responsibilities connect from Process bootstrap / Durable transcript to Effective prompt?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="175" width="535" height="105" as="geometry"/></mxCell>
+      <mxCell id="flow-authority" value="&lt;b&gt;Authority&lt;/b&gt;&lt;br&gt;Authoritative for topology, responsibility direction, branch/merge shape, and visible feedback rails. Numbered prose owns exact values, timing, errors, and compatibility." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="305" width="535" height="125" as="geometry"/></mxCell>
+      <mxCell id="flow-contracts" value="&lt;b&gt;Contracts&lt;/b&gt;&lt;br&gt;SC-INSTR-001 · SC-INSTR-002 · SC-INSTR-003 · SC-INSTR-004 · SC-INSTR-005&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Complete definitions and scenarios are in SKILL.md and references.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e0;strokeColor=#f9ab00;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="455" width="535" height="105" as="geometry"/></mxCell>
+      <mxCell id="flow-defers" value="&lt;b&gt;Deferred / collaborating owners&lt;/b&gt;&lt;br&gt;implementation-runtime-core&lt;br&gt;implementation-startup-settings&lt;br&gt;implementation-query-model&lt;br&gt;&lt;br&gt;Defers tool semantics, presentation, remote placement, and operating-system mechanisms to their authoritative domains." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#9aa0a6;dashed=1;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="585" width="535" height="235" as="geometry"/></mxCell>
+      <mxCell id="flow-legend" value="&lt;b&gt;Line grammar&lt;/b&gt;&lt;br&gt;SOLID BLUE — primary responsibility transfer&lt;br&gt;DASHED AMBER — fan-out, merge, skip, or crossing detour&lt;br&gt;DASHED PURPLE — feedback, retry, continuation, or recovery&lt;br&gt;&lt;br&gt;Every edge is labeled. &amp;quot;handoff&amp;quot; asserts topology only; numbered prose owns the transferred event, state, or authority. Distinct ports prevent false merges; dedicated corridors keep alternate and feedback paths outside the forward bundle." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5f6368;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="845" width="535" height="205" as="geometry"/></mxCell>
+      <mxCell id="flow-compatibility" value="&lt;b&gt;Failure / compatibility lens&lt;/b&gt;&lt;br&gt;Follow dashed perimeter relations before implementing retries, cancellation, recovery, or feedback. If the exact failure path is deferred, load the named collaborator and prose contracts rather than inferring it from this overview." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8fd;strokeColor=#a142f4;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="1075" width="535" height="125" as="geometry"/></mxCell>
+    </root>
+  </mxGraphModel>
+</diagram>
+
+</mxfile>

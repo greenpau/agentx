@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation User Surfaces"
+  short_description: "Implement Implementation User Surfaces contracts"
+  default_prompt: "Use $implementation-user-surfaces to implement this architectural domain."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation Observability"
+  short_description: "Implement Implementation Observability contracts"
+  default_prompt: "Use $implementation-observability to implement this architectural domain."
