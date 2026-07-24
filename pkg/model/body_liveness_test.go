@@ -21,17 +21,17 @@ type blockingResponseBody struct {
 }
 
 func (body *blockingResponseBody) Read([]byte) (int, error) {
-	body.reads.Add(1)
 	body.activeReads.Add(1)
 	defer body.activeReads.Add(-1)
+	body.reads.Add(1)
 	<-body.releaseRead
 	return 0, io.EOF
 }
 
 func (body *blockingResponseBody) Close() error {
-	body.closes.Add(1)
 	body.activeCloses.Add(1)
 	defer body.activeCloses.Add(-1)
+	body.closes.Add(1)
 	<-body.releaseClose
 	return nil
 }
@@ -50,17 +50,17 @@ func (body *prefixThenBlockingBody) Read(buffer []byte) (int, error) {
 	if body.reader.Len() > 0 {
 		return body.reader.Read(buffer)
 	}
-	body.reads.Add(1)
 	body.activeReads.Add(1)
 	defer body.activeReads.Add(-1)
+	body.reads.Add(1)
 	<-body.releaseRead
 	return 0, io.EOF
 }
 
 func (body *prefixThenBlockingBody) Close() error {
-	body.closes.Add(1)
 	body.activeCloses.Add(1)
 	defer body.activeCloses.Add(-1)
+	body.closes.Add(1)
 	<-body.releaseClose
 	return nil
 }
