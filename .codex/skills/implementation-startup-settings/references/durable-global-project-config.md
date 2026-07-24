@@ -31,7 +31,25 @@ This document specifies the sparse per-user configuration file that also contain
 
 ## File and project identity
 
-`GCFG-PATH-001` — Resolve the configuration home as the explicitly configured configuration directory, otherwise `<user-home>/.agentx`, and normalize that directory string to Unicode NFC. Freeze path-selection inputs before the first configuration access.
+`GCFG-PATH-001` — Resolve the application/configuration home as an explicitly
+configured directory, otherwise `<user-home>/.agentx`, and normalize that
+directory string to Unicode NFC. Use the user's home directly rather than the
+operating system's generic configuration directory. Freeze the selected
+source, resolved identity, and every path-selection input before later
+bootstrap work.
+
+`GCFG-PATH-001G` — The standalone Go profile selects the first nonblank value
+from public `AGENTX_HOME`, deprecated `AGENTX_STATE_DIR`, and
+`<user-home>/.agentx`, in that order. Trim only for the blank/unset decision; a
+selected environment value must be an absolute non-root path, and an invalid
+higher-precedence value fails rather than falling through. It applies the
+platform's lexical `filepath.Clean` operation and resolves pre-existing
+external ancestors before freezing the physical directory identity in
+`GCFG-PATH-006`. This profile does not currently normalize the selected string
+to Unicode NFC: canonically equivalent environment spellings may therefore
+remain distinct on a normalization-sensitive filesystem. Treat that as a
+bounded standalone divergence from `GCFG-PATH-001`, not as permission for
+other implementations to omit NFC normalization.
 
 `GCFG-PATH-002` — Select the global file once per process:
 
@@ -40,12 +58,41 @@ This document specifies the sparse per-user configuration file that also contain
 3. use no suffix for production, `-staging-oauth` for the internal staging identity, `-local-oauth` for the internal local identity, and `-custom-oauth` whenever a custom OAuth URL is selected.
 
 With no override, the ordinary file is therefore `<user-home>/.agentx.json`, while backups live under `<user-home>/.agentx/backups/`.
+That compatibility file is distinct from the standalone Go profile's required
+`<configuration-home>/auth.json` and
+`<configuration-home>/sessions/` children.
 
 `GCFG-PATH-003` — Derive the current project key once per process from the original launch directory, not later directory changes. If it is inside a repository, use the canonical main-repository identity so linked worktrees share project state. Validate worktree back-links before adopting a common repository identity; fall back to the worktree root on malformed or suspicious metadata. Outside a repository, use the absolute original launch directory.
 
 `GCFG-PATH-004` — Normalize project keys lexically by resolving `.` and `..` and converting platform path separators to `/`. The canonical repository helper normalizes its returned identity to NFC. Do not invent case folding.
 
 `GCFG-PATH-005` — A later working-directory change does not change the primary project key. Trust lookup additionally examines the live working directory and its lexical ancestors as described by `GCFG-TRUST-002`.
+
+`GCFG-PATH-006` — Before parsing command-line tokens, every standalone Go
+process invocation acquires or creates the frozen application home and its
+literal `sessions` child as direct application-owned directories. Reject a
+symlink, non-directory, filesystem root, or identity change. Pin child
+inspection and creation to an opened parent root so an in-flight path
+replacement cannot receive AgentX's child mutation. On supported POSIX
+platforms, set owner-only mode, require effective-user ownership, and recheck
+both on later identity verification. Windows retains the direct-directory and
+stable-identity checks but cannot claim owner-only DACL protection from
+portable `FileMode`; `AUTH-044` therefore rejects model-backed credential use
+there until a native ACL adapter exists. This bootstrap occurs for ordinary,
+invalid, help-only, version-only, and standalone-MCP invocations. After
+bootstrap and before the full command-line parser, every invocation performs
+the required `auth.json` existence gate in `AUTH-045`; malformed input
+therefore reports missing authentication setup first and reaches its usage
+failure only when a direct regular `auth.json` is present. Bootstrap does not
+by itself create
+`auth.json`, a workspace-hash child, a session ID, a provider client, or an
+extension generation. Interactive, headless, and standalone-MCP tool
+executors verify the frozen home and `sessions` identities before and after
+ordinary permission evaluation, before execution. A detected sustained
+displacement invalidates a pending approval and latches a process-lifetime
+denial. Restoring the original inode does not clear that latch. These checks do
+not claim atomic control over a filesystem rename that occurs after
+authorization returns to execution.
 
 ## Wire format and compatibility
 
@@ -508,6 +555,31 @@ Initialize `autoUpdates` to its stored value or `true`. This in-memory migration
 `GCFG-A11` — Create the file at a permissive mode, then save. The replacement preserves that mode. Delete it and save anew: the new file requests owner-read/write only. Verify backups may contain credential fallback and receive equivalent protection review.
 
 `GCFG-A12` — Write a valid external replacement immediately after a local write with an mtime not greater than the synthetic cache time. The running process may miss it; restart must load it. The test establishes eventual, mtime-dependent coherence rather than linearizability.
+
+`GCFG-A13G` — Start with a nonexistent isolated home and invoke an invalid
+argument form. The application home and `sessions/` child exist before
+`AUTH-A11` reports the missing credential, while no credential or session child
+is created. Add a direct regular, presence-only `auth.json` and repeat the
+invalid form; the parser now returns its usage error without parsing the
+credential document. Repeat with help, version, standalone-MCP, and model-backed
+forms but no `auth.json`: each observes the same frozen home, fails through
+`AUTH-A11`, and leaves both directories at owner-only mode on supported POSIX
+platforms.
+Replace either directory or relax its POSIX mode after acquisition and verify
+later use fails; replace a parent during child creation and verify the
+replacement receives no child. Blank `AGENTX_HOME` selects a valid
+`AGENTX_STATE_DIR`; two valid nonblank values select `AGENTX_HOME`; and
+two blank values select `<user-home>/.agentx`. A relative, root, symlinked, or
+identity-swapped selected override is rejected without falling through to the
+lower-precedence override or default. A decomposed-Unicode absolute override
+retains that exact spelling after platform lexical cleaning, proving the
+documented absence of standalone NFC normalization.
+Start the standalone MCP host in bypass mode with its selected home inside the
+workspace, rename the home, and request reads of the displaced credential and
+an ordinary-basename session child. Both calls receive identity-change denials
+before ordinary path evaluation and return no file bytes. Restore the original
+home inode and repeat the session read; the process-lifetime denial remains
+latched until restart.
 
 ## Non-normative provenance
 

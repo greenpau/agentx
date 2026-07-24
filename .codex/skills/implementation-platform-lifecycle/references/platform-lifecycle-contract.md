@@ -24,7 +24,19 @@
 
 **PLAT-004 — Portable failure.** Platform-specific failures remain within the integration unless the requested semantic operation cannot proceed safely. Diagnostic reporting itself is best effort.
 
-**PLAT-005 — Immutable build identity.** Resolve one process-wide build identity before ordinary surface and runtime initialization. A source-controlled release version is always available when linker metadata is absent; non-empty linker values may override the release version, Git branch and commit, build user, and build date. The resolved semantic version is immutable for the process and is shared by session metadata, structured/SDK initialization, MCP server identity, interactive startup, and diagnostics. Version-only output may add the resolved Git and build facts to its banner, but downstream semantic version fields contain only the version. Version-only execution does not require credentials, provider setup, workspace configuration, or session construction.
+**PLAT-005 — Immutable build identity.** Resolve one process-wide build identity
+before ordinary surface and runtime initialization. A source-controlled release
+version is always available when linker metadata is absent; non-empty linker
+values may override the release version, Git branch and commit, build user, and
+build date. The resolved semantic version is immutable for the process and is
+shared by session metadata, structured/SDK initialization, MCP server identity,
+interactive startup, and diagnostics. Version-only output may add the resolved
+Git and build facts to its banner, but downstream semantic version fields
+contain only the version. In the standalone Go profile, version-only execution
+still performs the common `GCFG-PATH-006` private-directory bootstrap and
+requires `auth.json` to exist under `AUTH-045`; it does not parse credential
+contents or require provider setup, workspace configuration, or session
+construction.
 
 ## Filesystem and path operations
 
@@ -32,7 +44,7 @@
 
 **PLAT-011 — Path forms.** Normalize separators and Unicode where required while preserving the caller's original path for display. Authorization-sensitive callers receive every relevant representation: lexical absolute path, deepest existing physical ancestor, and fully resolved physical path when it exists.
 
-**PLAT-012 — Atomic create.** When a new file requires a mode, create it exclusively with that mode in one operation. Do not create broadly and narrow permissions later. Sensitive directories use owner-only access; sensitive files use owner read/write.
+**PLAT-012 — Atomic create.** When a new file requires a mode, create it exclusively with that mode in one operation. Do not create broadly and narrow permissions later. Sensitive directories use owner-only access; sensitive files use owner read/write. In the standalone Go application-home adapter, pin child inspection, creation, opening, and chmod to an identity-verified opened parent root. Recheck the textual parent after the descriptor-relative operation so a rename fails the acquisition without mutating a replacement path. Supported POSIX adapters prove effective-user ownership on the opened descriptor before chmod, then require that ownership and zero group/world mode bits on every later verification; a privileged process must not chmod another user's pre-existing directory before rejecting it. Windows retains directory type, no-follow, and stable-identity evidence but does not claim owner-only DACL enforcement from synthesized `FileMode`.
 
 **PLAT-013 — Atomic replace.** Write replacement content to a same-filesystem temporary file, flush as required, set the intended mode, and rename. A failed write leaves the former target intact. Preserve unknown parseable fields when the owning data contract requires it.
 
@@ -158,9 +170,13 @@ SIGTERM arrives while transcript and task-output writers have queued data. One s
 
 The TTY becomes unreadable without SIGHUP. The orphan check notices it, begins shutdown, ignores EIO while resetting terminal state, drains the correct overridden input stream, and force-exits if normal exit cannot flush.
 
-### `PLAT-A03` — Symlink race
+### `PLAT-A03` — Symlink and parent-replacement race
 
 A target path changes from a regular file to a symlink between validation and exclusive create. The operation fails without following it and without writing a broader target. The permission layer receives enough path evidence to report the denial.
+Repeat while an acquired application-owned parent is renamed and replaced
+after its child was observed missing. Descriptor-relative creation may affect
+only the originally acquired parent; the replacement receives no child or
+chmod, and final textual-parent verification reports the identity change.
 
 ### `PLAT-A04` — Output backpressure
 
@@ -176,7 +192,17 @@ One registered cleanup callback never resolves, and another returns an error who
 
 ### `PLAT-A07` — Build metadata stamping
 
-Build the entrypoint once without linker values and once with distinct release, branch, commit, build-user, and build-date values. The first binary reports the source-controlled version without loading broken runtime configuration. The second binary's version banner reports the injected facts. Configure an isolated application process with a distinct semantic version and rich banner; verify repeat configuration cannot replace it, version-only output uses the banner, and semantic projections read the version without copying the banner. Missing optional linker values retain their declared source fallback or remain absent; they never erase the release version.
+Build the entrypoint once without linker values and once with distinct release,
+branch, commit, build-user, and build-date values. Give each isolated
+application home a present but malformed `auth.json`: the first binary reports
+the source-controlled version without parsing credential contents, and the
+second binary's version banner reports the injected facts. Remove `auth.json`
+and verify both binaries stop with `AUTH-A11` before printing a banner.
+Configure an isolated application process with a distinct semantic version and
+rich banner; verify repeat configuration cannot replace it, version-only output
+uses the banner, and semantic projections read the version without copying the
+banner. Missing optional linker values retain their declared source fallback or
+remain absent; they never erase the release version.
 
 ## Provenance
 

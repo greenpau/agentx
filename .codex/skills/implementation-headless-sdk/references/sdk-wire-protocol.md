@@ -86,6 +86,13 @@ Each permission denial records tool name, tool-use ID and effective tool input.
 - **WIRE-013 — Whole-record credential validation.** Before the first structured write, install the immutable session/provider credential validator for that encoder. Marshal one complete record, apply every physical transformation including separator escaping and the terminating newline in memory, then validate those exact final bytes against the bounded union before the first write. Inspect every duplicate member occurrence; individually safe fields or a safe JSON suffix plus the line terminator may not reconstruct a literal. A validation failure writes no partial record, permanently fails that encoder with a credential-free diagnostic, and does not fall back to an unvalidated writer. The validator is immutable after encoding begins; a profile with no credential material retains ordinary byte-identical JSON.
 - **WIRE-014 — Unambiguous members.** Reject duplicate JSON member names before map or struct decoding can apply last-member-wins behavior. Compare decoded member names so escape-equivalent spellings collide, and apply the rule recursively to control requests, control responses, operation payloads, and pending nested control records in both inbound and raw outbound projections. Canonical and documented alias names remain distinct members; their separate precedence rule still applies.
 - **WIRE-015 — Callback containment.** Invoke the configurable whole-record validator and output writer outside the encoder state mutex while preserving serialized complete-record writes. A callback may reenter encoder state inspection/configuration and receive its normal post-start rejection without deadlock. Never format or traverse a callback-owned error. A validator rejection or panic and a writer failure, short write, or panic latch one fixed output failure; no later record invokes either callback. Preserve only exact trusted standard-library leaf identities needed by host exit policy through a sealed classification projection, without retaining the raw callback wrapper. Give the validator an exact copy so it cannot mutate committed bytes. Likewise, a control-broker emitter or ordered post-cancellation callback error/panic becomes one fixed emission failure. Roll back an unresolved waiter, preserve a synchronously selected result, and settle every detached cancellation waiter even when callbacks fail.
+- **WIRE-016 — API-key source discriminator.** The `apiKeySource` vocabulary is
+  the closed pair `user | temporary`: file-backed provenance emits `user`,
+  transient process/flag provenance emits `temporary`, and absent legacy
+  provenance retains `user` for compatibility. The standalone
+  application-home `auth.json` profile always emits `user` in both the
+  `system/init` record and the `initialize` response's `account` object. Never
+  emit the credential path, field name, or value as source metadata.
 
 ## System and lifecycle events
 
@@ -263,6 +270,9 @@ Finite background work may hold the ordinary result after the acknowledgement. L
 18. Reenter encoder configuration from the validator and writer, panic or return an error with panicking `Error`, `Is`, and `Unwrap` methods, and mutate validator-owned bytes. Verify no deadlock or raw error call, byte-exact output on success, one fixed latched failure on error, and no post-failure callback.
 19. Panic from an initial control emitter before and after synchronous resolution, from cancellation emission, and from the ordered post-cancellation callback. Verify unresolved IDs roll back, an already selected response wins, every detached waiter reaches `ErrAborted`, the broker remains reusable, and no pending ID is stranded.
 20. Repeat member names at the outer envelope, nested request/response, operation payload, and pending-control levels, including an escape-equivalent spelling and raw outbound payloads. Verify every duplicate is rejected with the fixed ambiguity diagnostic while the documented canonical/alias pair remains valid.
+21. Initialize a standalone application-home `auth.json` session; verify both
+    SDK initialization forms emit `apiKeySource=user`, never the prior project
+    dotenv classification or a credential path.
 
 ## Non-normative provenance
 

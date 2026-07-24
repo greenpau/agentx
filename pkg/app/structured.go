@@ -804,7 +804,7 @@ func handleControl(envelope surface.InputEnvelope, encoder *surface.Encoder, bro
 				payload = map[string]any{"mcpServers": sdkMCPServers(session)}
 			}
 		case "set_model":
-			operationErr = fmt.Errorf("model is fixed to %q by .env.production", session.config.Azure.ModelName)
+			operationErr = fmt.Errorf("model is fixed to %q by auth.json", session.config.Azure.ModelName)
 		case "set_permission_mode":
 			operationErr = errors.New("live permission-mode mutation is unavailable; start a new session with --permission-mode")
 		case "set_max_thinking_tokens":
@@ -863,7 +863,7 @@ func sdkInitializeResponse(session *runtimeSession) (map[string]any, error) {
 		"available_output_styles": sdkAvailableOutputStyles(session),
 		"models": []map[string]any{{
 			"value": modelName, "displayName": modelName,
-			"description":    "Deployment-backed Azure OpenAI Responses model configured by .env.production",
+			"description":    "Deployment-backed Azure OpenAI Responses model configured by AgentX-home auth.json",
 			"supportsEffort": true,
 		}},
 		"account": map[string]any{"apiKeySource": sdkAPIKeySource(session.config), "apiProvider": "foundry"},
@@ -875,11 +875,11 @@ func sdkAPIKeySource(runtime config.Runtime) string {
 	source := runtime.Provenance["AZURE_OPENAI_SUBSCRIPTION_KEY"]
 	switch source {
 	case config.SourceFile:
-		return "project"
+		return "user"
 	case config.SourceProcess, config.SourceFlag:
 		return "temporary"
 	default:
-		return "project"
+		return "user"
 	}
 }
 

@@ -6,8 +6,8 @@ import "os"
 
 // Unknown platforms have no adapter proving that os.FileMode represents
 // authoritative owner-only access. Fail closed until one is implemented.
-const envFilePOSIXPermissionsEnforced = false
+const credentialFileAccessControlVerified = false
 
-func envFileModePermitsCredentialUse(os.FileMode) bool { return false }
+func credentialFileModePermitsUse(os.FileMode) bool { return false }
 
-func envFileOwnerPermitsCredentialUse(os.FileInfo) bool { return false }
+func credentialFileOwnerPermitsUse(os.FileInfo) bool { return false }

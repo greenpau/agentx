@@ -53,6 +53,13 @@ type mcpRequestHandler func(context.Context, mcpRPCRequest) (any, int, string)
 // manager, and normalized result contracts used by conversational turns.
 func runMCPServer(ctx context.Context, opts cli.Options, workspace string, stdin io.Reader, stdout, stderr io.Writer) (returnErr error) {
 	_ = stderr // stdout is protocol-only; future diagnostics are routed here.
+	_, home, err := applicationHomeForContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := home.requireAuthFile(); err != nil {
+		return err
+	}
 	root, err := os.MkdirTemp("", "agentx-mcp-host-")
 	if err != nil {
 		return err
@@ -73,7 +80,7 @@ func runMCPServer(ctx context.Context, opts cli.Options, workspace string, stdin
 		return err
 	}
 	sandboxRunner := sandbox.Detect(ctx, workspace, os.Environ())
-	protectedPaths := []string{resolveEnvFilePath(workspace, opts.EnvFile)}
+	protectedPaths := home.protectedPaths(nil)
 	registry, err := tool.NewCoreRegistry(tool.CoreOptions{Workspace: workspace, Tasks: tasks, Environment: os.Environ(), Results: results, Sandbox: sandboxRunner, ProtectedPaths: protectedPaths})
 	if err != nil {
 		return err
@@ -97,7 +104,9 @@ func runMCPServer(ctx context.Context, opts cli.Options, workspace string, stdin
 	if err != nil {
 		return err
 	}
-	executor, err := tool.NewExecutor(tool.ExecutorOptions{Registry: registry, Authorizer: evaluator, ResultStore: results})
+	executor, err := tool.NewExecutor(tool.ExecutorOptions{
+		Registry: registry, Authorizer: applicationHomeAuthorizer{home: home, base: evaluator}, ResultStore: results,
+	})
 	if err != nil {
 		return err
 	}

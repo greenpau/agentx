@@ -14,7 +14,7 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 ## Request workflow
 
 1. Select exactly one API provider from startup configuration and validate its mandatory environment and account inputs.
-2. Determine the credential source without executing untrusted helpers; after workspace trust, resolve or refresh the selected credential through its provider adapter.
+2. Determine the credential source without executing untrusted helpers; after workspace trust, resolve or refresh the selected credential through its provider adapter. In the standalone Go Azure OpenAI profile, use only the versioned application-home `auth.json` contract in `AUTH-045`; workspace trust and bare mode do not select a different model credential source.
 3. Construct a fresh client when credentials or connection health require it. Attach only headers supported by the selected provider and destination.
 4. Build the request from normalized messages, prompt sections, tools, model, limits, and provider-compatible beta fields.
 5. Consume the response stream into explicit message and usage events while watchdogs, cancellation, and incomplete-stream detection remain active.
@@ -25,6 +25,16 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 ## Invariants
 
 - Bare mode is hermetic: no OAuth, user keychain, or ordinary settings credentials.
+- The standalone Go Azure OpenAI profile requires application-home `auth.json`
+  to exist on every invocation, before full command-line parsing, and strictly
+  parses it only for model-backed startup. It never falls back to a workspace
+  dotenv file, `--env-file`, or
+  process-environment model credentials. Both the presence gate and strict
+  read remain descriptor-relative to the frozen application-home identity;
+  pathname replacement cannot redirect them. Model-backed use is limited to
+  platforms where the credential adapter can prove owner-only file access;
+  the current Windows adapter fails closed before reading because native DACL
+  verification is unavailable.
 - Managed remote or desktop OAuth contexts never fall back to a user's local settings key or helper.
 - Authentication refresh is deduplicated within a process and locked across processes; another process's fresh token wins a race.
 - Explicit user cancellation is never retried or silently converted to transport failure.
@@ -40,4 +50,3 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 - `retry-after` overrides exponential delay; ordinary backoff starts at 500 ms, adds up to 25% jitter, and caps at 32 seconds.
 - A stream with no `message_start`, or with no completed content and no stop reason, uses the documented fallback instead of reporting false success.
 - A 500 MiB-plus upload is rejected after reading and before network transmission, and a download path attempting traversal is rejected before directory creation.
-

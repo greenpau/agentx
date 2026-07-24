@@ -11,6 +11,7 @@ import (
 	"github.com/greenpau/agentx/pkg/cli"
 	"github.com/greenpau/agentx/pkg/extensions"
 	"github.com/greenpau/agentx/pkg/mcp"
+	"github.com/greenpau/agentx/pkg/platform"
 )
 
 func TestBareModeExcludesOrdinaryUserFilesystemExtensions(t *testing.T) {
@@ -60,8 +61,20 @@ func TestBareModeExcludesOrdinaryUserFilesystemExtensions(t *testing.T) {
 
 func TestBareModeDoesNotMaterializePersistentMemory(t *testing.T) {
 	projectRoot := t.TempDir()
-	layout := sessionLayout{sessionDir: filepath.Join(projectRoot, "sessions", "ses_test")}
-	memoryRoot := filepath.Join(projectRoot, "memory")
+	root, err := platform.AcquirePrivateDirectory(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryParent, err := root.EnsurePrivateChild("projects", "project-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memoryRoot := filepath.Join(memoryParent.Path(), "memory")
+	layout := sessionLayout{
+		sessionDir:   filepath.Join(projectRoot, "sessions", "ses_test"),
+		memoryParent: memoryParent,
+		memoryDir:    memoryRoot,
+	}
 
 	store, err := openRuntimeMemory(layout, true)
 	if err != nil {
@@ -142,7 +155,7 @@ func TestBuildFailureRemovesOwnedTemporarySession(t *testing.T) {
 }
 
 func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
-	t.Run("configured state root", func(t *testing.T) {
+	t.Run("configured application home", func(t *testing.T) {
 		parent := t.TempDir()
 		target := filepath.Join(parent, "target")
 		if err := os.Mkdir(target, 0o755); err != nil {
@@ -156,9 +169,9 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("AGENTX_STATE_DIR", link)
-		if _, err := stateRoot(t.TempDir()); err == nil {
-			t.Fatal("direct state-root symlink was accepted")
+		t.Setenv("AGENTX_HOME", link)
+		if _, err := prepareApplicationHome(); err == nil {
+			t.Fatal("direct application-home symlink was accepted")
 		}
 		after, err := os.Stat(target)
 		if err != nil {
@@ -178,8 +191,8 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 		if err := os.Symlink(target, filepath.Join(state, "projects")); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		t.Setenv("AGENTX_STATE_DIR", state)
-		if _, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_project_link", NoSessionPersistence: true}); err == nil {
+		t.Setenv("AGENTX_HOME", state)
+		if _, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_project_link"}); err == nil {
 			t.Fatal("symlinked projects component was accepted")
 		}
 		if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
@@ -199,7 +212,7 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 		if err := os.Symlink(target, filepath.Join(sessions, sessionID)); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		t.Setenv("AGENTX_STATE_DIR", state)
+		t.Setenv("AGENTX_HOME", state)
 		if _, _, err := resolveSessionLayout(t.Context(), workspace, cli.Options{Resume: sessionID, NoSessionPersistence: true}); err == nil {
 			t.Fatal("direct resumed-session symlink was accepted")
 		}
@@ -212,7 +225,7 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 func TestTemporarySessionCleanupRejectsPostConstructionReplacement(t *testing.T) {
 	temporaryRoot := t.TempDir()
 	t.Setenv("TMPDIR", temporaryRoot)
-	t.Setenv("AGENTX_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("AGENTX_HOME", filepath.Join(t.TempDir(), "state"))
 	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_temp_identity", NoSessionPersistence: true})
 	if err != nil {
 		t.Fatal(err)
@@ -240,6 +253,85 @@ func TestTemporarySessionCleanupRejectsPostConstructionReplacement(t *testing.T)
 	}
 	if content, err := os.ReadFile(sentinel); err != nil || string(content) != "keep" {
 		t.Fatalf("replacement temporary session was modified: content=%q err=%v", content, err)
+	}
+}
+
+func TestNonpersistentSessionDoesNotMaterializeWorkspaceState(t *testing.T) {
+	applicationRoot := filepath.Join(t.TempDir(), "agentx-home")
+	t.Setenv("AGENTX_HOME", applicationRoot)
+	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{
+		SessionID: "ses_nonpersistent_no_home_child", NoSessionPersistence: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := layout.lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	layout.lock = nil
+	if err := layout.removeTemporary(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(applicationRoot, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("nonpersistent session materialized workspace state: %#v", entries)
+	}
+	if _, err := os.Lstat(filepath.Join(applicationRoot, "projects")); !os.IsNotExist(err) {
+		t.Fatalf("nonpersistent session materialized project memory state: %v", err)
+	}
+}
+
+func TestBarePersistentSessionDoesNotMaterializeProjectMemory(t *testing.T) {
+	applicationRoot := filepath.Join(t.TempDir(), "agentx-home")
+	t.Setenv("AGENTX_HOME", applicationRoot)
+	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{
+		SessionID: "ses_bare_no_memory", Bare: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := layout.lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	layout.lock = nil
+	if !layout.memoryDisabled || layout.memoryParent != nil || layout.memoryDir != "" {
+		t.Fatalf("bare session retained project memory ownership: %#v", layout)
+	}
+	if _, err := os.Lstat(filepath.Join(applicationRoot, "projects")); !os.IsNotExist(err) {
+		t.Fatalf("bare session materialized project memory state: %v", err)
+	}
+}
+
+func TestSessionLayoutReusesFrozenApplicationHome(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	t.Setenv("AGENTX_HOME", first)
+	ctx, err := PrepareApplicationHome(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTX_HOME", second)
+
+	layout, _, err := resolveSessionLayout(ctx, t.TempDir(), cli.Options{
+		SessionID: "ses_frozen_home", Bare: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := layout.lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	layout.lock = nil
+	wantRoot := physicalTestPath(t, first)
+	if !strings.HasPrefix(layout.sessionDir, wantRoot+string(filepath.Separator)) {
+		t.Fatalf("session directory %q escaped frozen home %q", layout.sessionDir, wantRoot)
+	}
+	if _, err := os.Lstat(second); !os.IsNotExist(err) {
+		t.Fatalf("later application-home value was materialized: %v", err)
 	}
 }
 

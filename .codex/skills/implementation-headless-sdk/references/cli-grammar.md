@@ -35,7 +35,16 @@ agentx [root-options] [prompt]
 
 `CLIG-010` — Before constructing the ordinary parser, apply the following ordered recognizers:
 
-1. Sole `--version`, `-v`, or compatibility `-V`: print the resolved build-identity banner beginning with `agentx <version>` and append only available Git and build facts, with no ordinary imports. The full root parser advertises only `-v, --version`; `-V` is accepted only in this sole-argument fast path.
+The standalone Go profile first performs the `GCFG-PATH-006` application-home
+bootstrap and then the `AUTH-045` existence gate before constructing the full
+parser. Thus malformed and recognized forms both stop for a missing file;
+informational handlers do not parse the credential document after the gate.
+
+1. Sole `--version`, `-v`, or compatibility `-V`: after the shared bootstrap
+   and existence gate, print the resolved build-identity banner beginning with
+   `agentx <version>` and append only available Git and build facts, with no
+   ordinary imports. The full root parser advertises only `-v, --version`;
+   `-V` is accepted only in this sole-argument fast path.
 2. Feature-gated `--dump-system-prompt` in argument position zero; an optional `--model <model>` is found in the remaining tokens.
 3. Position-zero standalone hosts `--agentx-in-chrome-mcp`, `--chrome-native-host`, and gated `--computer-use-mcp`.
 4. Gated `--daemon-worker <kind>` in position zero.
@@ -104,7 +113,7 @@ Each recognized fast path owns all remaining tokens and does not fall through to
 | `-r, --resume [value]` | optional session identifier/search; boolean true when omitted |
 | `--fork-session` | flag |
 | `--from-pr [value]` | optional PR number/URL/search; boolean true when omitted |
-| `--no-session-persistence` | flag selecting false persistence |
+| `--no-session-persistence` | flag selecting a temporary, nonresumable, memory-free session |
 | `--resume-session-at <message id>` | hidden required string |
 | `--rewind-files <user-message-id>` | hidden required string |
 | `--session-id <uuid>` | required UUID text, validated semantically |

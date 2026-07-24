@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -63,10 +64,31 @@ type buildOptions struct {
 	Stderr    io.Writer
 }
 
+// modelHTTPClientContextKey is an internal dependency-injection seam for
+// invocation-scoped transports. Production entrypoints leave it unset and use
+// the model package's hardened default client. Package integration tests use it
+// to trust only their ephemeral TLS server certificate without weakening
+// endpoint validation or mutating http.DefaultTransport process-wide.
+type modelHTTPClientContextKey struct{}
+
+func modelHTTPClientFromContext(ctx context.Context) *http.Client {
+	if ctx == nil {
+		return nil
+	}
+	client, _ := ctx.Value(modelHTTPClientContextKey{}).(*http.Client)
+	return client
+}
+
 func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession, resultErr error) {
-	envPath := resolveEnvFilePath(options.Workspace, options.CLI.EnvFile)
-	runtimeConfig, err := config.Load(envPath, os.Environ(), config.Overrides{Model: options.CLI.Model, ReasoningEffort: options.CLI.Effort})
+	ctx, home, err := applicationHomeForContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+	runtimeConfig, err := home.loadRuntimeConfig(os.Environ(), config.Overrides{Model: options.CLI.Model, ReasoningEffort: options.CLI.Effort})
+	if err != nil {
+		if runtimeConfig.Azure.APIKey != "" {
+			err = redactOperationalError(err, runtimeConfig.Azure.Redact)
+		}
 		return nil, err
 	}
 	sanitize := runtimeConfig.Azure.Redact
@@ -126,6 +148,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		}
 	}
 	provider, err := model.NewAzureClient(runtimeConfig.Azure, model.AzureOptions{
+		HTTPClient:          modelHTTPClientFromContext(ctx),
 		CredentialSanitizer: credentialSet,
 		OnRetry: func(info model.RetryInfo) {
 			if options.Stderr != nil {
@@ -231,7 +254,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		}
 		return nil, errors.Join(err, runtimeExt.mcp.Close())
 	}
-	protectedPaths := append([]string{envPath}, runtimeExt.protectedPaths...)
+	protectedPaths := home.protectedPaths(runtimeExt.protectedPaths)
 	closeExtensionFailure := func(cause error) error {
 		return errors.Join(cause, runtimeExt.mcp.Close(), closeBuildFailure(tasks, store, nil))
 	}
@@ -288,7 +311,9 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		toolHooks = append(toolHooks, hookAdapter)
 	}
 	executor, err := tool.NewExecutor(tool.ExecutorOptions{
-		Registry: registry, Authorizer: scopedAuthorizer{base: evaluator, scope: skillScope},
+		Registry: registry, Authorizer: scopedAuthorizer{
+			base: applicationHomeAuthorizer{home: home, base: evaluator}, scope: skillScope,
+		},
 		Hooks: toolHooks, ResultStore: resultStore,
 		CredentialSanitizer: credentialSet,
 	})
@@ -392,22 +417,6 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	}
 	retainLayout = true
 	return result, nil
-}
-
-func resolveEnvFilePath(workspace, configured string) string {
-	if configured == "" {
-		configured = config.DefaultEnvFile
-	}
-	if configured == config.DefaultEnvFile {
-		if found := findUp(workspace, config.DefaultEnvFile); found != "" {
-			return filepath.Clean(found)
-		}
-		return filepath.Clean(filepath.Join(workspace, config.DefaultEnvFile))
-	}
-	if !filepath.IsAbs(configured) {
-		configured = filepath.Join(workspace, configured)
-	}
-	return filepath.Clean(configured)
 }
 
 func (r *runtimeSession) Close() error {
@@ -600,6 +609,9 @@ type sessionLayout struct {
 	sessionDir, transcriptPath string
 	sourceTranscriptPath       string
 	sessionOwner, sourceOwner  *platform.OwnedDirectory
+	memoryParent               *platform.OwnedDirectory
+	memoryDir                  string
+	memoryDisabled             bool
 	temporary                  bool
 	lock                       *sessionlock.Lock
 }
@@ -607,6 +619,28 @@ type sessionLayout struct {
 const incompleteForkMarker = ".fork-incomplete"
 
 func (layout sessionLayout) verify() error {
+	if err := layout.verifySessionDirectory(); err != nil {
+		return err
+	}
+	if layout.temporary || layout.memoryDisabled {
+		if layout.memoryParent != nil || layout.memoryDir != "" {
+			return errors.New("memory-disabled session unexpectedly owns persistent project memory")
+		}
+		return nil
+	}
+	if layout.memoryParent == nil {
+		return errors.New("project memory parent identity is unavailable")
+	}
+	if err := layout.memoryParent.Verify(); err != nil {
+		return fmt.Errorf("verify project memory parent identity: %w", err)
+	}
+	if filepath.Clean(layout.memoryDir) != filepath.Join(layout.memoryParent.Path(), "memory") {
+		return errors.New("project memory path does not match its owned parent directory")
+	}
+	return nil
+}
+
+func (layout sessionLayout) verifySessionDirectory() error {
 	if layout.sessionOwner == nil {
 		return errors.New("session directory identity is unavailable")
 	}
@@ -648,18 +682,30 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		}
 	}()
 
-	root, err := stateRoot(workspace)
+	_, home, err := applicationHomeForContext(ctx)
 	if err != nil {
 		return sessionLayout{}, nil, err
 	}
 	projectHash := sha256.Sum256([]byte(workspace))
-	projectDir, err := root.EnsurePrivateChild("projects", hex.EncodeToString(projectHash[:12]), "sessions")
-	if err != nil {
-		return sessionLayout{}, nil, fmt.Errorf("create session directory: %w", err)
-	}
+	// This bounded standalone profile keys both the session partition and the
+	// separate project-memory tree by the selected absolute workspace. It does
+	// not claim canonical-main-repository identity or linked-worktree sharing.
+	projectKey := hex.EncodeToString(projectHash[:12])
 	sourceID := ""
 	if opts.Resume != "" {
 		sourceID = opts.Resume
+	}
+	var projectDir *platform.OwnedDirectory
+	requiresStoredSessions := !opts.NoSessionPersistence || sourceID != "" || opts.Continue
+	if requiresStoredSessions {
+		if opts.NoSessionPersistence {
+			projectDir, err = home.sessions.OpenPrivateChild(projectKey)
+		} else {
+			projectDir, err = home.sessions.EnsurePrivateChild(projectKey)
+		}
+		if err != nil {
+			return sessionLayout{}, nil, fmt.Errorf("open workspace session directory: %w", err)
+		}
 	}
 	if opts.Continue {
 		sourceID, err = latestSession(projectDir)
@@ -671,6 +717,15 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		if !safeSessionID(sourceID) {
 			return sessionLayout{}, nil, errors.New("resume session identifier is invalid")
 		}
+	}
+	var memoryParent *platform.OwnedDirectory
+	memoryDir := ""
+	if !opts.NoSessionPersistence && !opts.Bare {
+		memoryParent, err = home.root.EnsurePrivateChild("projects", projectKey)
+		if err != nil {
+			return sessionLayout{}, nil, fmt.Errorf("create project data directory: %w", err)
+		}
+		memoryDir = filepath.Join(memoryParent.Path(), "memory")
 	}
 	var sourceOwner *platform.OwnedDirectory
 	if sourceID != "" {
@@ -753,7 +808,12 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 				return sessionLayout{}, nil, err
 			}
 		}
-		layout = sessionLayout{sessionID: sessionID, sessionDir: sessionOwner.Path(), transcriptPath: filepath.Join(sessionOwner.Path(), "transcript.jsonl"), sessionOwner: sessionOwner}
+		layout = sessionLayout{
+			sessionID: sessionID, sessionDir: sessionOwner.Path(),
+			transcriptPath: filepath.Join(sessionOwner.Path(), "transcript.jsonl"),
+			sessionOwner:   sessionOwner, memoryParent: memoryParent, memoryDir: memoryDir,
+			memoryDisabled: opts.Bare,
+		}
 	}
 	if err := layout.verify(); err != nil {
 		return sessionLayout{}, nil, err
@@ -848,17 +908,6 @@ func loadValidatedSourceSnapshot(
 	return snapshot, nil
 }
 
-func stateRoot(workspace string) (*platform.OwnedDirectory, error) {
-	_ = workspace
-	if configured := strings.TrimSpace(os.Getenv("AGENTX_STATE_DIR")); configured != "" {
-		return platform.AcquirePrivateDirectory(configured)
-	}
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return nil, err
-	}
-	return platform.AcquirePrivateDirectory(filepath.Join(configDir, "agentx"))
-}
 func latestSession(projectDir *platform.OwnedDirectory) (string, error) {
 	if err := projectDir.Verify(); err != nil {
 		return "", err
@@ -955,7 +1004,7 @@ func hasIncompleteForkMarker(owner *platform.OwnedDirectory) (bool, error) {
 }
 
 func beginForkPublication(layout sessionLayout) error {
-	if err := layout.verify(); err != nil {
+	if err := layout.verifySessionDirectory(); err != nil {
 		return err
 	}
 	path := filepath.Join(layout.sessionDir, incompleteForkMarker)
@@ -973,14 +1022,14 @@ func beginForkPublication(layout sessionLayout) error {
 	if err := syncSessionDirectory(layout.sessionDir); err != nil {
 		return fmt.Errorf("sync incomplete fork marker: %w", err)
 	}
-	if err := layout.verify(); err != nil {
+	if err := layout.verifySessionDirectory(); err != nil {
 		return err
 	}
 	return nil
 }
 
 func completeForkPublication(layout sessionLayout) error {
-	if err := layout.verify(); err != nil {
+	if err := layout.verifySessionDirectory(); err != nil {
 		return err
 	}
 	path := filepath.Join(layout.sessionDir, incompleteForkMarker)
@@ -997,7 +1046,7 @@ func completeForkPublication(layout sessionLayout) error {
 	if err := syncSessionDirectory(layout.sessionDir); err != nil {
 		return fmt.Errorf("sync completed fork publication: %w", err)
 	}
-	return layout.verify()
+	return layout.verifySessionDirectory()
 }
 func safeSessionID(value string) bool {
 	if value == "" || len(value) > 128 {
@@ -1009,20 +1058,6 @@ func safeSessionID(value string) bool {
 		}
 	}
 	return true
-}
-func findUp(start, name string) string {
-	current := start
-	for {
-		candidate := filepath.Join(current, name)
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-			return candidate
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return ""
-		}
-		current = parent
-	}
 }
 
 func permissionRules(opts cli.Options) ([]permission.Rule, error) {

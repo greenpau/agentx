@@ -25,11 +25,17 @@ var ErrDirectoryIdentityChanged = errors.New("owned directory identity changed")
 type OwnedDirectory struct {
 	path     string
 	identity os.FileInfo
+	private  bool
 
 	// beforeRemoveContents is a deterministic race seam for package tests. A
 	// production directory leaves it nil. It runs only after descriptor roots
 	// for both the parent and owned directory have been identity-verified.
 	beforeRemoveContents func() error
+
+	// beforeCreateChild is a deterministic first-creator race seam for package
+	// tests. A production directory leaves it nil. It runs only after the child
+	// was observed absent and before its exclusive directory creation attempt.
+	beforeCreateChild func(string) error
 }
 
 // AcquirePrivateDirectory resolves the deepest pre-existing external
@@ -126,6 +132,10 @@ func (directory *OwnedDirectory) Verify() error {
 	if !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(directory.identity, current) {
 		return fmt.Errorf("%w: %s", ErrDirectoryIdentityChanged, directory.path)
 	}
+	if directory.private && privateDirectoryAccessControlVerified &&
+		!privateDirectoryAccessPermitsUse(current) {
+		return fmt.Errorf("%w: %s is not owner-private", ErrDirectoryIdentityChanged, directory.path)
+	}
 	return nil
 }
 
@@ -159,30 +169,112 @@ func (directory *OwnedDirectory) OpenPrivateChild(components ...string) (*OwnedD
 	return current, nil
 }
 
+// OpenRoot returns a descriptor-rooted view of this exact directory identity.
+// The caller must close the root. Operations through the returned root remain
+// pinned to the acquired directory across a pathname rename; callers should
+// still Verify afterward when the textual path must remain authoritative.
+func (directory *OwnedDirectory) OpenRoot() (*os.Root, error) {
+	return directory.openVerifiedRoot()
+}
+
 func (directory *OwnedDirectory) ensurePrivateChild(component string, requireExisting bool) (*OwnedDirectory, error) {
 	if !simplePathComponent(component) {
 		return nil, fmt.Errorf("invalid private directory component %q", component)
 	}
-	if err := directory.Verify(); err != nil {
+	root, err := directory.openVerifiedRoot()
+	if err != nil {
 		return nil, err
 	}
+	defer root.Close()
 	childPath := filepath.Join(directory.path, component)
-	_, err := os.Lstat(childPath)
+	_, err = root.Lstat(component)
 	switch {
 	case err == nil:
 	case errors.Is(err, os.ErrNotExist) && requireExisting:
 		return nil, err
 	case errors.Is(err, os.ErrNotExist):
-		if err := os.Mkdir(childPath, 0o700); err != nil {
+		if directory.beforeCreateChild != nil {
+			if err := directory.beforeCreateChild(childPath); err != nil {
+				return nil, fmt.Errorf("before creating private directory %s: %w", childPath, err)
+			}
+		}
+		if err := root.Mkdir(component, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("create private directory %s: %w", childPath, err)
 		}
+		// Another creator may win after Lstat. EEXIST is only permission to
+		// reacquire the child below: securePrivateChild must still prove it is
+		// one stable direct directory and protect it through a verified
+		// descriptor rooted in the original parent. A symlink, non-directory,
+		// or replacement fails closed.
 	default:
 		return nil, fmt.Errorf("inspect private directory %s: %w", childPath, err)
+	}
+	child, err := securePrivateChild(directory, root, component)
+	if err != nil {
+		return nil, err
 	}
 	if err := directory.Verify(); err != nil {
 		return nil, err
 	}
-	return securePrivateDirectory(childPath, directory)
+	return child, nil
+}
+
+func (directory *OwnedDirectory) openVerifiedRoot() (*os.Root, error) {
+	if err := directory.Verify(); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(directory.path)
+	if err != nil {
+		return nil, fmt.Errorf("open private directory root %s: %w", directory.path, err)
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !opened.IsDir() || !os.SameFile(directory.identity, opened) {
+		_ = root.Close()
+		return nil, fmt.Errorf("%w: %s changed while opening its root", ErrDirectoryIdentityChanged, directory.path)
+	}
+	if err := directory.Verify(); err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	return root, nil
+}
+
+func securePrivateChild(parent *OwnedDirectory, root *os.Root, component string) (*OwnedDirectory, error) {
+	childPath := filepath.Join(parent.path, component)
+	before, err := root.Lstat(component)
+	if err != nil {
+		return nil, fmt.Errorf("inspect private directory %s: %w", childPath, err)
+	}
+	if !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: %s is not a direct directory", ErrDirectoryIdentityChanged, childPath)
+	}
+	handle, err := root.Open(component)
+	if err != nil {
+		return nil, fmt.Errorf("open private directory %s: %w", childPath, err)
+	}
+	defer handle.Close()
+	opened, err := handle.Stat()
+	if err != nil || !opened.IsDir() || !os.SameFile(before, opened) {
+		return nil, fmt.Errorf("%w: %s changed while opening", ErrDirectoryIdentityChanged, childPath)
+	}
+	if privateDirectoryAccessControlVerified && !privateDirectoryOwnerPermitsUse(opened) {
+		return nil, fmt.Errorf("%w: %s is not owned by the effective user", ErrDirectoryIdentityChanged, childPath)
+	}
+	if err := handle.Chmod(0o700); err != nil {
+		return nil, fmt.Errorf("secure private directory %s: %w", childPath, err)
+	}
+	afterHandle, err := handle.Stat()
+	if err != nil || !afterHandle.IsDir() || !os.SameFile(opened, afterHandle) ||
+		(privateDirectoryAccessControlVerified && !privateDirectoryAccessPermitsUse(afterHandle)) {
+		return nil, fmt.Errorf("%w: %s changed or is not owner-private after securing", ErrDirectoryIdentityChanged, childPath)
+	}
+	afterRoot, err := root.Lstat(component)
+	if err != nil || !afterRoot.IsDir() || afterRoot.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(afterHandle, afterRoot) ||
+		(privateDirectoryAccessControlVerified && !privateDirectoryAccessPermitsUse(afterRoot)) {
+		return nil, fmt.Errorf("%w: %s changed after securing", ErrDirectoryIdentityChanged, childPath)
+	}
+	return &OwnedDirectory{path: filepath.Clean(childPath), identity: afterHandle, private: true}, nil
 }
 
 // RemoveAll recursively clears this directory through a verified os.Root
@@ -319,17 +411,23 @@ func securePrivateDirectory(path string, parent *OwnedDirectory) (*OwnedDirector
 	if err != nil || !opened.IsDir() || !os.SameFile(before, opened) {
 		return nil, fmt.Errorf("%w: %s changed while opening", ErrDirectoryIdentityChanged, path)
 	}
+	if privateDirectoryAccessControlVerified && !privateDirectoryOwnerPermitsUse(opened) {
+		return nil, fmt.Errorf("%w: %s is not owned by the effective user", ErrDirectoryIdentityChanged, path)
+	}
 	// Chmod through the verified descriptor, never through a pathname that can
 	// be swapped to a direct symlink between Lstat and chmod.
 	if err := handle.Chmod(0o700); err != nil {
 		return nil, fmt.Errorf("secure private directory %s: %w", path, err)
 	}
 	afterHandle, err := handle.Stat()
-	if err != nil || !afterHandle.IsDir() || !os.SameFile(opened, afterHandle) {
-		return nil, fmt.Errorf("%w: %s changed while securing", ErrDirectoryIdentityChanged, path)
+	if err != nil || !afterHandle.IsDir() || !os.SameFile(opened, afterHandle) ||
+		(privateDirectoryAccessControlVerified && !privateDirectoryAccessPermitsUse(afterHandle)) {
+		return nil, fmt.Errorf("%w: %s changed or is not owner-private while securing", ErrDirectoryIdentityChanged, path)
 	}
 	afterPath, err := os.Lstat(path)
-	if err != nil || !afterPath.IsDir() || afterPath.Mode()&os.ModeSymlink != 0 || !os.SameFile(afterHandle, afterPath) {
+	if err != nil || !afterPath.IsDir() || afterPath.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(afterHandle, afterPath) ||
+		(privateDirectoryAccessControlVerified && !privateDirectoryAccessPermitsUse(afterPath)) {
 		return nil, fmt.Errorf("%w: %s changed after securing", ErrDirectoryIdentityChanged, path)
 	}
 	if parent != nil {
@@ -337,7 +435,7 @@ func securePrivateDirectory(path string, parent *OwnedDirectory) (*OwnedDirector
 			return nil, err
 		}
 	}
-	return &OwnedDirectory{path: filepath.Clean(path), identity: afterHandle}, nil
+	return &OwnedDirectory{path: filepath.Clean(path), identity: afterHandle, private: true}, nil
 }
 
 func captureDirectory(path string) (*OwnedDirectory, error) {

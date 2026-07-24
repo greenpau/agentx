@@ -16,6 +16,11 @@ description: Implement context-pressure management and derived memory, including
 
 Read [the complete memory and compaction contract](references/memory-compaction-contract.md) before implementing or auditing this domain. Use the [architecture diagram](assets/architecture.drawio) for context-strategy topology and the [persistent memory, team sync, and dream diagram](assets/persistent-memory-sync.drawio) to trace path trust, relevance injection, conflict/partial-commit behavior, and consolidation locking.
 
+The standalone Go runtime currently implements the bounded
+`MC-MEM-002G` path profile, not the configurable canonical-repository identity
+in `MC-MEM-002`. Keep that divergence explicit in source traceability and
+conformance status until the broader contract is implemented.
+
 ## Boundaries
 
 Own derived summaries, private and shared file memory, relevance selection, team-memory sync, automatic consolidation, session memory, context edits, collapse projections, and post-compact reinjection. Keep the append-only transcript authoritative. Shared memory is untrusted collaborator content, not system policy. Do not let a subagent compact clear process-global state owned by the main thread.

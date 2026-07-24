@@ -38,11 +38,20 @@ func openRuntimeMemory(layout sessionLayout, bare bool, secretGuards ...func(str
 	if layout.temporary || bare {
 		return nil, nil
 	}
-	// Sessions live at <project>/sessions/<id>. Memory belongs to the project,
-	// not one transcript, and therefore survives resume/fork without being
-	// copied into the authoritative event history.
-	root := filepath.Join(filepath.Dir(filepath.Dir(layout.sessionDir)), "memory")
-	return memory.Open(root, secretGuards...)
+	if layout.memoryParent == nil {
+		return nil, errors.New("project memory parent identity is unavailable")
+	}
+	if err := layout.memoryParent.Verify(); err != nil {
+		return nil, fmt.Errorf("verify project memory parent: %w", err)
+	}
+	memoryOwner, err := layout.memoryParent.EnsurePrivateChild("memory")
+	if err != nil {
+		return nil, fmt.Errorf("prepare project memory directory: %w", err)
+	}
+	if filepath.Clean(layout.memoryDir) != memoryOwner.Path() {
+		return nil, errors.New("project memory path does not match its owned directory")
+	}
+	return memory.Open(memoryOwner.Path(), secretGuards...)
 }
 
 func memoryPrompt(store *memory.Store) (string, error) {

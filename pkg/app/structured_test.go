@@ -258,7 +258,7 @@ func TestSDKInitCarriesRequiredConfiguredModelMetadata(t *testing.T) {
 	if record["type"] != "system" || record["subtype"] != "init" || record["model"] != "gpt-5.6-sol" || record["permissionMode"] != "default" {
 		t.Fatalf("init identity = %#v", record)
 	}
-	if record["apiKeySource"] != "project" || record["agentx_version"] != ProductVersion() || record["cwd"] != "/work/project" || record["session_id"] != "ses_sdk_wire" {
+	if record["apiKeySource"] != "user" || record["agentx_version"] != ProductVersion() || record["cwd"] != "/work/project" || record["session_id"] != "ses_sdk_wire" {
 		t.Fatalf("init metadata = %#v", record)
 	}
 	for _, key := range []string{"tools", "mcp_servers", "slash_commands", "output_style", "skills", "plugins", "uuid"} {
@@ -268,6 +268,30 @@ func TestSDKInitCarriesRequiredConfiguredModelMetadata(t *testing.T) {
 	}
 	if _, leaked := record["protocol_version"]; leaked {
 		t.Fatalf("non-schema init member leaked: %#v", record)
+	}
+}
+
+func TestSDKAPIKeySourceUsesClosedProvenanceMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		provenance config.Source
+		want       string
+	}{
+		{name: "auth file", provenance: config.SourceFile, want: "user"},
+		{name: "process", provenance: config.SourceProcess, want: "temporary"},
+		{name: "flag", provenance: config.SourceFlag, want: "temporary"},
+		{name: "absent compatibility", want: "user"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configuration := config.Runtime{Provenance: map[string]config.Source{}}
+			if test.provenance != "" {
+				configuration.Provenance["AZURE_OPENAI_SUBSCRIPTION_KEY"] = test.provenance
+			}
+			if got := sdkAPIKeySource(configuration); got != test.want {
+				t.Fatalf("sdkAPIKeySource(%q) = %q, want %q", test.provenance, got, test.want)
+			}
+		})
 	}
 }
 
@@ -302,6 +326,10 @@ func TestInitializeControlUsesCorrelatedPublishedResponseShape(t *testing.T) {
 		if _, exists := payload[key]; !exists {
 			t.Fatalf("initialize payload missing %s: %#v", key, payload)
 		}
+	}
+	account, ok := payload["account"].(map[string]any)
+	if !ok || account["apiKeySource"] != "user" || account["apiProvider"] != "foundry" {
+		t.Fatalf("initialize account = %#v", payload["account"])
 	}
 }
 

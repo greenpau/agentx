@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 )
 
@@ -86,6 +87,164 @@ func TestOwnedDirectoryRejectsDirectChildSymlink(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && before.Mode().Perm() != after.Mode().Perm() {
 		t.Fatalf("child symlink target mode changed from %o to %o", before.Mode().Perm(), after.Mode().Perm())
+	}
+}
+
+func TestOwnedDirectoryConcurrentChildCreationReacquiresWinner(t *testing.T) {
+	root, err := AcquirePrivateDirectory(filepath.Join(t.TempDir(), "owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const creators = 2
+	ready := make(chan struct{}, creators)
+	release := make(chan struct{})
+	root.beforeCreateChild = func(string) error {
+		ready <- struct{}{}
+		<-release
+		return nil
+	}
+
+	type result struct {
+		directory *OwnedDirectory
+		err       error
+	}
+	results := make(chan result, creators)
+	var group sync.WaitGroup
+	group.Add(creators)
+	for range creators {
+		go func() {
+			defer group.Done()
+			directory, createErr := root.EnsurePrivateChild("sessions")
+			results <- result{directory: directory, err: createErr}
+		}()
+	}
+	for range creators {
+		<-ready
+	}
+	close(release)
+	group.Wait()
+	close(results)
+
+	var acquired []*OwnedDirectory
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent child creation: %v", result.err)
+		}
+		if err := result.directory.Verify(); err != nil {
+			t.Fatalf("verify concurrently acquired child: %v", err)
+		}
+		acquired = append(acquired, result.directory)
+	}
+	if len(acquired) != creators {
+		t.Fatalf("acquired directories = %d, want %d", len(acquired), creators)
+	}
+	if acquired[0].Path() != acquired[1].Path() || !os.SameFile(acquired[0].identity, acquired[1].identity) {
+		t.Fatal("concurrent creators did not acquire the same child directory")
+	}
+	info, err := os.Lstat(acquired[0].Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("concurrently acquired child is not a direct directory: %v", info.Mode())
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		t.Fatalf("concurrently acquired child mode = %o, want 700", info.Mode().Perm())
+	}
+}
+
+func TestOwnedDirectoryRacedChildCreationRejectsUnsafeWinner(t *testing.T) {
+	tests := []struct {
+		name   string
+		create func(*testing.T, string)
+	}{
+		{
+			name: "regular file",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "symlink",
+			create: func(t *testing.T, path string) {
+				t.Helper()
+				target := filepath.Join(t.TempDir(), "target")
+				if err := os.Mkdir(target, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, err := AcquirePrivateDirectory(filepath.Join(t.TempDir(), "owned"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			root.beforeCreateChild = func(path string) error {
+				test.create(t, path)
+				return nil
+			}
+			if _, err := root.EnsurePrivateChild("sessions"); !errors.Is(err, ErrDirectoryIdentityChanged) {
+				t.Fatalf("raced unsafe winner = %v", err)
+			}
+		})
+	}
+}
+
+func TestOwnedDirectoryChildCreationPinsOriginalAcrossParentReplacement(t *testing.T) {
+	parent := t.TempDir()
+	directory, err := AcquirePrivateDirectory(filepath.Join(parent, "owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(parent, "replacement")
+	if err := os.Mkdir(replacement, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(parent, "owned-original")
+	directory.beforeCreateChild = func(string) error {
+		if err := os.Rename(directory.Path(), original); err != nil {
+			return err
+		}
+		return os.Rename(replacement, directory.Path())
+	}
+
+	if _, err := directory.EnsurePrivateChild("sessions"); !errors.Is(err, ErrDirectoryIdentityChanged) {
+		t.Fatalf("child creation after parent replacement = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(directory.Path(), "sessions")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("child was created beneath replacement: %v", err)
+	}
+	info, err := os.Lstat(filepath.Join(original, "sessions"))
+	if err != nil {
+		t.Fatalf("pinned original did not receive child: %v", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("pinned child is not a direct directory: %v", info.Mode())
+	}
+}
+
+func TestOwnedDirectoryDetectsPrivacyDrift(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows FileMode cannot represent DACL privacy drift")
+	}
+	directory, err := AcquirePrivateDirectory(filepath.Join(t.TempDir(), "owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory.Path(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.Verify(); !errors.Is(err, ErrDirectoryIdentityChanged) {
+		t.Fatalf("privacy drift verification = %v", err)
 	}
 }
 

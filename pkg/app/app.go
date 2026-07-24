@@ -81,6 +81,13 @@ func ExitCode(err error) int {
 }
 
 func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	ctx, home, err := applicationHomeForContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := home.requireAuthFile(); err != nil {
+		return err
+	}
 	opts, err := cli.Parse(args)
 	if err != nil {
 		return err

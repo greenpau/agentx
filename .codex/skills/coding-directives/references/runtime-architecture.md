@@ -6,8 +6,9 @@ This implementation follows the language-neutral contracts reachable from the re
 
 ```text
 main.go
-  → signal ownership and early CLI/mode selection
-  → config, provider, platform, and session construction
+  → build identity, signal ownership, and private application-home bootstrap
+  → early CLI/mode selection and required auth.json existence gate
+  → strict model credential parsing, provider, platform, and session construction
   → immutable extension and capability snapshots
   → prompt/context projection
   → shared engine
@@ -37,11 +38,11 @@ The operational target in this tree is the local-agent core. It is not a declara
 
 | Package | Authority |
 | --- | --- |
-| `pkg/app` | Process construction, mode dispatch, session placement, and adapter wiring. |
-| `pkg/cli` | Early flags and cross-option validation before credential or terminal initialization. |
+| `pkg/app` | Process construction, application-home bootstrap, mode dispatch, session placement, and adapter wiring. |
+| `pkg/cli` | Early flags and cross-option validation after the mandatory application-home bootstrap but before credential parsing or terminal initialization. |
 | `pkg/signals` | Early continuous OS signal acquisition, conflict-checked surface-specific semantic SIGINT routing, globally first-request-wins shutdown state, and one joined exact-once force/failsafe gate. |
 | `pkg/testing` | Test-profile-only capabilities, including the always-ask `TestingPermission` end-to-end permission probe; production registries omit them. |
-| `pkg/config` | Dotenv parsing, process precedence, Azure normalization, model/effort validation, and redaction. |
+| `pkg/config` | Strict versioned `auth.json` parsing, Azure normalization, model/effort validation, and redaction. |
 | `pkg/childenv` | Credential-safe child-process environment projection and explicit per-provider environment scoping. |
 | `pkg/identity` | Typed identifier generation, canonical parsing, validation, and wire-safe conversion. |
 | `pkg/model` | Provider-neutral requests/events plus the Azure OpenAI Responses API adapter. |
@@ -64,9 +65,43 @@ The operational target in this tree is the local-agent core. It is not a declara
 
 The `pkg/` tree is importable, but it is presently a trusted-host composition surface rather than a frozen SDK. Importers must retain the validation, authorization, credential-handling, locking, and lifecycle invariants described here and in [pkg/README.md](../../../../pkg/README.md).
 
-## Azure `gpt-5.6-sol` mapping
+## Application home and Azure `gpt-5.6-sol` mapping
 
-The semantic model identity is `AZURE_OPENAI_MODEL_NAME`; Azure receives `AZURE_OPENAI_DEPLOYMENT` in the `model` field. Requests use `api-key`, `stream:true`, and `store:false`. An omitted `AZURE_OPENAI_API_VERSION` uses `/openai/v1/responses` without a query, matching Azure's documented v1 default. Explicit symbolic `v1|preview` values retain that route, while a dated Azure API version selects the legacy `/openai/responses` route.
+The application home selects the first nonblank value from `AGENTX_HOME`,
+deprecated `AGENTX_STATE_DIR`, and `<user-home>/.agentx`. The selected
+environment value must be absolute and non-root. This standalone profile
+cleans platform path syntax but does not yet normalize the selected spelling to
+Unicode NFC. Every invocation acquires that directory and its `sessions/`
+child before CLI parsing and freezes the selected home plus their acquired
+bootstrap identities. Later session and memory paths derive from that frozen
+selection and acquire their own subsystem identities; this profile does not
+claim that every descendant operation remains rooted in one process-lifetime
+home descriptor. Every invocation then requires the literal `auth.json` child
+before full CLI parsing. Credential gates and reads open that child
+descriptor-relative to the pinned home and reverify the textual home identity
+afterward, so replacing the pathname cannot redirect credential selection.
+Help, version, and standalone MCP stop if it is absent but do not parse it.
+Model-backed surfaces strictly accept only the version-1 `azure_openai` schema
+in `AUTH-045`, with no dotenv, `--env-file`, or process-credential fallback.
+Supported POSIX platforms enforce effective-user ownership and private mode
+bits. Windows model-backed startup is unavailable until native owner/DACL
+inspection can authorize reading the credential file. The selected home and
+all descendants are mandatory protected paths at the capability boundary even
+when an override places the home within the active workspace. Before and after
+ordinary permission evaluation, before execution, the runtime rechecks the
+frozen home and `sessions` identities and denies tool use after a detected
+rename, replacement, or supported-POSIX privacy change. The denial invalidates
+a pending approval and is latched until process restart even if the original
+inode returns to its pathname. Later descendant filesystem operations retain
+their owning subsystem contracts rather than one process-lifetime home
+descriptor.
+
+The semantic model identity is `azure_openai.model`; Azure receives
+`azure_openai.deployment` in the `model` field. Requests use `api-key`,
+`stream:true`, and `store:false`. An empty string or symbolic `v1|preview`
+`azure_openai.api_version` value uses `/openai/v1/responses` without a query,
+matching Azure's documented v1 route. A dated Azure API version selects the
+legacy `/openai/responses` route.
 
 The provider boundary retains stable Go items across recursive calls:
 
@@ -102,7 +137,31 @@ Malformed raw function arguments are preserved before structural parsing. Unknow
 
 Permission is a composed decision rather than a boolean. Whole-tool and content rules are deny-first; path/shell safety and mandatory interaction dominate broad modes; `dontAsk` fails closed; bypass exists only through the explicit dangerous CLI flag and does not override mandatory safety checks.
 
-Filesystem checks compare lexical and resolved existing-prefix targets. Explicitly configured credential paths are also compared by file identity so a hard-link alias cannot shed their protection. Credential/configuration paths, `.git`, editor control directories, dotenv files, home/root removal targets, ambiguous platform spellings, and symlink traversal receive denial or mandatory review. Recursive search filters every protected descendant after directory authorization, so approving a workspace cannot expose `.env.production`. Shell analysis projects recognized static operands and input/output redirections from its deliberately closed Bash grammar through path policy; unsupported or ambiguous syntax requires review. Foreground and background Bash share the selected sandbox command factory. Bash never becomes generically auto-authorized merely because a command was classified read-only, and this profile does not register a PowerShell command tool.
+Filesystem checks compare lexical and resolved existing-prefix targets. The
+application bootstrap pins the selected home directory identity. Credential
+loading rejects a symlink or multi-link `auth.json`; permission policy protects
+both its exact selected path and the `auth.json` basename wherever encountered,
+so a displaced still-named credential cannot shed mandatory review.
+The application-home authorizer also verifies the frozen home and `sessions`
+identities before and after ordinary permission evaluation. A sustained home
+displacement therefore denies every tool, including a read of a displaced
+session file whose basename is otherwise ordinary, and an approval pending
+during detection cannot execute. This guard does not claim atomicity against an
+external rename after authorization returns to execution. Once tripped, its
+process-lifetime latch cannot be cleared by restoring the original inode.
+Credential/configuration paths, `.git`, editor control directories, dotenv
+files, home/root removal targets, ambiguous platform spellings, and symlink
+traversal receive denial or mandatory review. Recursive search filters every
+protected descendant after directory authorization, so approving a workspace
+cannot expose the user-owned `~/.agentx/auth.json`. The user application home
+and a workspace's `.agentx/` extension directory are distinct protected
+identities; trusting the latter grants no authority over the former. Shell
+analysis projects recognized static operands and input/output redirections from
+its deliberately closed Bash grammar through path policy; unsupported or
+ambiguous syntax requires review. Foreground and background Bash share the
+selected sandbox command factory. Bash never becomes generically
+auto-authorized merely because a command was classified read-only, and this
+profile does not register a PowerShell command tool.
 
 Validated file operations use rooted filesystem handles plus pre/post identity checks to resist symlink, hardlink, mount, and pathname-substitution races. On macOS, `sandbox-exec` is used only after a bounded capability probe succeeds; otherwise the unavailable state is explicit and normal Bash authorization remains mandatory. Unix foreground/background process cancellation owns a verified process group. A descendant that deliberately escapes that group remains an explicit limitation. Hosts that request `--owned-process-tree` add a process-wide containment boundary: Windows assigns AgentX to a kill-on-close Job Object before session setup, while non-Windows accepts the flag as a no-op because capability processes already use owned groups.
 
@@ -115,7 +174,20 @@ The Go port deliberately improves two specified compatibility gaps:
 
 Durable events carry schema version, event/session/turn identities, physical and logical parents, monotonic sequence, timestamp, origin, visibility, persistence, and one typed payload. UI progress is ephemeral and is rejected if found on disk.
 
-The transcript store uses `0700` directories, `0600` files, append ownership, fsync boundaries, event/tool deduplication, and bounded record loading. A corrupt middle record is isolated; a crash-truncated tail is ignored with a diagnostic. Resume selects the newest eligible main leaf, restores response-identity siblings and correlated tool results, retains session-scoped metadata/accounting, and rebuilds only the model projection. An uncertain operation is never rerun. A response-identified assistant group whose calls are all unresolved leaves the live projection; a missing member of a retained mixed group receives a deterministic synthetic `interrupted` result in memory. Legacy records without response identity use conservative per-call synthesis.
+The transcript store places each persistent session at
+`<application-home>/sessions/<workspace-hash>/<session-id>/`, uses `0700`
+directories and `0600` files, and preserves append ownership, fsync
+boundaries, event/tool deduplication, and bounded record loading. The
+pre-parser bootstrap creates the top-level `sessions/` child but does not
+materialize a workspace or session child. A corrupt middle record is isolated;
+a crash-truncated tail is ignored with a diagnostic. Resume selects the newest
+eligible main leaf within the selected workspace, restores response-identity
+siblings and correlated tool results, retains session-scoped
+metadata/accounting, and rebuilds only the model projection. An uncertain
+operation is never rerun. A response-identified assistant group whose calls
+are all unresolved leaves the live projection; a missing member of a retained
+mixed group receives a deterministic synthetic `interrupted` result in memory.
+Legacy records without response identity use conservative per-call synthesis.
 
 Fork selects the active durable projection, restamps identifiers, and appends the destination batch without copying ephemeral recovery evidence. A durable incomplete-publication marker is created before the copy and removed only after the copied transcript loads successfully; `--continue`, explicit resume, and destination reuse reject or ignore marked sessions. Source and destination are still independent stores rather than one cross-store transaction, but a process failure cannot publish a copied prefix as a resumable completed fork.
 
@@ -141,13 +213,37 @@ AgentX owns the durable transcript, session lock, resume/fork semantics, task tr
 
 ## Trust and extension plane
 
-Extension discovery produces immutable session generations with deterministic source precedence and diagnostics. User extensions are eligible by source policy; project `AGENTS.md`, root `.codex/skills`, and `.agentx/` plugin manifests, hooks, output styles, and MCP definitions require `--trust-workspace`. The same repo-local `.codex/skills` hierarchy documents implementation behavior and is the only runtime skill source.
+Extension discovery produces immutable session generations with deterministic
+source precedence and diagnostics. User extensions are eligible by source
+policy; project `AGENTS.md`, root `.codex/skills`, and workspace `.agentx/`
+plugin manifests, hooks, output styles, and MCP definitions require
+`--trust-workspace`. That workspace directory is not the user application home
+selected by `AGENTX_HOME`; workspace trust never changes the application-home
+identity or authorizes its credentials. The same repo-local `.codex/skills`
+hierarchy documents implementation behavior and is the only runtime skill
+source.
 
 Plugin-contributed hooks, output styles, and stdio MCP servers are merged into the session registry with source attribution; plugin skill components are ignored. Skill invocation performs literal positional expansion and can install a turn-local `allowed-tools` scope. That scope is deny-only, honors exact content patterns and every shell segment, resets at the next user prompt, and cannot grant authority denied by base policy. Tool and session hooks execute with bounded input/output and failure containment.
 
 MCP descriptors and results remain untrusted. Adapted MCP tools are open-world and use the ordinary composed permission rules: default policy asks, an exact allow rule may authorize, and denial still wins. Result text and metadata are scrubbed against credentials explicitly configured for that provider. Image and audio blocks are validated but represented as text/metadata placeholders because this profile has no binary attachment path from an MCP tool result to the model. Project configuration is gated by `--trust-workspace`, but that trust flag currently acts as approval; there is no separate per-server approval durably bound to the configuration fingerprint, so changing a trusted project descriptor does not force a new fingerprint-specific prompt. Reconnection cannot mutate the already-frozen tool registry until a new session.
 
-Persistent project memory lives beside—not inside—session transcripts, applies the configured Azure credential redactor plus bounded secret heuristics, and enters context as attributed fallible notes. Unix mode bits are narrowed and revalidated around memory operations. On Windows, Go's synthesized `FileMode` cannot represent the DACL: the store still pins identities, rejects symlinks and multi-link files, and bounds I/O, but it neither validates nor establishes owner-only ACLs, so the memory root requires operator-managed ACL protection. Automatic and `/compact` projections preserve authoritative history, tool call/result pairs, and provider-response groups; each installed projection is durably recorded before reuse and emits the standard SDK `compact_boundary` record. The current summarizer is a deterministic, bounded, lossy excerpt of dropped context, not the complete specified semantic compaction, summary, team-memory, or consolidation subsystem. `/clear` is a separately durable context boundary.
+Persistent project memory is resolved independently from the session path by
+using the selected absolute workspace and lives at
+`<application-home>/projects/<workspace-hash>/memory`, outside—not inside or
+implicitly above—the `sessions/<workspace-hash>/<session-id>/` tree. It applies
+the configured Azure credential redactor plus bounded secret heuristics and
+enters context as attributed fallible notes. Unix mode bits are narrowed and
+revalidated around memory operations. The store package retains stable
+identity, no-symlink, single-link, and bounded-I/O defenses on Windows but
+cannot establish or prove owner-only DACLs. That package-level limitation is
+not a reachable standalone memory profile today: Windows model-backed startup
+fails closed at credential verification before memory construction. Automatic and
+`/compact` projections preserve authoritative history, tool call/result pairs,
+and provider-response groups; each installed projection is durably recorded
+before reuse and emits the standard SDK `compact_boundary` record. The current
+summarizer is a deterministic, bounded, lossy excerpt of dropped context, not
+the complete specified semantic compaction, summary, team-memory, or
+consolidation subsystem. `/clear` is a separately durable context boundary.
 
 ## Feature profile
 
@@ -155,7 +251,8 @@ Availability is represented across independent axes: compiled inclusion, runtime
 
 | Domain | Current profile |
 | --- | --- |
-| Azure Responses + `gpt-5.6-sol` | Operational when `.env.production` is valid. |
+| Application-home bootstrap and authentication | Operational: `AGENTX_HOME`, deprecated `AGENTX_STATE_DIR`, then `~/.agentx`; one physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse version 1 with no legacy fallback. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
+| Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. |
 | Headless text and aggregate JSON | Operational over the shared engine. |
 | Bidirectional NDJSON | Partial: correlated controls and bounded priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |
 | VS Code workspace extension | Partial: Activity Bar chat, streaming, tool/result projection, permissions/questions, workspace-scoped sessions, editor references, Restricted Mode gating, diagnostics, and target VSIX packaging are operational; attachments, authoritative session inventory/history replay, live runtime mutation, remote AgentX transport, IDE MCP/LSP bridging, and native qualification of every packaged platform are unavailable. |
@@ -165,9 +262,9 @@ Availability is represented across independent axes: compiled inclusion, runtime
 | Local background shell and task/work-item state | Operational; restart marks uncertain local processes failed and never replays. |
 | Repository `.codex/skills`, plugin manifests, output styles, hooks | Operational as immutable, source-attributed session generations; project sources require explicit trust. |
 | MCP stdio client | Partial: lifecycle, tool discovery/calls, generation fencing, and result normalization are operational; media forwarding and fingerprint-bound project approval are unavailable. |
-| Standalone MCP stdio tool host | Operational for the local core catalog; `--mcp-server` reuses capability/permission contracts without constructing a model client. |
+| Standalone MCP stdio tool host | Operational for the local core catalog after the common application-home and `auth.json` existence gates; `--mcp-server` reuses capability/permission contracts without parsing credentials or constructing a model client. |
 | MCP HTTP/SSE/WebSocket/OAuth, server-initiated elicitation/channels, and LSP | Configuration or protocol rejection state is represented where applicable; no executable adapter is registered. |
-| Persistent project memory | Conditional for persistent sessions within the local bounded/heuristic profile: Unix owner-only mode enforcement is operational; Windows requires operator-managed DACL protection. |
+| Persistent project memory | Conditional for non-bare persistent sessions within the local bounded/heuristic profile: it uses an absolute-workspace hash outside the session tree, not canonical linked-worktree identity or configurable memory roots. Unix owner-only mode enforcement is operational; Windows model-backed startup is unavailable before memory construction. |
 | Automatic/manual compaction | Partial: durable deterministic excerpt projections are operational; complete specified semantic compaction and distributed memory/consolidation are unavailable. |
 | Remote bridge/cloud transport | Contract-only: identity, epoch, replay, gate, ACK, and lifecycle primitives exist, but no transport is registered or fabricated. |
 | Delegated-agent/team backend, retained-mode TUI, HTTP/SSE MCP OAuth, LSP, remote bridge transport, voice, browser/computer use | Explicitly unavailable; state/transport contracts do not fabricate an executable backend. |

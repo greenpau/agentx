@@ -37,7 +37,6 @@ type Options struct {
 	ReplayUserMessages     bool
 	JSONSchema             string
 	SDKURL                 string
-	EnvFile                string
 	CWD                    string
 	Model                  string
 	Effort                 string
@@ -70,7 +69,7 @@ func (e *UsageError) Is(target error) bool {
 }
 
 func Parse(args []string) (Options, error) {
-	opts := Options{OutputFormat: OutputText, InputFormat: InputText, EnvFile: ".env.production", MaxTurns: 100}
+	opts := Options{OutputFormat: OutputText, InputFormat: InputText, MaxTurns: 100}
 	// Preserve the recovered compatibility fast path without advertising -V
 	// as an ordinary root option. It is valid only when it is the entire
 	// invocation, before any runtime/configuration construction can occur.
@@ -157,12 +156,6 @@ func Parse(args []string) (Options, error) {
 				return Options{}, err
 			}
 			opts.SDKURL = value
-		case "--env-file":
-			value, err := next()
-			if err != nil {
-				return Options{}, err
-			}
-			opts.EnvFile = value
 		case "--output-style":
 			value, err := next()
 			if err != nil {
@@ -431,7 +424,7 @@ Core options:
   --input-format FORMAT          text or stream-json
   --include-partial-messages     Emit normalized model deltas in stream-json
   --replay-user-messages         Echo schema-valid user replay acknowledgements
-  --model NAME                   Logical model name (default from .env.production)
+  --model NAME                   Override the logical model from auth.json
   --effort LEVEL                 none, low, medium, high, xhigh, or max
   --permission-mode MODE         default, acceptEdits, plan, dontAsk, bypassPermissions
   --allowed-tools LIST           Comma-separated allow rules
@@ -444,14 +437,13 @@ Continuity and context:
   --continue                     Resume the latest session
   --fork-session                 Fork the session selected by --resume
   --session-id ID                Use an explicit new session identifier
-  --no-session-persistence       Disable transcript writes (headless only)
+  --no-session-persistence       Temporary, nonresumable, memory-free session (headless only)
   --system-prompt TEXT           Replace the default system prompt
   --system-prompt-file PATH      Replace it from a bounded file
   --append-system-prompt TEXT    Append dynamic system instructions
   --append-system-prompt-file PATH Append them from a bounded file
 
 Runtime and extensions:
-  --env-file PATH                Credential environment file
   --cwd PATH                     Select the working directory
   --bare                         Suppress implicit filesystem instructions, extensions, MCP, and memory
   --trust-workspace              Allow project instructions and executable extensions

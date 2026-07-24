@@ -13,7 +13,12 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect the startu
 
 ## Initialization workflow
 
-1. Establish process facts before loading settings: interaction mode, original working directory, configuration home, platform, build gates, explicit settings input, and enabled source set.
+1. Resolve and freeze the application home, then perform the
+   `GCFG-PATH-006` owned-home and `sessions/` bootstrap before command-line
+   parsing. Perform the `AUTH-045` direct-child existence gate before the full
+   parser. Establish the remaining process facts before loading settings:
+   interaction mode, original working directory, platform, build gates,
+   explicit settings input, and enabled source set.
 2. Locate and parse every eligible source independently. Preserve a parseable source's unknown or temporarily invalid fields for future round trips, but never expose a schema-invalid source as effective configuration.
 3. Resolve managed policy as a whole-source authority before ordinary merging. Managed policy selection is fallback, not deep merge.
 4. Merge ordinary sources from low to high precedence while retaining field-level source attribution. Return defensive copies because the merge algorithm may mutate arrays or objects.

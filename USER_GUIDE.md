@@ -8,26 +8,131 @@ AgentX requires:
 
 - Go 1.26 or newer to compile and install the binary.
 - Access to the configured Azure OpenAI deployment.
-- On Unix-like systems, a private `.env.production` file in the workspace or one complete Azure configuration supplied through the process environment. On Windows, supply the complete configuration through the process environment because this portable build rejects dotenv credential files until it can verify native ownership and DACL safety.
+- A private `auth.json` in the AgentX application home.
 - VS Code 1.95 or newer for the editor extension.
 
-The default `.env.production` file contains:
+## Configure authentication
 
-```dotenv
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol
-AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol
-AZURE_OPENAI_SUBSCRIPTION_KEY=your-secret-key
-AZURE_OPENAI_API_VERSION=preview
+AgentX stores application-owned state in `~/.agentx/` by default. Set the
+public `AGENTX_HOME` environment variable to an absolute path when the whole
+application home must live elsewhere. The deprecated `AGENTX_STATE_DIR`
+compatibility/test override is consulted only when `AGENTX_HOME` is blank.
+Blank values are treated as unset; a selected nonblank value must be an
+absolute, non-root path and an invalid higher-precedence value fails rather
+than falling through. AgentX selects the application-home path once, before it
+inspects command-line arguments. Credential loading pins that home while
+reading `auth.json`; session and project-memory paths are derived from the same
+frozen selection. Existing user plugins, output styles, and MCP configuration
+retain their operating-system user-configuration root; `AGENTX_HOME` does not
+relocate those extension sources.
+Regardless of its basename or location, the selected application home and all
+of its descendants remain protected control data. Placing `AGENTX_HOME` inside
+a workspace does not make credentials, sessions, transcripts, task state,
+tool results, or project memory readable or editable through broad workspace
+permissions or bypass mode.
+Before and after permission evaluation, before a tool can execute, AgentX
+rechecks the frozen home and `sessions/` directory identities. If either
+pathname was renamed or replaced—or its private mode changed on a supported
+POSIX platform—AgentX denies pending and future tool use and asks you to
+restart it. This check detects a sustained identity change; it is not an
+atomic lock over every later descendant filesystem operation.
+
+Every invocation creates the application home and its `sessions/` child before
+command-line parsing. On supported POSIX platforms, AgentX establishes and
+rechecks owner-only permissions and requires and rechecks current-user
+ownership. On Windows it enforces direct-directory and stable-identity checks,
+but cannot yet establish or prove owner-only DACL protection. Before full
+command-line parsing, `auth.json` must exist even for malformed input,
+`--help`, `--version`, and `--mcp-server`.
+Informational and standalone MCP invocations check that the file exists but do
+not construct a model client. A model-backed invocation strictly validates the
+file before it discovers extensions, creates a persistent session, or makes a
+network request.
+
+The default layout begins as:
+
+```text
+~/.agentx/
+├── auth.json
+└── sessions/
 ```
 
-Do not commit this file. On Unix-like systems, make it readable and writable only by its owner:
+When `AGENTX_HOME` selects another location, substitute that effective path for
+`~/.agentx` in the examples below.
+
+Create `~/.agentx/auth.json` with this exact versioned,
+provider-discriminated shape:
+
+```json
+{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://your-resource.openai.azure.com",
+    "model": "gpt-5.6-sol",
+    "deployment": "gpt-5.6-sol",
+    "api_key": "replace-with-your-secret",
+    "api_version": "preview"
+  }
+}
+```
+
+The complete file must be valid UTF-8 JSON no larger than 64 KiB. `version`
+must be the integer `1`, and `provider` must be
+`"azure_openai"`. The `azure_openai` object must contain all five shown string
+fields. `endpoint` is the Azure OpenAI resource URL, `model` is AgentX's
+logical model identity, `deployment` is the Azure deployment sent to the
+Responses API, `api_key` is the subscription key, and `api_version` is the
+Azure API version selector. Endpoint, model, deployment, and API key must be
+nonempty; an empty API-version string selects the default v1 route. Unknown or
+duplicate fields, trailing JSON, unsupported versions/providers, wrong types,
+and missing required values are rejected.
+
+The endpoint must be an absolute HTTPS URL without user information, a query,
+or a fragment. Model and deployment values are each limited to 256 UTF-8
+bytes. The API key is limited to 16 KiB and cannot contain whitespace or unsafe
+control/formatting characters. A nonempty API version is limited to 128 UTF-8
+bytes. Model, deployment, and API-version values likewise reject unsafe
+control/formatting characters.
+
+When converting an existing `.env.production`, map its values as follows:
+
+| Previous variable | `auth.json` field |
+| --- | --- |
+| `AZURE_OPENAI_ENDPOINT` | `azure_openai.endpoint` |
+| `AZURE_OPENAI_MODEL_NAME` | `azure_openai.model` |
+| `AZURE_OPENAI_DEPLOYMENT` | `azure_openai.deployment` |
+| `AZURE_OPENAI_SUBSCRIPTION_KEY` | `azure_openai.api_key` |
+| `AZURE_OPENAI_API_VERSION` | `azure_openai.api_version` |
+
+AgentX does not read `.env.production` and does not accept process-environment
+credentials as a fallback. It also does not move, rewrite, or delete the old
+file. Create and verify `auth.json` first, then remove the obsolete workspace
+file through your normal secret-management process; rotate the key if that
+file was ever exposed or committed. Keep the JSON outside repositories, never
+replace the placeholder with a secret in committed examples, and do not paste
+its contents into prompts or diagnostics.
+
+On Unix-like systems, make the directories owner-only and the file readable
+and writable only by its owner:
 
 ```sh
-chmod 600 .env.production
+mkdir -p ~/.agentx/sessions
+chmod 700 ~/.agentx ~/.agentx/sessions
+chmod 600 ~/.agentx/auth.json
 ```
 
-AgentX rejects partial mixtures of file-based and process-based Azure configuration. Supply the complete configuration through one source.
+On Windows, restrict the application home and `auth.json` to the current user.
+The current standalone Go profile does not yet implement the native owner/DACL
+inspection required to prove that protection, so it fails closed before
+reading `auth.json`; model-backed startup is unavailable on Windows until that
+adapter exists.
+
+If `auth.json` is missing—or the selected child is a directory or symbolic
+link rather than a direct regular file—AgentX exits without starting a model
+or persistent session. The error includes the expected path, the placeholder
+JSON shape above, and this stable guide link:
+<https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md>.
 
 ## Install the AgentX binary
 
@@ -110,7 +215,9 @@ agentx --effort medium
 agentx --print --effort xhigh --max-turns 20 "investigate this failure"
 ```
 
-The configured model is deployment-backed. A `--model` value must match `AZURE_OPENAI_MODEL_NAME`; AgentX will not silently route a different logical model name to the deployment.
+The configured model is deployment-backed. A `--model` value must match
+`azure_openai.model` in `auth.json`; AgentX will not silently route a different
+logical model name to the deployment.
 
 ### Choose a permission mode
 
@@ -133,7 +240,14 @@ agentx --allowed-tools 'Read,Glob,Grep'
 agentx --disallowed-tools 'Bash,Write,Edit'
 ```
 
-Denials and mandatory safety checks take precedence over broad allow rules. Bash remains approval-sensitive, and protected paths such as `.env.production`, `.git`, `.agentx`, and `.codex` do not become readable or writable merely because a broad rule was allowed.
+Denials and mandatory safety checks take precedence over broad allow rules.
+Bash remains approval-sensitive, and protected paths such as
+`~/.agentx/auth.json`, `.git`, a workspace `.agentx/`, and `.codex/` do not
+become readable or writable merely because a broad rule was allowed. The user
+application home `~/.agentx/` and a repository's workspace-extension
+`.agentx/` directory are different trust domains. If AgentX reports that its
+home identity changed, stop modifying that directory, restore it if
+appropriate, and restart AgentX before using tools again.
 
 ### Use bare mode
 
@@ -147,7 +261,12 @@ Use this for a minimal session when you do not want workspace customization load
 
 ### Resume, continue, and fork sessions
 
-AgentX persists sessions by default.
+AgentX persists sessions by default under
+`<application-home>/sessions/<workspace-hash>/<session-id>/`. The workspace
+hash keeps `--continue` and session discovery scoped to the selected workspace;
+the session identifier names one private session directory. Project memory is
+stored separately and remains project-scoped rather than being inferred from
+or copied into a session directory.
 
 ```sh
 agentx --continue
@@ -158,7 +277,33 @@ agentx --resume SESSION_ID --fork-session
 - `--continue` opens the latest eligible session.
 - `--resume` opens a specific session.
 - `--fork-session` creates a new session from the selected durable history.
-- `--no-session-persistence` disables transcript writes for a headless request.
+- `--no-session-persistence` uses a temporary, nonresumable headless session:
+  it writes no transcript, cannot combine with resume/continue/fork, and does
+  not load or expose project memory.
+
+AgentX does not silently move sessions written by older builds under the
+old state root. That root is the previous nonblank `AGENTX_STATE_DIR` value
+when one was used; otherwise it is the old Go user-configuration directory:
+`~/.config/agentx` on Linux and other Unix systems unless
+`XDG_CONFIG_HOME` changed it, `~/Library/Application Support/agentx` on macOS,
+or `%AppData%\agentx` on Windows.
+
+Before deleting anything, back up the complete old root. For every workspace
+hash, copy both kinds of state:
+
+```text
+<old-root>/projects/<workspace-hash>/sessions/<session-id>/
+    → <application-home>/sessions/<workspace-hash>/<session-id>/
+
+<old-root>/projects/<workspace-hash>/memory/
+    → <application-home>/projects/<workspace-hash>/memory/
+```
+
+When the old and new roots are the same, only the session subtree changes
+location; do not copy memory onto itself. Use a copy mechanism that preserves
+owner-only directory and file permissions. Keep the backup and old root until
+the new binary can resume the expected sessions and list the expected memory;
+AgentX never scans, moves, or deletes this legacy data automatically.
 
 AgentX never assumes an interrupted side effect succeeded and does not automatically replay an uncertain tool call during recovery.
 
@@ -269,7 +414,6 @@ Open **AgentX: Open Settings** to change:
 | Setting | Purpose |
 | --- | --- |
 | `agentx.binaryPath` | Absolute AgentX executable path. |
-| `agentx.envFile` | Credential file, relative to the workspace by default. |
 | `agentx.reasoningEffort` | Reasoning effort for newly started sessions. |
 | `agentx.permissionMode` | `default`, `acceptEdits`, `plan`, or `dontAsk`. |
 | `agentx.maxTurns` | Maximum recursive model turns per request. |
@@ -296,18 +440,20 @@ Use these commands in order:
 2. **AgentX: Show Output** — inspect bounded extension-host diagnostics.
 3. **AgentX: Copy Diagnostic Report** — copy a redacted report for support.
 4. Confirm that the workspace is trusted.
-5. Confirm that `agentx.envFile` resolves to a valid protected file.
+5. Confirm that `<application-home>/auth.json` exists and matches the exact schema in [Configure authentication](#configure-authentication).
 6. Run `agentx --version` in the same local or remote environment where the extension host runs.
 
-For Remote SSH, Dev Containers, or WSL, the extension and AgentX binary run in the remote workspace extension host. Install or configure the binary and credentials in that environment, not only on the desktop host.
+For Remote SSH, Dev Containers, or WSL, the extension and AgentX binary run in
+the remote workspace extension host. Install the binary and create
+`~/.agentx/auth.json` in that environment, not only on the desktop host.
 
 ## Security guidance
 
 - Never paste credentials into prompts, tool inputs, chat context, or diagnostics.
-- Never commit `.env.production` or other secret-bearing files.
+- Never commit `~/.agentx/auth.json` or another secret-bearing file.
 - Review permission requests carefully, especially shell commands and writes.
 - Prefer `plan` or `dontAsk` when inspecting an unfamiliar repository.
-- Review `AGENTS.md`, `.codex/skills`, and `.agentx` before enabling trusted workspace features.
+- Review `AGENTS.md`, `.codex/skills`, and the workspace `.agentx/` directory before enabling trusted workspace features.
 - Use `--bare` or `agentx.bare` when repository customization is not required.
 - Remember that the extension is a presentation adapter: the AgentX binary owns permissions, tools, transcripts, and recovery.
 
@@ -316,7 +462,7 @@ For Remote SSH, Dev Containers, or WSL, the extension and AgentX binary run in t
 - This profile accepts text input; image, audio, and arbitrary attachment blocks are not supported.
 - Provider OAuth, delegated agents and teams, cloud handoff, and automatic binary updates are unavailable.
 - The VS Code extension does not provide a complete session-history browser.
-- Reasoning effort, permission mode, output style, allow/deny rules, bare mode, environment file, and trust loading are restart-bound in VS Code.
+- Reasoning effort, permission mode, output style, allow/deny rules, bare mode, and trust loading are restart-bound in VS Code.
 - MCP support is stdio-only in the current runtime profile.
 
 For implementation boundaries and exact compatibility status, see the repo-local [runtime architecture](.codex/skills/coding-directives/references/runtime-architecture.md), [runtime conformance profile](.codex/skills/coding-directives/references/runtime-conformance.md), and the standalone extension's [VS Code host protocol](https://github.com/greenpau/agentx-vscode-extension/blob/main/docs/PROTOCOL.md).

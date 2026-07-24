@@ -7,7 +7,10 @@ description: Implement the append-only session transcript and recovery protocol,
 
 ## Workflow
 
-1. Persist accepted semantic events incrementally in an append-safe format with stable message and session identities.
+1. Resolve the frozen application-home and workspace identities, acquire the
+   `TX-011` session directory, and persist accepted semantic events
+   incrementally in an append-safe format with stable message and session
+   identities.
 2. Preserve the transcript as a graph: distinguish sequential parents, logical compact parents, streamed assistant siblings, tool-result source parents, branches, and sidechains.
 3. Flush and materialize files under explicit durability, security, deduplication, and remote-ingress rules.
 4. Load defensively, repair legacy and parallel-tool topology, choose the intended live leaf, and restore associated snapshots and metadata.

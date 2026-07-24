@@ -35,6 +35,7 @@ func TestBuildIdentityDefaults(t *testing.T) {
 }
 
 func TestLinkerStampedBuildIdentity(t *testing.T) {
+	configureProcessAuth(t)
 	binary := filepath.Join(t.TempDir(), "agentx")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
@@ -62,6 +63,7 @@ func TestLinkerStampedBuildIdentity(t *testing.T) {
 }
 
 func TestRunProcessInformationalAndUsageExitBoundary(t *testing.T) {
+	configureProcessAuth(t)
 	// runProcess owns process-global signal registration, so these cases must
 	// remain sequential and must not use t.Parallel.
 	tests := []struct {
@@ -121,4 +123,63 @@ func TestRunProcessInformationalAndUsageExitBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunProcessMissingAuthShowsSetupGuidance(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "agentx-home")
+	t.Setenv("AGENTX_HOME", home)
+	var stdout, stderr bytes.Buffer
+	var forceCalls atomic.Int32
+
+	code := runProcess([]string{"--print=true"}, strings.NewReader(""), &stdout, &stderr, func(int) {
+		forceCalls.Add(1)
+	})
+	if code != 1 {
+		t.Fatalf("missing-auth exit code = %d, want 1", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("missing-auth stdout = %q, want empty", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "--print does not accept a value") {
+		t.Fatalf("missing-auth process reached full CLI parsing first: %s", stderr.String())
+	}
+	for _, required := range []string{
+		filepath.Join(home, "auth.json"),
+		"https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md",
+		`"provider": "azure_openai"`,
+		`"api_key": "replace-with-your-secret"`,
+	} {
+		if !strings.Contains(stderr.String(), required) {
+			t.Fatalf("missing-auth stderr lacks %q: %s", required, stderr.String())
+		}
+	}
+	if calls := forceCalls.Load(); calls != 0 {
+		t.Fatalf("missing-auth forceExit calls = %d, want 0", calls)
+	}
+	if _, err := os.Stat(filepath.Join(home, "sessions")); err != nil {
+		t.Fatalf("missing-auth process did not create sessions: %v", err)
+	}
+}
+
+func configureProcessAuth(t *testing.T) {
+	t.Helper()
+	home := filepath.Join(t.TempDir(), "agentx-home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auth := `{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://example.test",
+    "model": "gpt-5.6-sol",
+    "deployment": "gpt-5.6-sol",
+    "api_key": "synthetic-main-test-key",
+    "api_version": "preview"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(auth), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTX_HOME", home)
 }

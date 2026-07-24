@@ -275,7 +275,19 @@ Undefined owner is safe only for known main-thread-only manual clear/compact cal
 
 The background extraction agent has a separate experiment and noninteractive gate; enabling the file-memory prompt does not imply that extraction runs.
 
-**MC-MEM-002 — Directory identity and path safety.** Resolve the memory base from a remote persistent-memory override or the user configuration home. Resolve the full automatic-memory directory from, in order, a validated cowork full-path override, a validated setting from policy/flag/local/user sources, or `<base>/projects/<sanitized-canonical-repository-root>/memory/`. Never accept the project-controlled settings source for this override. A setting may expand a nontrivial home-relative suffix; the environment full-path override may not. Reject relative paths, filesystem roots and near-roots, drive roots, network-share roots, null bytes, and home/ancestor collapses. Canonical repository identity makes linked worktrees share memory; fall back to stable project root when no canonical repository root exists. Cache by project root only after treating environment/settings as session-stable.
+**MC-MEM-002 — Directory identity and path safety.** Resolve the memory base from a remote persistent-memory override or the user configuration home. Resolve the full automatic-memory directory from, in order, a validated cowork full-path override, a validated setting from policy/flag/local/user sources, or `<base>/projects/<sanitized-canonical-repository-root>/memory/`. Never accept the project-controlled settings source for this override. A setting may expand a nontrivial home-relative suffix; the environment full-path override may not. Reject relative paths, filesystem roots and near-roots, drive roots, network-share roots, null bytes, and home/ancestor collapses. Canonical repository identity makes linked worktrees share memory; fall back to stable project root when no canonical repository root exists. Cache by project root only after treating environment/settings as session-stable. Compute this project-scoped path independently from the frozen project identity; never derive it by walking upward from `<application-home>/sessions/<workspace-hash>/<session-id>/` or place memory inside that session tree.
+
+**MC-MEM-002G — Standalone Go bounded path profile.** The current standalone
+Go runtime implements only
+`<application-home>/projects/<workspace-hash>/memory/`, where
+`workspace-hash` is the same bounded hash of the selected absolute workspace
+used to partition sessions. It constructs that path explicitly from the frozen
+application-home selection and never by walking upward from a session path.
+Bare and nonpersistent sessions neither create nor open the project-memory
+tree. It does not implement the override precedence, canonical main-repository
+identity, or linked-worktree sharing required by `MC-MEM-002`; describe those
+features as unavailable rather than tracing this profile to the broader
+contract.
 
 **MC-MEM-003 — File model and taxonomy.** `MEMORY.md` is a concise index, not the store of detailed facts. Topic files are Markdown with maintained name/description/type frontmatter and use the closed types `user`, `feedback`, `project`, and `reference`. Organize semantically rather than chronologically, update or remove stale/incorrect entries, avoid duplicates, and never store information readily derivable from current code/version control, transient task progress, plans, or secrets. An explicit remember/forget request updates the appropriate topic/index immediately.
 
@@ -394,7 +406,15 @@ The background extraction agent has a separate experiment and noninteractive gat
 
 **MC-A12 — Reactive failure.** Prompt-too-long survives one collapse drain and one reactive compact. The original model error is surfaced; stop hooks do not create an infinite continuation loop.
 
-**MC-A13 — Memory path override attack.** A repository-controlled setting points automatic memory at a sensitive home directory and a trusted setting points at a home-relative topic directory. The repository setting is ignored, the trusted nontrivial suffix is expanded/validated, and root/home/ancestor collapses remain rejected.
+**MC-A13 — Memory path override attack.** A repository-controlled setting points automatic memory at a sensitive home directory and a trusted setting points at a home-relative topic directory. The repository setting is ignored, the trusted nontrivial suffix is expanded/validated, and root/home/ancestor collapses remain rejected. Move sessions to the `TX-011` application-home layout and verify the same project still resolves the same independent project memory directory rather than a parent or child of its session directory.
+
+**MC-A13G — Standalone memory placement.** With a frozen isolated application
+home, start a persistent non-bare session and verify memory is created only at
+the explicit `<application-home>/projects/<workspace-hash>/memory/` path while
+the transcript is below `sessions/`. Repeat in bare mode and with
+`--no-session-persistence`; neither run creates or opens the project-memory
+tree. Two distinct absolute worktree paths intentionally receive distinct
+hashes in this bounded profile.
 
 **MC-A14 — Relevance is nonblocking.** A selector remains pending through the first post-tool collection point and settles before the second iteration. The first point waits zero time, the second injects it once, and query exit aborts an unresolved selector without failing the turn.
 

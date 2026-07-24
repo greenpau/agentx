@@ -217,6 +217,7 @@ func TestAzureDirectConstructorRejectsAPIKeyThatWouldChangeOnWire(t *testing.T) 
 		Endpoint: endpoint, ModelName: "gpt-5.6-sol", Deployment: "configured-deployment",
 		APIKey: paddedKey, APIVersion: "2026-07-01-preview", ReasoningEffort: "high",
 		RequestTimeout: 2 * time.Second, StreamWatchdog: time.Second, MaxRetries: 0,
+		UnsafeAllowInsecureLoopbackForTesting: true,
 	}
 	client, err := NewAzureClient(configuration, AzureOptions{HTTPClient: server.Client()})
 	if !errors.Is(err, config.ErrInvalid) || client != nil {
@@ -1456,6 +1457,7 @@ func newTestClient(t *testing.T, serverURL string, overrides configOverrides, op
 		Endpoint: endpoint, ModelName: "gpt-5.6-sol", Deployment: "configured-deployment",
 		APIKey: testAPIKey, APIVersion: "2026-07-01-preview", ReasoningEffort: "high",
 		RequestTimeout: 2 * time.Second, StreamWatchdog: watchdog, MaxRetries: maxRetries,
+		UnsafeAllowInsecureLoopbackForTesting: true,
 	}
 	client, err := NewAzureClient(configuration, options)
 	if err != nil {

@@ -33,6 +33,7 @@ const appLockHelperPathEnv = "AGENTX_TEST_APP_SESSION_LOCK_PATH"
 const buildIdentityHelperEnv = "AGENTX_TEST_BUILD_IDENTITY"
 
 func TestConfiguredBuildIdentityIsImmutable(t *testing.T) {
+	configureTestAuthFilePresence(t)
 	if os.Getenv(buildIdentityHelperEnv) == "1" {
 		const version = "9.8.7"
 		const banner = "agentx 9.8.7, branch: test, commit: deadbeef"
@@ -116,6 +117,72 @@ type failAfterWriter struct {
 	err       error
 }
 
+type testAuthFileDocument struct {
+	Version     int                     `json:"version"`
+	Provider    string                  `json:"provider"`
+	AzureOpenAI testAzureOpenAIAuthFile `json:"azure_openai"`
+}
+
+type testAzureOpenAIAuthFile struct {
+	Endpoint   string `json:"endpoint"`
+	Model      string `json:"model"`
+	Deployment string `json:"deployment"`
+	APIKey     string `json:"api_key"`
+	APIVersion string `json:"api_version"`
+}
+
+func configureTestAgentXHome(t *testing.T, endpoint, model, deployment, apiKey, apiVersion string) (string, string) {
+	t.Helper()
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
+	authPath := writeTestAuthFile(t, agentxHome, endpoint, model, deployment, apiKey, apiVersion)
+	t.Setenv("AGENTX_HOME", agentxHome)
+	return agentxHome, authPath
+}
+
+func testProviderContext(t *testing.T, server *httptest.Server) context.Context {
+	t.Helper()
+	if server == nil || server.Client() == nil {
+		t.Fatal("TLS provider test server is unavailable")
+	}
+	return context.WithValue(t.Context(), modelHTTPClientContextKey{}, server.Client())
+}
+
+func configureTestAuthFilePresence(t *testing.T) {
+	t.Helper()
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
+	if err := os.MkdirAll(agentxHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentxHome, config.DefaultAuthFile), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTX_HOME", agentxHome)
+}
+
+func writeTestAuthFile(t *testing.T, agentxHome, endpoint, model, deployment, apiKey, apiVersion string) string {
+	t.Helper()
+	if err := os.MkdirAll(agentxHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	document := testAuthFileDocument{
+		Version:  1,
+		Provider: "azure_openai",
+		AzureOpenAI: testAzureOpenAIAuthFile{
+			Endpoint: endpoint, Model: model, Deployment: deployment,
+			APIKey: apiKey, APIVersion: apiVersion,
+		},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(agentxHome, config.DefaultAuthFile)
+	if err := os.WriteFile(authPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return authPath
+}
+
 func (w *failAfterWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -169,7 +236,8 @@ func (helper *appLockHelper) release() error {
 	return helper.err
 }
 
-func TestVersionDoesNotRequireCredentials(t *testing.T) {
+func TestVersionUsesAuthFilePresenceGate(t *testing.T) {
+	configureTestAuthFilePresence(t)
 	var output bytes.Buffer
 	if err := Run(t.Context(), []string{"--version"}, strings.NewReader(""), &output, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
@@ -180,6 +248,7 @@ func TestVersionDoesNotRequireCredentials(t *testing.T) {
 }
 
 func TestStartupOutputContainsHostWriterFailures(t *testing.T) {
+	configureTestAuthFilePresence(t)
 	if err := Run(t.Context(), []string{"--help"}, strings.NewReader(""), panicWriter{}, io.Discard); err != errTerminalWriterPanicked {
 		t.Fatalf("help writer panic = %v", err)
 	}
@@ -218,20 +287,19 @@ func TestHeadlessInterruptOwnershipUsesFinalSurfaceInference(t *testing.T) {
 
 func TestStructuredStartupFailureKeepsStdoutCleanAndRedactsCredentials(t *testing.T) {
 	workspace := t.TempDir()
-	envFile := filepath.Join(workspace, ".env.production")
-	if err := os.WriteFile(envFile, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	const secret = "fake-production-secret-for-startup-test"
-	t.Setenv("AZURE_OPENAI_ENDPOINT", "https://example.test/openai?credential="+secret)
-	t.Setenv("AZURE_OPENAI_MODEL_NAME", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", secret)
-	t.Setenv("AZURE_OPENAI_API_VERSION", "2026-07-01-preview")
+	configureTestAgentXHome(
+		t,
+		"https://example.test/openai?credential="+secret,
+		"gpt-5.6-sol",
+		"gpt-5.6-sol",
+		secret,
+		"2026-07-01-preview",
+	)
 	var stdout, stderr bytes.Buffer
 	err := Run(t.Context(), []string{
 		"--print", "--output-format", "stream-json", "--no-session-persistence",
-		"--cwd", workspace, "--env-file", envFile, "hello",
+		"--cwd", workspace, "hello",
 	}, strings.NewReader(""), &stdout, &stderr)
 	if err == nil {
 		t.Fatal("invalid endpoint unexpectedly initialized a structured session")
@@ -247,35 +315,24 @@ func TestStructuredStartupFailureKeepsStdoutCleanAndRedactsCredentials(t *testin
 func TestPostConfigStartupErrorsRedactCredentialAndPreserveCause(t *testing.T) {
 	workspace := t.TempDir()
 	const secret = "opaque-post-config-credential"
-	envFile := filepath.Join(workspace, ".env.production")
-	contents := strings.Join([]string{
-		"AZURE_OPENAI_ENDPOINT=https://example.test",
-		"AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol",
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=" + secret,
-		"AZURE_OPENAI_API_VERSION=2026-07-01-preview",
-	}, "\n") + "\n"
-	if err := os.WriteFile(envFile, []byte(contents), 0o600); err != nil {
+	agentxHome := filepath.Join(t.TempDir(), secret)
+	writeTestAuthFile(t, agentxHome, "https://example.test", "gpt-5.6-sol", "gpt-5.6-sol", secret, "2026-07-01-preview")
+	sessionsRoot := filepath.Join(agentxHome, "sessions")
+	if err := os.Mkdir(sessionsRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, value := range map[string]string{
-		"AZURE_OPENAI_ENDPOINT": "https://example.test", "AZURE_OPENAI_MODEL_NAME": "gpt-5.6-sol",
-		"AZURE_OPENAI_DEPLOYMENT": "gpt-5.6-sol", "AZURE_OPENAI_SUBSCRIPTION_KEY": secret,
-		"AZURE_OPENAI_API_VERSION": "2026-07-01-preview",
-	} {
-		t.Setenv(name, value)
-	}
-	badStateRoot := filepath.Join(t.TempDir(), secret)
-	if err := os.WriteFile(badStateRoot, []byte("not a directory"), 0o600); err != nil {
+	projectHash := sha256.Sum256([]byte(workspace))
+	projectKey := hex.EncodeToString(projectHash[:12])
+	if err := os.WriteFile(filepath.Join(sessionsRoot, projectKey), []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AGENTX_STATE_DIR", badStateRoot)
+	t.Setenv("AGENTX_HOME", agentxHome)
 	_, err := buildSession(t.Context(), buildOptions{CLI: cli.Options{
 		Print: true, Bare: true, OutputFormat: cli.OutputText, InputFormat: cli.InputText,
-		EnvFile: envFile, SessionID: "ses_redacted_path", MaxTurns: 1,
+		SessionID: "ses_redacted_path", MaxTurns: 1,
 	}, Workspace: workspace})
 	if err == nil {
-		t.Fatal("invalid credential-bearing state root unexpectedly succeeded")
+		t.Fatal("invalid credential-bearing AgentX home unexpectedly succeeded")
 	}
 	if strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "[REDACTED]") {
 		t.Fatalf("post-config startup error was not redacted: %v", err)
@@ -290,10 +347,10 @@ func TestPostConfigStartupErrorsRedactCredentialAndPreserveCause(t *testing.T) {
 
 func TestBuildSessionRetainsCrossProcessLockUntilClose(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(t.TempDir(), "state")
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
 	sessionID := "ses_lock_contention"
-	opts := buildTestCLIOptions(t, workspace, stateDir, sessionID)
-	sessionDir := testSessionDir(stateDir, workspace, sessionID)
+	opts := buildTestCLIOptions(t, workspace, agentxHome, sessionID)
+	sessionDir := testSessionDir(agentxHome, workspace, sessionID)
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -362,10 +419,10 @@ func TestBuildSessionRetainsCrossProcessLockUntilClose(t *testing.T) {
 
 func TestBuildFailureReleasesSessionLock(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(t.TempDir(), "state")
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
 	sessionID := "ses_lock_build_failure"
-	opts := buildTestCLIOptions(t, workspace, stateDir, sessionID)
-	sessionDir := testSessionDir(stateDir, workspace, sessionID)
+	opts := buildTestCLIOptions(t, workspace, agentxHome, sessionID)
+	sessionDir := testSessionDir(agentxHome, workspace, sessionID)
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -391,45 +448,30 @@ func TestBuildFailureReleasesSessionLock(t *testing.T) {
 	}
 }
 
-func buildTestCLIOptions(t *testing.T, workspace, stateDir, sessionID string) cli.Options {
+func buildTestCLIOptions(t *testing.T, workspace, agentxHome, sessionID string) cli.Options {
 	t.Helper()
-	envFile := filepath.Join(workspace, ".env.production")
-	contents := strings.Join([]string{
-		"AZURE_OPENAI_ENDPOINT=https://example.test",
-		"AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol",
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=test-key",
-		"AZURE_OPENAI_API_VERSION=2026-07-01-preview",
-	}, "\n") + "\n"
-	if err := os.WriteFile(envFile, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AGENTX_STATE_DIR", stateDir)
-	t.Setenv("AZURE_OPENAI_ENDPOINT", "https://example.test")
-	t.Setenv("AZURE_OPENAI_MODEL_NAME", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", "test-key")
-	t.Setenv("AZURE_OPENAI_API_VERSION", "2026-07-01-preview")
+	writeTestAuthFile(t, agentxHome, "https://example.test", "gpt-5.6-sol", "gpt-5.6-sol", "test-key", "2026-07-01-preview")
+	t.Setenv("AGENTX_HOME", agentxHome)
 	return cli.Options{
 		Print: true, Bare: true, OutputFormat: cli.OutputText, InputFormat: cli.InputText,
-		EnvFile: envFile, SessionID: sessionID, MaxTurns: 1,
+		SessionID: sessionID, MaxTurns: 1,
 	}
 }
 
-func testSessionDir(stateDir, workspace, sessionID string) string {
+func testSessionDir(agentxHome, workspace, sessionID string) string {
 	digest := sha256.Sum256([]byte(workspace))
-	return filepath.Join(stateDir, "projects", hex.EncodeToString(digest[:12]), "sessions", sessionID)
+	return filepath.Join(agentxHome, "sessions", hex.EncodeToString(digest[:12]), sessionID)
 }
 
 func TestHeadlessAzureVerticalSlice(t *testing.T) {
 	const (
-		dotenvModel      = "gpt-5.6-sol"
-		dotenvDeployment = "dotenv-wire-deployment"
-		dotenvAPIKey     = "dotenv-only-test-key"
-		dotenvAPIVersion = "dotenv-test-version"
+		authModel      = "gpt-5.6-sol"
+		authDeployment = "auth-file-wire-deployment"
+		authAPIKey     = "auth-file-only-test-key"
+		authAPIVersion = "auth-file-test-version"
 	)
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
 		if request.Method != http.MethodPost {
 			t.Errorf("method=%s", request.Method)
@@ -437,38 +479,41 @@ func TestHeadlessAzureVerticalSlice(t *testing.T) {
 		if request.URL.Path != "/openai/responses" {
 			t.Errorf("path=%s", request.URL.Path)
 		}
-		if request.URL.Query().Get("api-version") != dotenvAPIVersion {
+		if request.URL.Query().Get("api-version") != authAPIVersion {
 			t.Errorf("api-version=%q", request.URL.Query().Get("api-version"))
 		}
-		if request.Header.Get("api-key") != dotenvAPIKey || request.Header.Get("Authorization") != "" {
-			t.Errorf("authentication headers did not come exclusively from dotenv")
+		if request.Header.Get("api-key") != authAPIKey || request.Header.Get("Authorization") != "" {
+			t.Errorf("authentication headers did not come exclusively from auth.json")
 		}
 		var body map[string]any
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if body["model"] != dotenvDeployment || body["stream"] != true || body["store"] != false {
+		if body["model"] != authDeployment || body["stream"] != true || body["store"] != false {
 			t.Errorf("body=%#v", body)
 		}
 		writer.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
 		fmt.Fprint(writer, "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
 		fmt.Fprint(writer, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"hello\"}\n\n")
-		fmt.Fprintf(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}\n\n", dotenvDeployment)
+		fmt.Fprintf(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"total_tokens\":4}}}\n\n", authDeployment)
 	}))
 	defer server.Close()
 	workspace := t.TempDir()
-	envFile := filepath.Join(workspace, ".env.production")
-	env := fmt.Sprintf("AZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_MODEL_NAME=%s\nAZURE_OPENAI_DEPLOYMENT=%s\nAZURE_OPENAI_SUBSCRIPTION_KEY=%s\nAZURE_OPENAI_API_VERSION=%s\n", server.URL, dotenvModel, dotenvDeployment, dotenvAPIKey, dotenvAPIVersion)
-	if err := os.WriteFile(envFile, []byte(env), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(envFile)
+	agentxHome, authFile := configureTestAgentXHome(
+		t,
+		server.URL,
+		authModel,
+		authDeployment,
+		authAPIKey,
+		authAPIVersion,
+	)
+	info, err := os.Stat(authFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		t.Fatalf("dotenv protection = %s, want regular 0600 file", info.Mode())
+		t.Fatalf("auth.json protection = %s, want regular 0600 file", info.Mode())
 	}
 	credentialKeys := []string{
 		"AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_MODEL_NAME", "AZURE_OPENAI_DEPLOYMENT",
@@ -507,9 +552,9 @@ func TestHeadlessAzureVerticalSlice(t *testing.T) {
 			t.Fatalf("process credential %s remained present with %d bytes", key, len(value))
 		}
 	}
-	loaded, err := config.Load(envFile, os.Environ(), config.Overrides{})
+	loaded, err := config.Load(authFile, os.Environ(), config.Overrides{})
 	if err != nil {
-		t.Fatalf("load dotenv-only configuration: %v", err)
+		t.Fatalf("load auth-file-only configuration: %v", err)
 	}
 	for _, key := range credentialKeys {
 		if loaded.Provenance[key] != config.SourceFile {
@@ -519,20 +564,20 @@ func TestHeadlessAzureVerticalSlice(t *testing.T) {
 	if loaded.Provenance["model"] != config.SourceFile {
 		t.Fatalf("logical model provenance=%q, want %q", loaded.Provenance["model"], config.SourceFile)
 	}
-	t.Setenv("AGENTX_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("AGENTX_HOME", agentxHome)
 	var output, diagnostics bytes.Buffer
-	err = Run(t.Context(), []string{"--print", "--no-session-persistence", "--cwd", workspace, "--env-file", envFile, "--model", dotenvModel, "say hi"}, strings.NewReader(""), &output, &diagnostics)
+	err = Run(testProviderContext(t, server), []string{"--print", "--no-session-persistence", "--cwd", workspace, "--model", authModel, "say hi"}, strings.NewReader(""), &output, &diagnostics)
 	if err != nil {
 		t.Fatalf("Run: %v diagnostics=%q", err, diagnostics.String())
 	}
 	if requests.Load() != 1 {
-		t.Fatalf("provider requests=%d, want exactly one dotenv-backed request", requests.Load())
+		t.Fatalf("provider requests=%d, want exactly one auth-file-backed request", requests.Load())
 	}
 	if output.String() != "hello\n" {
 		t.Fatalf("output=%q", output.String())
 	}
-	if combined := output.String() + diagnostics.String(); strings.Contains(combined, dotenvAPIKey) {
-		t.Fatal("dotenv credential leaked")
+	if combined := output.String() + diagnostics.String(); strings.Contains(combined, authAPIKey) {
+		t.Fatal("auth-file credential leaked")
 	}
 }
 
@@ -554,18 +599,18 @@ func TestHeadlessSlashRoutingPrecedesModelInvocationOnEveryOneShotFormat(t *test
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var requests atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				requests.Add(1)
 				writeCommandRoutingCompletion(writer, "model-called")
 			}))
 			defer server.Close()
-			workspace, envFile := configureCommandRoutingRuntime(t, server.URL)
+			workspace := configureCommandRoutingRuntime(t, server.URL)
 			args := []string{
 				"--print", "--bare", "--no-session-persistence", "--output-format", test.format,
-				"--cwd", workspace, "--env-file", envFile, test.prompt,
+				"--cwd", workspace, test.prompt,
 			}
 			var output, diagnostics bytes.Buffer
-			err := Run(t.Context(), args, strings.NewReader(""), &output, &diagnostics)
+			err := Run(testProviderContext(t, server), args, strings.NewReader(""), &output, &diagnostics)
 			if test.wantErr == nil && err != nil {
 				t.Fatalf("Run: %v diagnostics=%q output=%q", err, diagnostics.String(), output.String())
 			}
@@ -587,22 +632,22 @@ func TestHeadlessSlashRoutingPrecedesModelInvocationOnEveryOneShotFormat(t *test
 
 func TestDuplexStructuredSlashRoutingReportsLocallyAndContinues(t *testing.T) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		writeCommandRoutingCompletion(writer, "after-local-error")
 	}))
 	defer server.Close()
-	workspace, envFile := configureCommandRoutingRuntime(t, server.URL)
+	workspace := configureCommandRoutingRuntime(t, server.URL)
 	input := strings.NewReader(strings.Join([]string{
 		`{"type":"user","uuid":"command-unsupported","message":"/mcp"}`,
 		`{"type":"user","uuid":"command-local","message":"/cost"}`,
 		`{"type":"user","uuid":"command-model","message":"/bad.name"}`,
 	}, "\n") + "\n")
 	var output, diagnostics bytes.Buffer
-	err := Run(t.Context(), []string{
+	err := Run(testProviderContext(t, server), []string{
 		"--print", "--bare", "--no-session-persistence",
 		"--output-format", "stream-json", "--input-format", "stream-json",
-		"--cwd", workspace, "--env-file", envFile,
+		"--cwd", workspace,
 	}, input, &output, &diagnostics)
 	if err != nil {
 		t.Fatalf("Run: %v diagnostics=%q output=%q", err, diagnostics.String(), output.String())
@@ -643,21 +688,11 @@ func TestDuplexStructuredSlashRoutingReportsLocallyAndContinues(t *testing.T) {
 	}
 }
 
-func configureCommandRoutingRuntime(t *testing.T, endpoint string) (string, string) {
+func configureCommandRoutingRuntime(t *testing.T, endpoint string) string {
 	t.Helper()
 	workspace := t.TempDir()
-	envFile := filepath.Join(workspace, ".env.production")
-	data := fmt.Sprintf("AZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_SUBSCRIPTION_KEY=synthetic-command-key\nAZURE_OPENAI_API_VERSION=2026-07-01-preview\n", endpoint)
-	if err := os.WriteFile(envFile, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AGENTX_STATE_DIR", filepath.Join(t.TempDir(), "state"))
-	t.Setenv("AZURE_OPENAI_ENDPOINT", endpoint)
-	t.Setenv("AZURE_OPENAI_MODEL_NAME", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", "synthetic-command-key")
-	t.Setenv("AZURE_OPENAI_API_VERSION", "2026-07-01-preview")
-	return workspace, envFile
+	configureTestAgentXHome(t, endpoint, "gpt-5.6-sol", "gpt-5.6-sol", "synthetic-command-key", "2026-07-01-preview")
+	return workspace
 }
 
 func writeCommandRoutingCompletion(writer http.ResponseWriter, text string) {
@@ -683,7 +718,7 @@ func decodeNDJSONRecords(t *testing.T, output string) []map[string]any {
 
 func TestStructuredPromptUUIDDeduplicatesAfterResume(t *testing.T) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
 		writer.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_dedup\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
@@ -693,23 +728,13 @@ func TestStructuredPromptUUIDDeduplicatesAfterResume(t *testing.T) {
 	defer server.Close()
 
 	workspace := t.TempDir()
-	stateDir := filepath.Join(t.TempDir(), "state")
-	envFile := filepath.Join(workspace, ".env.production")
-	env := fmt.Sprintf("AZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_SUBSCRIPTION_KEY=test-key\nAZURE_OPENAI_API_VERSION=2024-12-01-preview\n", server.URL)
-	if err := os.WriteFile(envFile, []byte(env), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AGENTX_STATE_DIR", stateDir)
-	t.Setenv("AZURE_OPENAI_ENDPOINT", server.URL)
-	t.Setenv("AZURE_OPENAI_MODEL_NAME", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-sol")
-	t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", "test-key")
-	t.Setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+	configureTestAgentXHome(t, server.URL, "gpt-5.6-sol", "gpt-5.6-sol", "test-key", "2024-12-01-preview")
 
-	baseArgs := []string{"--print", "--bare", "--output-format", "stream-json", "--input-format", "stream-json", "--cwd", workspace, "--env-file", envFile, "--max-turns", "1"}
+	baseArgs := []string{"--print", "--bare", "--output-format", "stream-json", "--input-format", "stream-json", "--cwd", workspace, "--max-turns", "1"}
 	input := strings.NewReader(`{"type":"user","uuid":"host-prompt-durable","message":"perform once"}` + "\n")
 	var firstOutput, firstDiagnostics bytes.Buffer
-	if err := Run(t.Context(), append(append([]string(nil), baseArgs...), "--session-id", "ses_structured_dedup"), input, &firstOutput, &firstDiagnostics); err != nil {
+	providerContext := testProviderContext(t, server)
+	if err := Run(providerContext, append(append([]string(nil), baseArgs...), "--session-id", "ses_structured_dedup"), input, &firstOutput, &firstDiagnostics); err != nil {
 		t.Fatalf("first structured run: %v diagnostics=%q", err, firstDiagnostics.String())
 	}
 	if requests.Load() != 1 {
@@ -718,7 +743,7 @@ func TestStructuredPromptUUIDDeduplicatesAfterResume(t *testing.T) {
 
 	input = strings.NewReader(`{"type":"user","uuid":"host-prompt-durable","message":"must not run"}` + "\n")
 	var secondOutput, secondDiagnostics bytes.Buffer
-	if err := Run(t.Context(), append(append([]string(nil), baseArgs...), "--resume", "ses_structured_dedup"), input, &secondOutput, &secondDiagnostics); err != nil {
+	if err := Run(providerContext, append(append([]string(nil), baseArgs...), "--resume", "ses_structured_dedup"), input, &secondOutput, &secondDiagnostics); err != nil {
 		t.Fatalf("resumed structured run: %v diagnostics=%q", err, secondDiagnostics.String())
 	}
 	if requests.Load() != 1 {
@@ -739,7 +764,7 @@ func TestStructuredEOFExitFollowsLastOrdinaryResult(t *testing.T) {
 			var requests atomic.Int32
 			firstStarted := make(chan struct{})
 			releaseFirst := make(chan struct{})
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				if requests.Add(1) == 1 {
 					close(firstStarted)
 					select {
@@ -757,26 +782,17 @@ func TestStructuredEOFExitFollowsLastOrdinaryResult(t *testing.T) {
 			defer close(releaseFirst)
 
 			workspace := t.TempDir()
-			envFile := filepath.Join(workspace, ".env.production")
-			env := fmt.Sprintf("AZURE_OPENAI_ENDPOINT=%s\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_SUBSCRIPTION_KEY=test-key\nAZURE_OPENAI_API_VERSION=2024-12-01-preview\n", server.URL)
-			if err := os.WriteFile(envFile, []byte(env), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("AGENTX_STATE_DIR", filepath.Join(t.TempDir(), "state"))
-			t.Setenv("AZURE_OPENAI_ENDPOINT", server.URL)
-			t.Setenv("AZURE_OPENAI_MODEL_NAME", "gpt-5.6-sol")
-			t.Setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.6-sol")
-			t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", "test-key")
-			t.Setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+			configureTestAgentXHome(t, server.URL, "gpt-5.6-sol", "gpt-5.6-sol", "test-key", "2024-12-01-preview")
 
 			inputReader, inputWriter := io.Pipe()
 			var output, diagnostics bytes.Buffer
+			providerContext := testProviderContext(t, server)
 			done := make(chan error, 1)
 			go func() {
-				done <- Run(t.Context(), []string{
+				done <- Run(providerContext, []string{
 					"--print", "--bare", "--no-session-persistence",
 					"--output-format", "stream-json", "--input-format", "stream-json",
-					"--cwd", workspace, "--env-file", envFile,
+					"--cwd", workspace,
 				}, inputReader, &output, &diagnostics)
 			}()
 			if _, err := fmt.Fprintln(inputWriter, `{"type":"user","uuid":"prompt-interrupted","message":"wait"}`); err != nil {
@@ -821,8 +837,8 @@ func TestStructuredEOFExitFollowsLastOrdinaryResult(t *testing.T) {
 
 func TestStructuredOutputFailurePreventsTurnSideEffects(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(t.TempDir(), "state")
-	opts := buildTestCLIOptions(t, workspace, stateDir, "ses_output_failure")
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
+	opts := buildTestCLIOptions(t, workspace, agentxHome, "ses_output_failure")
 	opts.OutputFormat = cli.OutputStreamJSON
 	opts.InputFormat = cli.InputStreamJSON
 	want := errors.New("structured stdout disconnected")
@@ -831,7 +847,7 @@ func TestStructuredOutputFailurePreventsTurnSideEffects(t *testing.T) {
 	if err := runStructured(t.Context(), opts, workspace, input, stdout, io.Discard); !errors.Is(err, want) {
 		t.Fatalf("structured output failure = %v", err)
 	}
-	transcriptPath := filepath.Join(testSessionDir(stateDir, workspace, opts.SessionID), "transcript.jsonl")
+	transcriptPath := filepath.Join(testSessionDir(agentxHome, workspace, opts.SessionID), "transcript.jsonl")
 	if info, err := os.Stat(transcriptPath); err == nil && info.Size() != 0 {
 		t.Fatalf("turn persisted after running-state output failure: size=%d", info.Size())
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -884,8 +900,8 @@ func TestFatalStructuredInputClosesDequeuedToActiveRace(t *testing.T) {
 
 func TestStructuredReaderDiscardsValidRecordQueuedBeforeMalformedRecord(t *testing.T) {
 	workspace := t.TempDir()
-	stateDir := filepath.Join(t.TempDir(), "state")
-	opts := buildTestCLIOptions(t, workspace, stateDir, "ses_malformed_after_valid")
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
+	opts := buildTestCLIOptions(t, workspace, agentxHome, "ses_malformed_after_valid")
 	opts.OutputFormat = cli.OutputStreamJSON
 	opts.InputFormat = cli.InputStreamJSON
 	session, err := buildSession(t.Context(), buildOptions{CLI: opts, Workspace: workspace, Sink: discardSink{}, Stderr: io.Discard})
@@ -908,7 +924,7 @@ func TestStructuredReaderDiscardsValidRecordQueuedBeforeMalformedRecord(t *testi
 	if session.engine.HasPromptID("queued-before-bad") {
 		t.Fatal("discarded queued prompt was accepted by semantic engine")
 	}
-	transcriptPath := filepath.Join(testSessionDir(stateDir, workspace, opts.SessionID), "transcript.jsonl")
+	transcriptPath := filepath.Join(testSessionDir(agentxHome, workspace, opts.SessionID), "transcript.jsonl")
 	if _, err := os.Stat(transcriptPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("discarded queued prompt materialized transcript: %v", err)
 	}

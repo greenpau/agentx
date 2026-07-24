@@ -54,7 +54,25 @@ Metadata may be session-scoped rather than parent-linked.
 
 **TX-010 — Lazy materialization.** Do not create a fresh session file for metadata or progress alone. Buffer such events while the file pointer is absent. Materialize the file when the first user or assistant message is accepted, append cached startup metadata, then flush buffered events in order.
 
-**TX-011 — Session path.** Store sessions below a sanitized per-project directory and name the main file by session ID. For the current session, use its atomically stored owning project directory when present. A function asked for another session's path may only infer from project identity unless given an explicit full path.
+**TX-011 — Session path.** In the standalone Go profile, place each persistent
+session at
+`<application-home>/sessions/<workspace-hash>/<session-id>/` and its
+authoritative event file at the literal `transcript.jsonl` child. Derive one
+deterministic bounded workspace hash from the normalized absolute selected
+workspace, then freeze it with the selected application-home path before resume
+or creation. `--continue` searches only that workspace directory; explicit
+resume and fork cannot escape it through a session identifier or caller-supplied
+path. Acquire and verify a direct session directory at layout boundaries.
+Individual transcript, lock, task, and result stores retain only the identities
+their owning contracts specify; this placement rule does not claim
+subtree-wide descriptor rooting across every later operation. The pre-CLI
+bootstrap creates only the application home and `sessions/`;
+`--no-session-persistence` may use an owned temporary session directory but
+must not create a workspace-hash or session-ID child. A persistent `--bare`
+session may create its session child but must not create or load the separate
+project-memory tree. Do not silently scan, copy, or delete legacy session roots;
+an upgrade migration is an explicit, backup-first user operation that preserves
+directory ownership and file permissions.
 
 **TX-012 — Local queue.** Maintain a FIFO append queue per target file. Default scheduling delay is 100 milliseconds; remote/internal-event operation may lower it to 10 milliseconds. Drain each file in order and split a batch before accumulated serialized content reaches 100 MiB.
 
@@ -232,6 +250,18 @@ The effective tail window is 64 KiB even where historical prose calls it 16 KiB.
 **TX-A13 — Credential-safe recovery.** Plant an otherwise valid legacy record whose content is a configured credential, reopen with the session validator, and verify it is rejected before any recovered index or public snapshot is returned. Repeat with a valid final record lacking LF whose future LF completes a credential, and with individually safe event/diagnostic fields whose final `Snapshot` JSON reconstructs one. A panicking validator returns a fixed failure and does not crash recovery.
 
 **TX-A14 — Hostile append clock.** Configure clocks that panic, return zero, and reenter the same store with a zero-timestamp event. Each outer append terminates, receives a nonzero UTC timestamp, and preserves coherent sequence/index state; the reentrant case persists both events without deadlock or recursive callback growth.
+
+**TX-A15 — Application-home session placement.** Start persistent sessions
+from two isolated workspaces under one application home. Each transcript,
+session lock, task state, and tool-result store remains below
+`sessions/<its-workspace-hash>/<session-id>/`; `--continue`, resume, and fork
+select only the first workspace's sessions when launched from the first
+workspace. A crafted session ID or symlinked workspace-hash child fails closed;
+a persistent replacement observed at an identity-check boundary fails without
+mutating the replacement. This scenario does not claim resistance to every
+swap-and-restore race inside independently owned stores. A
+`--no-session-persistence` run still observes the bootstrapped top-level
+`sessions/` directory but leaves no workspace-hash or session-ID child.
 
 ## Non-normative provenance
 

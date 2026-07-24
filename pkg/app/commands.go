@@ -96,7 +96,7 @@ func (r *runtimeSession) RunLocalCommand(ctx context.Context, name string, args 
 	case "model":
 		status := r.engine.Status()
 		if raw != "" && raw != status.Model {
-			return command.Result{}, fmt.Errorf("model is fixed by .env.production to %s", status.Model)
+			return command.Result{}, fmt.Errorf("model is fixed by auth.json to %s", status.Model)
 		}
 		return command.Result{Kind: command.ResultLocal, Output: status.Model}, nil
 	case "effort":
@@ -241,7 +241,7 @@ func (r *runtimeSession) RunLocalCommand(ctx context.Context, name string, args 
 		}
 		return command.Result{Kind: command.ResultLocal, Output: selection.Style.CanonicalName}, nil
 	case "login", "logout":
-		return command.Result{}, errors.New("Azure credentials are owned by .env.production; this command will not mutate them")
+		return command.Result{}, errors.New("Azure credentials are owned by auth.json in the AgentX home; this command will not mutate them")
 	default:
 		return command.Result{}, fmt.Errorf("unsupported command /%s", name)
 	}

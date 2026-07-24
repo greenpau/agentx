@@ -60,8 +60,28 @@ A trailing `/**` matches the named directory itself and descendants.
 
 ```text
 .gitconfig .gitmodules .bashrc .bash_profile .zshrc .zprofile .profile
-.ripgreprc .mcp.json .agentx.json
+.ripgreprc .mcp.json .agentx.json auth.json
 ```
+
+The standalone Go profile treats the `auth.json` basename
+case-insensitively on every platform, in addition to protecting the exact
+selected application-home path. Renaming or displacing the home therefore
+cannot turn the still-named credential into an ordinary bypass-authorized
+workspace read. Every configured protected path covers the named object and
+all descendants. The selected application home is one such protected root, so
+an `AGENTX_HOME` placed inside an approved workspace does not expose sessions,
+transcripts, task state, tool results, project memory, or credentials to broad
+read, edit, allow-rule, search, or bypass authorization.
+The standalone Go runtime additionally verifies its frozen application-home
+and `sessions` directory identities both before and after ordinary permission
+evaluation, before execution. A detected rename, replacement, or
+supported-POSIX privacy change returns a terminal denial and latches that
+denial for the process lifetime, regardless of permission mode or requested
+path. A concurrent violation invalidates an approval that was already pending,
+and restoring the original inode does not clear the latch. These are
+authorization-boundary observations, not a claim that arbitrary descendant
+operations are descriptor-rooted or that an external actor cannot race the
+filesystem after authorization returns to execution.
 
 `PATH-021` — At minimum, treat these directories and their control content as dangerous:
 
@@ -240,6 +260,7 @@ Reject unknown security-sensitive shapes rather than interpreting truthy values 
 4. `SAFE=1 env bash -c ... && rm -rf /x` exposes both effective segments. Authorization and destructive analysis see the removal even if the first segment could fail at runtime.
 5. Sandbox is required on an unsupported platform. No process starts, a terminal result is paired with the tool use, and permission state remains unchanged.
 6. A sandboxed command creates a previously absent bare-repository hook. Post-run cleanup removes it and reports a violation without deleting pre-existing repository data.
+7. Start the standalone MCP host in bypass mode with its application home inside the workspace, then rename that home to an otherwise ordinary directory. Reads of both the displaced `auth.json` and a displaced session transcript fail at the application-home identity guard before the ordinary evaluator; no bytes are returned and bypass does not weaken the denial. Restore the original inode and repeat the transcript read; the process-lifetime denial remains latched.
 
 ## Non-normative provenance
 

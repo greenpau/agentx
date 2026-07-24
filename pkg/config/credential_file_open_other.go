@@ -4,6 +4,9 @@ package config
 
 import "os"
 
-func openEnvFile(path string) (*os.File, error) {
+func openCredentialFile(root *os.Root, name, path string) (*os.File, error) {
+	if root != nil {
+		return root.OpenFile(name, os.O_RDONLY, 0)
+	}
 	return os.Open(path)
 }

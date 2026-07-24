@@ -6,14 +6,41 @@ For installation and day-to-day terminal and VS Code workflows, see the [AgentX 
 
 This repository currently delivers the operational local-agent core, not every optional product surface. Retained terminal rendering, delegated teams, remote placement, provider OAuth, marketplace installation, and other optional planes remain explicitly unavailable. The repo-local [runtime conformance profile](.codex/skills/coding-directives/references/runtime-conformance.md) separates operational, partial, contract-only, and unavailable behavior so source presence is never mistaken for a working route.
 
-The production provider is intentionally tailored to `.env.production`:
+AgentX owns one application home. `AGENTX_HOME` is the public absolute
+path override; the deprecated `AGENTX_STATE_DIR` compatibility/test override is
+consulted only when `AGENTX_HOME` is blank; otherwise the home is `~/.agentx`.
+Every invocation creates the application home and its `sessions/` child with
+private permissions on supported Unix platforms before parsing command-line
+arguments. The selected physical home is frozen for bootstrap. Before full CLI
+parsing, every surface—including malformed input, `--help`, `--version`, and
+the standalone MCP tool host—requires `<application-home>/auth.json` to exist
+as a direct regular file. A missing or unusable child is a startup error that points to the
+[authentication instructions in the GitHub user guide](https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md#configure-authentication)
+and prints this placeholder shape:
 
-```text
-AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol
-AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol
+```json
+{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://your-resource.openai.azure.com",
+    "model": "gpt-5.6-sol",
+    "deployment": "gpt-5.6-sol",
+    "api_key": "replace-with-your-secret",
+    "api_version": "preview"
+  }
+}
 ```
 
-The Azure OpenAI endpoint, API version, and subscription key are loaded from that file unless one complete, coherent Azure configuration is supplied by process environment. Mixing dotenv and process credential sources is rejected. On Unix, the file must be a single-link, non-symlink regular file with no group/other permission bits. This portable build cannot prove Windows file ownership or DACL safety, so it rejects plaintext dotenv credential files on Windows; supply one complete Azure configuration through the process environment there. Across supported runtime paths, the Azure model credential is redacted from output, ordinary child environments, model context, and transcripts. Explicit MCP-provider environment values are scoped to that provider's subprocess, and configured provider credential values are scrubbed from its model-facing results.
+Model-backed starts strictly parse this versioned, provider-discriminated
+document. They do not read `.env.production` and do not fall back to process
+environment credentials. On Unix, make `auth.json` owner-readable and
+owner-writable only. Across supported runtime paths, the Azure model credential
+is redacted from output, ordinary child environments, model context, and
+transcripts. Explicit MCP-provider environment values are scoped to that
+provider's subprocess, and configured provider credential values are scrubbed
+from its model-facing results. The current Windows build fails closed before
+reading `auth.json` because native owner/DACL verification is not implemented.
 
 Provider responses are untrusted even when transport authentication succeeds. Structural IDs, names, phases, discriminators, request IDs, and opaque reasoning state are rejected before persistence or execution if they reflect the credential or contain unsafe controls; text and structured error fields are redacted across streaming chunks and adjacent field boundaries. The provider-neutral engine repeats these checks so a custom model adapter cannot bypass the Azure boundary.
 
@@ -42,9 +69,9 @@ agentx --print --input-format stream-json --output-format stream-json
 agentx --mcp-server
 ```
 
-Useful controls include `--effort high`, `--permission-mode plan`, `--allowed-tools`, `--disallowed-tools`, `--resume`, `--continue`, `--fork-session`, and `--no-session-persistence`. Project `AGENTS.md`, repository-local `.codex/skills`, and `.agentx/` plugins, hooks, output styles, and MCP configuration are ignored until `--trust-workspace` is explicit. Skills are never loaded from user configuration, plugins, remote providers, or nested repositories. Run `agentx --help` for the current contract.
+Useful controls include `--effort high`, `--permission-mode plan`, `--allowed-tools`, `--disallowed-tools`, `--resume`, `--continue`, `--fork-session`, and `--no-session-persistence`. Project `AGENTS.md`, repository-local `.codex/skills`, and workspace `.agentx/` plugins, hooks, output styles, and MCP configuration are ignored until `--trust-workspace` is explicit. The private user application home is not that workspace extension directory and never becomes project-controlled merely because a workspace is trusted. Skills are never loaded from user configuration, plugins, remote providers, or nested repositories. Run `agentx --help` for the current contract.
 
-The default reasoning effort is `high`; accepted values for `gpt-5.6-sol` are `none`, `low`, `medium`, `high`, `xhigh`, and `max`. A `--model` override is rejected unless it matches the deployment-backed model in `.env.production`, preventing a logical model label from silently routing to a different Azure deployment.
+The default reasoning effort is `high`; accepted values for `gpt-5.6-sol` are `none`, `low`, `medium`, `high`, `xhigh`, and `max`. A `--model` override is rejected unless it matches the deployment-backed model in `auth.json`, preventing a logical model label from silently routing to a different Azure deployment.
 
 The bidirectional NDJSON adapter remains live for correlated controls and can queue `now`, `next`, and `later` user records while a turn is active. It does not splice a newly arrived prompt into the active recursive model/tool turn: `now` first cancels that turn, then the accepted record runs as the next serialized turn. MCP integration is stdio-only; image and audio result blocks are validated but become inert text/metadata placeholders rather than model attachments, and trusted project MCP configuration does not yet have a separate approval persisted against its exact configuration fingerprint. Resume, fork, and compaction are useful but similarly bounded; see the conformance profile for their explicit compatibility gaps.
 
@@ -64,9 +91,15 @@ Every model-requested side effect crosses one capability boundary:
 resolve → validate → hooks → permission/path/shell policy → execute → normalize → persist
 ```
 
-Denied, malformed, cancelled, timed-out, unavailable, and interrupted calls receive terminal tool results just like successful calls. Read-only concurrency is conservative; mutations and skill-scope changes are scheduling barriers. Bash always requires explicit authorization even when static analysis recognizes a read-only command. Protected files (including every `.env*` file), protected descendants reached through recursive search, out-of-scope paths, symlink/hardlink substitutions, shell redirections, and dangerous removals cannot inherit automatic read or edit permission.
+Denied, malformed, cancelled, timed-out, unavailable, and interrupted calls receive terminal tool results just like successful calls. Read-only concurrency is conservative; mutations and skill-scope changes are scheduling barriers. Bash always requires explicit authorization even when static analysis recognizes a read-only command. Protected credential files (including `<application-home>/auth.json` and every `.env*` file), protected descendants reached through recursive search, out-of-scope paths, symlink/hardlink substitutions, shell redirections, and dangerous removals cannot inherit automatic read or edit permission.
+The complete selected application-home subtree is protected even when an
+`AGENTX_HOME` override places it inside the active workspace or gives it a
+basename other than `.agentx`. AgentX rechecks the frozen home and `sessions/`
+directory identities before and after permission evaluation, before a tool can
+execute. Once a rename, replacement, or supported-POSIX privacy change is
+detected, pending and future tool use is denied until AgentX is restarted.
 
-When session persistence is enabled, history is append-only JSONL with restrictive permissions. User input and accepted tool calls are durable before the corresponding network request or side effect. Recovery never replays an uncertain call: a fully unresolved response-identified assistant/tool group leaves the live projection, while a missing member of a retained mixed group receives only an in-memory interrupted result. Forks copy durable raw evidence, never promote those derived results, and remain hidden behind a completion marker until the destination batch is durable. Forking is not a single transaction across the independent source and destination stores, but a crash-partial destination cannot be selected by `--continue` or explicit resume.
+When session persistence is enabled, history is append-only JSONL below `<application-home>/sessions/<workspace-hash>/<session-id>/` with restrictive permissions. Standalone project memory is separate from session transcripts and keyed by the selected absolute workspace; linked worktrees therefore do not currently share it. User input and accepted tool calls are durable before the corresponding network request or side effect. Recovery never replays an uncertain call: a fully unresolved response-identified assistant/tool group leaves the live projection, while a missing member of a retained mixed group receives only an in-memory interrupted result. Forks copy durable raw evidence, never promote those derived results, and remain hidden behind a completion marker until the destination batch is durable. Forking is not a single transaction across the independent source and destination stores, but a crash-partial destination cannot be selected by `--continue` or explicit resume.
 
 ## Architecture and verification
 

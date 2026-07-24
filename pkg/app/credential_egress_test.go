@@ -216,9 +216,9 @@ func TestBuildSessionProjectsWorkspaceTrustWarningWithCompleteCredentialGuard(t 
 	}
 	stateDir := filepath.Join(t.TempDir(), "state")
 	opts := buildTestCLIOptions(t, workspace, stateDir, "ses_guarded_trust_warning")
+	writeTestAuthFile(t, stateDir, "https://example.test", "gpt-5.6-sol", "gpt-5.6-sol", secret, "2026-07-01-preview")
 	opts.Bare = false
 	opts.NoSessionPersistence = true
-	t.Setenv("AZURE_OPENAI_SUBSCRIPTION_KEY", secret)
 	userRoot := t.TempDir()
 	t.Setenv("HOME", userRoot)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(userRoot, "config"))

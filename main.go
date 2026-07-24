@@ -44,6 +44,16 @@ func main() {
 func runProcess(args []string, stdin io.Reader, stdout, stderr io.Writer, forceExit func(int)) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	var err error
+	ctx, err = agentapp.PrepareApplicationHome(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
+		return 1
+	}
+	if err = agentapp.RequireApplicationAuth(ctx); err != nil {
+		fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
+		return 1
+	}
 	shutdownState := signals.NewProcessShutdown(forceExit, signals.DefaultFailsafe)
 	ctx = signals.WithProcessShutdown(ctx, shutdownState)
 	interruptOwner := signals.InterruptOwnedByProcess

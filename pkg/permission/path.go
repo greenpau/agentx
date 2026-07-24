@@ -12,7 +12,7 @@ var protectedNames = map[string]struct{}{
 	".gitconfig": {}, ".gitmodules": {}, ".bashrc": {}, ".bash_profile": {},
 	".zshrc": {}, ".zprofile": {}, ".profile": {}, ".ripgreprc": {},
 	".mcp.json": {}, ".agentx.json": {}, ".npmrc": {}, ".netrc": {},
-	".pypirc": {}, "credentials": {}, "id_rsa": {}, "id_ed25519": {},
+	".pypirc": {}, "auth.json": {}, "credentials": {}, "id_rsa": {}, "id_ed25519": {},
 }
 
 var protectedDirectories = map[string]struct{}{
@@ -118,7 +118,7 @@ func (r *Resolver) Inspect(input string, operation PathOperation, acceptEdits bo
 	}
 	lexicalInScope := anyContains(r.roots, abs)
 	canonicalInScope := anyContains(r.roots, canonical)
-	protected := isProtected(abs) || isProtected(canonical) || exactProtectedPath(abs, r.protected) || exactProtectedPath(canonical, r.protected)
+	protected := isProtected(abs) || isProtected(canonical) || configuredProtectedPath(abs, r.protected) || configuredProtectedPath(canonical, r.protected)
 	disposition := PathDisposition{Lexical: abs, Canonical: canonical, InScope: lexicalInScope && canonicalInScope, Protected: protected}
 	if protected {
 		disposition.Kind = DecisionAsk
@@ -273,14 +273,14 @@ func IsProtectedPath(path string, configured ...string) bool {
 		return true
 	}
 	abs = filepath.Clean(abs)
-	if exactProtectedPath(abs, configured) {
+	if configuredProtectedPath(abs, configured) {
 		return true
 	}
 	canonical, err := resolveExistingPrefix(abs)
-	return err != nil || exactProtectedPath(canonical, configured)
+	return err != nil || configuredProtectedPath(canonical, configured)
 }
 
-func exactProtectedPath(path string, configured []string) bool {
+func configuredProtectedPath(path string, configured []string) bool {
 	pathInfo, pathInfoErr := os.Stat(path)
 	for _, candidate := range configured {
 		if strings.TrimSpace(candidate) == "" {
@@ -290,7 +290,11 @@ func exactProtectedPath(path string, configured []string) bool {
 			candidate = absolute
 		}
 		candidate = filepath.Clean(candidate)
-		if samePath(path, candidate) {
+		// Configured protection covers the named object and all descendants.
+		// File candidates ordinarily have no descendants, while directory
+		// candidates such as a relocated application home must remain protected
+		// even when they live lexically inside an approved workspace.
+		if pathContains(candidate, path) {
 			return true
 		}
 		// Canonical spelling detects symlinks, while SameFile also detects a
@@ -298,7 +302,7 @@ func exactProtectedPath(path string, configured []string) bool {
 		if candidateInfo, err := os.Stat(candidate); pathInfoErr == nil && err == nil && os.SameFile(pathInfo, candidateInfo) {
 			return true
 		}
-		if canonical, err := resolveExistingPrefix(candidate); err == nil && samePath(path, canonical) {
+		if canonical, err := resolveExistingPrefix(candidate); err == nil && pathContains(canonical, path) {
 			return true
 		}
 	}

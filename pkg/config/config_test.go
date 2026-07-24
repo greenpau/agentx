@@ -12,302 +12,438 @@ import (
 	"time"
 )
 
-type panickingEnvReader struct{}
+const testAuthJSON = `{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://example.openai.azure.com/",
+    "model": "gpt-5.6-sol",
+    "deployment": "file-deployment",
+    "api_key": "synthetic-file-key",
+    "api_version": "2024-12-01-preview"
+  }
+}`
 
-func (panickingEnvReader) Read([]byte) (int, error) {
-	panic("credential-bearing reader panic")
+func writeTestAuthFile(t *testing.T, content string) string {
+	t.Helper()
+	if !credentialFileAccessControlVerified {
+		t.Skip("platform cannot verify owner-only credential-file access")
+	}
+	path := filepath.Join(t.TempDir(), DefaultAuthFile)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
-func TestParseEnvQuotesAndComments(t *testing.T) {
-	got, err := ParseEnv(strings.NewReader("\uFEFF # comment\r\n A = one # x\r\nB=\"two\\nlines\" # comment\r\nC=' literal ' \r\nexport D=ok\r\n"))
+func TestAuthFilePlaceholderIsTheSupportedSchema(t *testing.T) {
+	document, err := parseAuthFile([]byte(AuthFilePlaceholder))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"A": "one", "B": "two\nlines", "C": " literal ", "D": "ok"}
-	for key, value := range want {
-		if got[key] != value {
-			t.Errorf("%s: got %q want %q", key, got[key], value)
-		}
+	if document.Version != 1 || document.Provider != "azure_openai" {
+		t.Fatalf("placeholder identity = %#v", document)
+	}
+	if document.AzureOpenAI.Endpoint != "https://your-resource.openai.azure.com" ||
+		document.AzureOpenAI.Model != DefaultModel ||
+		document.AzureOpenAI.Deployment != DefaultModel ||
+		document.AzureOpenAI.APIKey != "replace-with-your-secret" ||
+		document.AzureOpenAI.APIVersion != "preview" {
+		t.Fatalf("placeholder Azure shape = %#v", document.AzureOpenAI)
 	}
 }
 
-func TestParseEnvRejectsDuplicateAmbiguousAndMalformedInput(t *testing.T) {
+func TestParseAuthFileRejectsUnsupportedAndAmbiguousJSON(t *testing.T) {
+	const fieldMarker = "credential-bearing-field-marker"
 	tests := []struct {
-		name  string
-		input []byte
+		name     string
+		input    string
+		contains string
 	}{
-		{name: "duplicate", input: []byte("A=one\nA=two\n")},
-		{name: "case duplicate", input: []byte("A=one\na=two\n")},
-		{name: "invalid UTF-8", input: []byte{'A', '=', 0xff, '\n'}},
-		{name: "embedded BOM", input: []byte("A=one\n\uFEFFB=two\n")},
-		{name: "source control", input: []byte("A=one\x1bhidden\n")},
-		{name: "quoted trailing data", input: []byte("A=\"one\"trailing\n")},
-		{name: "single quote ambiguity", input: []byte("A='one'trailing'\n")},
+		{
+			name:     "top-level duplicate",
+			input:    `{"version":1,"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview"}}`,
+			contains: "duplicate",
+		},
+		{
+			name:     "escaped duplicate",
+			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","\u0061pi_key":"other","api_version":"preview"}}`,
+			contains: "duplicate",
+		},
+		{
+			name:     "unknown top-level member",
+			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview"},"` + fieldMarker + `":"secret"}`,
+			contains: "unsupported object member",
+		},
+		{
+			name:     "unknown nested member",
+			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview","` + fieldMarker + `":"secret"}}`,
+			contains: "unsupported object member",
+		},
+		{
+			name:     "trailing object",
+			input:    testAuthJSON + `{}`,
+			contains: "trailing",
+		},
+		{
+			name:     "wrong version",
+			input:    strings.Replace(testAuthJSON, `"version": 1`, `"version": 2`, 1),
+			contains: "unsupported schema version",
+		},
+		{
+			name:     "fractional version",
+			input:    strings.Replace(testAuthJSON, `"version": 1`, `"version": 1.0`, 1),
+			contains: "version must be an integer",
+		},
+		{
+			name:     "wrong provider",
+			input:    strings.Replace(testAuthJSON, `"provider": "azure_openai"`, `"provider": "openai"`, 1),
+			contains: "unsupported provider",
+		},
+		{
+			name:     "missing provider",
+			input:    strings.Replace(testAuthJSON, `  "provider": "azure_openai",`+"\n", "", 1),
+			contains: "missing a required object member",
+		},
+		{
+			name:     "missing Azure field",
+			input:    strings.Replace(testAuthJSON, `    "model": "gpt-5.6-sol",`+"\n", "", 1),
+			contains: "missing a required Azure OpenAI field",
+		},
+		{
+			name:     "wrong Azure object type",
+			input:    `{"version":1,"provider":"azure_openai","azure_openai":[]}`,
+			contains: "must be an object",
+		},
+		{
+			name:     "wrong field type",
+			input:    strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, `"api_key": 42`, 1),
+			contains: "fields must be strings",
+		},
+		{
+			name:     "nullable optional-value field",
+			input:    strings.Replace(testAuthJSON, `"api_version": "2024-12-01-preview"`, `"api_version": null`, 1),
+			contains: "fields must be strings",
+		},
+		{
+			name:     "empty required field",
+			input:    strings.Replace(testAuthJSON, `"deployment": "file-deployment"`, `"deployment": "  "`, 1),
+			contains: "empty required",
+		},
+		{
+			name:     "top-level array",
+			input:    `[]`,
+			contains: "one JSON object",
+		},
+		{
+			name:     "malformed",
+			input:    `{"version":`,
+			contains: "malformed JSON",
+		},
+		{
+			name:     "unpaired surrogate",
+			input:    strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, `"api_key": "\ud800"`, 1),
+			contains: "fields must be strings",
+		},
+		{
+			name:     "unpaired low surrogate",
+			input:    strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, `"api_key": "\udc00"`, 1),
+			contains: "fields must be strings",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if values, err := ParseEnv(strings.NewReader(string(test.input))); err == nil || values != nil {
-				t.Fatalf("malformed dotenv accepted: %#v, %v", values, err)
+			document, err := parseAuthFile([]byte(test.input))
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("document=%#v err=%v", document, err)
+			}
+			if !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("error %q does not contain %q", err, test.contains)
+			}
+			if strings.Contains(err.Error(), fieldMarker) || strings.Contains(err.Error(), "synthetic-file-key") {
+				t.Fatalf("auth diagnostic exposed file content: %q", err)
 			}
 		})
 	}
 }
 
-func TestParseEnvContainsReaderPanicsAndDiagnostics(t *testing.T) {
-	values, err := ParseEnv(panickingEnvReader{})
-	if err == nil || values != nil {
-		t.Fatalf("panicking reader = %#v, %v", values, err)
-	}
-	if strings.Contains(err.Error(), "credential-bearing") {
-		t.Fatal("reader panic payload reached the diagnostic")
+func TestParseAuthFileAcceptsReplacementCharacterAndValidSurrogatePair(t *testing.T) {
+	for _, replacement := range []string{
+		`"api_key": "synthetic-\ufffd-key"`,
+		`"api_key": "synthetic-�-key"`,
+		`"api_key": "synthetic-\ud83d\ude00-key"`,
+	} {
+		input := strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, replacement, 1)
+		document, err := parseAuthFile([]byte(input))
+		if err != nil {
+			t.Fatalf("valid JSON string %s was rejected: %v", replacement, err)
+		}
+		if document.AzureOpenAI.APIKey == "" {
+			t.Fatalf("valid JSON string %s decoded empty", replacement)
+		}
 	}
 }
 
-func TestDotenvAndProcessEnvironmentInputsAreBounded(t *testing.T) {
-	var dotenv strings.Builder
-	for index := 0; index <= maxEnvironmentEntryCount; index++ {
-		fmt.Fprintf(&dotenv, "SAFE_%04d=value\n", index)
+func TestParseAuthFileRejectsInvalidUTF8AndOversizedInput(t *testing.T) {
+	invalidUTF8 := append([]byte(testAuthJSON), 0xff)
+	if _, err := parseAuthFile(invalidUTF8); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid UTF-8 error = %v", err)
 	}
-	if values, err := ParseEnv(strings.NewReader(dotenv.String())); err == nil || values != nil {
-		t.Fatalf("oversized dotenv = %#v, %v", values, err)
+	oversized := make([]byte, maxCredentialFileBytes+1)
+	for index := range oversized {
+		oversized[index] = ' '
+	}
+	if _, err := parseAuthFile(oversized); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized input error = %v", err)
+	}
+}
+
+func TestRequireAuthFileChecksPresenceWithoutReading(t *testing.T) {
+	const pathMarker = "credential-bearing-path-marker"
+	missing := filepath.Join(t.TempDir(), pathMarker, DefaultAuthFile)
+	err := RequireAuthFile(missing)
+	if !errors.Is(err, ErrAuthFileMissing) {
+		t.Fatalf("missing auth file error = %v", err)
+	}
+	for _, required := range []string{DefaultAuthFile, UserGuideURL, AuthFilePlaceholder} {
+		if !strings.Contains(err.Error(), required) {
+			t.Fatalf("missing auth diagnostic does not contain %q: %v", required, err)
+		}
+	}
+	if !strings.Contains(err.Error(), pathMarker) {
+		t.Fatalf("missing auth diagnostic omitted the effective path: %v", err)
 	}
 
+	dir := t.TempDir()
+	invalid := filepath.Join(dir, DefaultAuthFile)
+	if err := os.WriteFile(invalid, []byte(`not JSON and not read by this gate`), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequireAuthFile(invalid); err != nil {
+		t.Fatalf("regular-file presence gate parsed or read the file: %v", err)
+	}
+
+	link := filepath.Join(dir, "auth-link")
+	if err := os.Symlink(invalid, link); err == nil {
+		if err := RequireAuthFile(link); err == nil || !strings.Contains(err.Error(), "non-symlink") ||
+			!strings.Contains(err.Error(), UserGuideURL) || !strings.Contains(err.Error(), AuthFilePlaceholder) {
+			t.Fatalf("symlink presence gate error = %v", err)
+		}
+	}
+	if err := RequireAuthFile(dir); err == nil || !strings.Contains(err.Error(), UserGuideURL) ||
+		!strings.Contains(err.Error(), AuthFilePlaceholder) {
+		t.Fatalf("directory presence gate error = %v", err)
+	}
+}
+
+func TestLoadAuthFileNormalizationProvenanceAndRedaction(t *testing.T) {
+	path := writeTestAuthFile(t, testAuthJSON)
+	configuration, err := Load(path, nil, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := configuration.Azure.Endpoint.String(); got != "https://example.openai.azure.com/openai/responses" {
+		t.Fatalf("endpoint = %q", got)
+	}
+	if configuration.Azure.ModelName != DefaultModel ||
+		configuration.Azure.Deployment != "file-deployment" ||
+		configuration.Azure.APIKey != "synthetic-file-key" ||
+		configuration.AuthFile != path {
+		t.Fatalf("configuration = %#v", configuration)
+	}
+	for _, key := range []string{
+		"AZURE_OPENAI_ENDPOINT",
+		"AZURE_OPENAI_MODEL_NAME",
+		"AZURE_OPENAI_DEPLOYMENT",
+		"AZURE_OPENAI_SUBSCRIPTION_KEY",
+		"AZURE_OPENAI_API_VERSION",
+		"model",
+	} {
+		if configuration.Provenance[key] != SourceFile {
+			t.Fatalf("%s provenance = %q", key, configuration.Provenance[key])
+		}
+	}
+	if strings.Contains(configuration.Azure.String(), "synthetic-file-key") ||
+		strings.Contains(fmt.Sprintf("%#v", configuration.Azure), "synthetic-file-key") ||
+		strings.Contains(fmt.Sprintf("%#v", configuration), "synthetic-file-key") ||
+		strings.Contains(configuration.Azure.Redact("x synthetic-file-key y"), "synthetic-file-key") {
+		t.Fatal("secret was not redacted")
+	}
+	encoded, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "synthetic-file-key") || strings.Contains(string(encoded), path) {
+		t.Fatal("JSON serialization exposed a credential or auth-file path")
+	}
+}
+
+func TestLoadAlwaysRequiresAuthFileAndIgnoresAzureProcessCredentials(t *testing.T) {
+	process := []string{
+		"AZURE_OPENAI_ENDPOINT=https://process-attacker.test",
+		"AZURE_OPENAI_MODEL_NAME=process-model",
+		"AZURE_OPENAI_DEPLOYMENT=process-deployment",
+		"AZURE_OPENAI_SUBSCRIPTION_KEY=synthetic-process-key",
+		"AZURE_OPENAI_API_VERSION=process-version",
+		"AGENTX_REASONING_EFFORT=low",
+	}
+	missing := filepath.Join(t.TempDir(), "missing-auth.json")
+	if configuration, err := Load(missing, process, Overrides{}); !errors.Is(err, ErrAuthFileMissing) {
+		t.Fatalf("process credentials bypassed missing auth file: %#v, %v", configuration, err)
+	}
+
+	path := writeTestAuthFile(t, testAuthJSON)
+	configuration, err := Load(path, process, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Azure.Endpoint.Host != "example.openai.azure.com" ||
+		configuration.Azure.ModelName != DefaultModel ||
+		configuration.Azure.Deployment != "file-deployment" ||
+		configuration.Azure.APIKey != "synthetic-file-key" ||
+		configuration.Azure.APIVersion != "2024-12-01-preview" {
+		t.Fatalf("process Azure values overrode auth file: %#v", configuration.Azure)
+	}
+	if configuration.Azure.ReasoningEffort != "low" ||
+		configuration.Provenance["reasoning_effort"] != SourceProcess {
+		t.Fatalf("reasoning effort = %q/%q", configuration.Azure.ReasoningEffort, configuration.Provenance["reasoning_effort"])
+	}
+	for _, key := range []string{
+		"AZURE_OPENAI_ENDPOINT",
+		"AZURE_OPENAI_MODEL_NAME",
+		"AZURE_OPENAI_DEPLOYMENT",
+		"AZURE_OPENAI_SUBSCRIPTION_KEY",
+		"AZURE_OPENAI_API_VERSION",
+	} {
+		if configuration.Provenance[key] != SourceFile {
+			t.Fatalf("%s process provenance was retained: %q", key, configuration.Provenance[key])
+		}
+	}
+}
+
+func TestLoadNeverFallsBackToValidLegacyDotenv(t *testing.T) {
+	workspace := t.TempDir()
+	legacy := filepath.Join(workspace, ".env.production")
+	contents := strings.Join([]string{
+		"AZURE_OPENAI_ENDPOINT=https://legacy.example.test",
+		"AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol",
+		"AZURE_OPENAI_DEPLOYMENT=legacy-deployment",
+		"AZURE_OPENAI_SUBSCRIPTION_KEY=legacy-secret",
+		"AZURE_OPENAI_API_VERSION=preview",
+	}, "\n") + "\n"
+	if err := os.WriteFile(legacy, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	authPath := filepath.Join(workspace, DefaultAuthFile)
+	if configuration, err := Load(authPath, nil, Overrides{}); !errors.Is(err, ErrAuthFileMissing) {
+		t.Fatalf("legacy dotenv bypassed missing auth.json: %#v, %v", configuration, err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{not-json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if configuration, err := Load(authPath, nil, Overrides{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy dotenv bypassed invalid auth.json: %#v, %v", configuration, err)
+	}
+}
+
+func TestLoadAtRootCannotBeRedirectedByApplicationHomeReplacement(t *testing.T) {
+	if !credentialFileAccessControlVerified {
+		t.Skip("platform cannot verify owner-only credential-file access")
+	}
+	parent := t.TempDir()
+	selectedHome := filepath.Join(parent, "agentx-home")
+	if err := os.Mkdir(selectedHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(selectedHome, DefaultAuthFile), []byte(testAuthJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(selectedHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	displacedHome := filepath.Join(parent, "displaced-home")
+	if err := os.Rename(selectedHome, displacedHome); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(selectedHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacement := strings.Replace(testAuthJSON, "synthetic-file-key", "replacement-file-key", 1)
+	replacement = strings.Replace(replacement, "file-deployment", "replacement-deployment", 1)
+	if err := os.WriteFile(filepath.Join(selectedHome, DefaultAuthFile), []byte(replacement), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	configuration, err := LoadAtRoot(
+		root,
+		filepath.Join(selectedHome, DefaultAuthFile),
+		nil,
+		Overrides{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Azure.APIKey != "synthetic-file-key" ||
+		configuration.Azure.Deployment != "file-deployment" {
+		t.Fatalf("descriptor-rooted load used replacement credentials: %#v", configuration.Azure)
+	}
+}
+
+func TestReasoningEffortEnvironmentAndOverridePrecedence(t *testing.T) {
+	path := writeTestAuthFile(t, testAuthJSON)
+	configuration, err := Load(path, []string{"agentx_reasoning_effort=medium"}, Overrides{ReasoningEffort: "xhigh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Azure.ReasoningEffort != "xhigh" ||
+		configuration.Provenance["reasoning_effort"] != SourceFlag {
+		t.Fatalf("override effort = %q/%q", configuration.Azure.ReasoningEffort, configuration.Provenance["reasoning_effort"])
+	}
+
+	_, err = Load(path, []string{
+		"AGENTX_REASONING_EFFORT=low",
+		"agentx_reasoning_effort=high",
+	}, Overrides{})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicate reasoning effort error = %v", err)
+	}
+}
+
+func TestProcessEnvironmentInputIsBounded(t *testing.T) {
 	process := make([]string, maxEnvironmentEntryCount+1)
 	for index := range process {
 		process[index] = fmt.Sprintf("SAFE_%04d=value", index)
 	}
-	if values, err := LoadEnvFile("", process); !errors.Is(err, ErrInvalid) || values != nil {
-		t.Fatalf("oversized process environment = %#v, %v", values, err)
-	}
-}
-
-func TestLoadCoherentSourceNormalizationAndRedaction(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, ".env.production")
-	data := "AZURE_OPENAI_ENDPOINT=https://example.openai.azure.com/\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=file-deploy\nAZURE_OPENAI_SUBSCRIPTION_KEY=supersecret\n AZURE_OPENAI_API_VERSION = \"2024-12-01-preview\"\n"
-	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(file, nil, Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Azure.Endpoint.String(); got != "https://example.openai.azure.com/openai/responses" {
-		t.Fatalf("endpoint = %q", got)
-	}
-	if cfg.Azure.Deployment != "file-deploy" || cfg.Provenance["model"] != SourceFile {
-		t.Fatalf("precedence/provenance = %#v", cfg)
-	}
-	if strings.Contains(cfg.Azure.String(), "supersecret") || strings.Contains(fmt.Sprintf("%#v", cfg.Azure), "supersecret") || strings.Contains(fmt.Sprintf("%#v", cfg), "supersecret") || strings.Contains(cfg.Azure.Redact("x supersecret y"), "supersecret") {
-		t.Fatal("secret was not redacted")
-	}
-	encoded, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "supersecret") {
-		t.Fatal("JSON serialization exposed the credential")
-	}
-}
-
-func TestLoadRejectsMixedAzureCredentialSources(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, ".env.production")
-	data := "AZURE_OPENAI_ENDPOINT=https://attacker.example\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_API_VERSION=preview\n"
-	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(file, []string{"AZURE_OPENAI_SUBSCRIPTION_KEY=exported-secret"}, Overrides{})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "coherent source") {
-		t.Fatalf("mixed credential bundle = %v", err)
-	}
-}
-
-func TestLoadAcceptsCompleteProcessBundleWithoutDotenvFile(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	configuration, err := Load(missing, []string{
-		"AZURE_OPENAI_ENDPOINT=https://example.test",
-		"AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol",
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=synthetic-process-key",
-		"AZURE_OPENAI_API_VERSION=2026-07-01-preview",
-	}, Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if configuration.Azure.ModelName != "gpt-5.6-sol" || configuration.Provenance["AZURE_OPENAI_SUBSCRIPTION_KEY"] != SourceProcess {
-		t.Fatalf("process bundle provenance = %#v", configuration)
-	}
-}
-
-func TestLoadAcceptsCaseInsensitiveProcessNamesAndRejectsDuplicates(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	configuration, err := Load(missing, []string{
-		"azure_openai_endpoint=https://example.test",
-		"Azure_OpenAI_Model_Name=gpt-5.6-sol",
-		"azure_openai_deployment=gpt-5.6-sol",
-		"azure_openai_subscription_key=synthetic-process-key",
-	}, Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if configuration.Provenance["AZURE_OPENAI_SUBSCRIPTION_KEY"] != SourceProcess {
-		t.Fatalf("process provenance = %#v", configuration.Provenance)
-	}
-
-	_, err = Load(missing, []string{
-		"AZURE_OPENAI_ENDPOINT=https://example.test",
-		"azure_openai_endpoint=https://other.test",
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=synthetic-process-key",
-	}, Overrides{})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("duplicate process environment = %v", err)
-	}
-}
-
-func TestLoadAttributesFallbackModelToDefaultNotEmptyProcessValue(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	configuration, err := Load(missing, []string{
-		"AZURE_OPENAI_ENDPOINT=https://example.test",
-		"AZURE_OPENAI_MODEL_NAME=   ",
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=synthetic-process-key",
-	}, Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if configuration.Azure.ModelName != DefaultModel || configuration.Provenance["model"] != SourceDefault {
-		t.Fatalf("fallback model/provenance = %q/%q", configuration.Azure.ModelName, configuration.Provenance["model"])
-	}
-}
-
-func TestLoadRejectsMissingSecretWithoutEcho(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, ".env.production")
-	if err := os.WriteFile(file, []byte("AZURE_OPENAI_ENDPOINT=https://example.test\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(file, nil, Overrides{})
-	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "AZURE_OPENAI_SUBSCRIPTION_KEY") {
-		t.Fatalf("unexpected error %v", err)
-	}
-}
-
-func TestEndpointRejectsInsecureRemote(t *testing.T) {
-	_, err := normalizeEndpoint("http://example.test", "v1")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestEndpointRejectsUserInfoQueryAndFragment(t *testing.T) {
-	for _, endpoint := range []string{
-		"https://user:password@example.test", "https://example.test?key=value", "https://example.test/#fragment",
-	} {
-		if _, err := normalizeEndpoint(endpoint, "v1"); err == nil {
-			t.Errorf("normalizeEndpoint(%q) succeeded", endpoint)
-		}
-	}
-}
-
-func TestLoadEnvFileRejectsSymlinkAndLooseMode(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target")
-	if err := os.WriteFile(target, []byte("A=B\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(dir, "link")
-	if err := os.Symlink(target, link); err == nil {
-		if _, err := LoadEnvFile(link, nil); err == nil {
-			t.Fatal("dotenv symlink was accepted")
-		}
-	}
-	loose := filepath.Join(dir, "loose")
-	if err := os.WriteFile(loose, []byte("A=B\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(loose, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := LoadEnvFile(loose, nil)
-	if err == nil {
-		t.Fatal("loosely permissioned or unverifiable credential file was accepted")
-	}
-}
-
-func TestLoadEnvFileRejectsHardlinkedCredentialFile(t *testing.T) {
-	dir := t.TempDir()
-	original := filepath.Join(dir, ".env.production")
-	if err := os.WriteFile(original, []byte("A=B\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(dir, "credential-alias")
-	if err := os.Link(original, alias); err != nil {
-		t.Skipf("hardlinks unavailable: %v", err)
-	}
-	if _, err := LoadEnvFile(original, nil); err == nil || !strings.Contains(err.Error(), "exactly one") {
-		t.Fatalf("hardlinked dotenv error = %v", err)
-	}
-}
-
-func TestLoadEnvFileDiagnosticsDoNotEchoSelectedPath(t *testing.T) {
-	const marker = "credential-bearing-path-marker"
-	path := filepath.Join(t.TempDir(), marker+"\n")
-	_, err := LoadEnvFile(path, nil)
-	if err == nil {
-		t.Fatal("missing dotenv file was accepted")
-	}
-	if strings.Contains(err.Error(), marker) || strings.ContainsAny(err.Error(), "\r\n") {
-		t.Fatalf("dotenv diagnostic exposed the selected path: %q", err)
-	}
-}
-
-func TestLoadEnvFileRejectsDuplicateKeys(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".env.production")
-	if err := os.WriteFile(path, []byte("A=one\na=two\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadEnvFile(path, nil); err == nil || !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("duplicate dotenv keys = %v", err)
-	}
-}
-
-func TestLoadPreservesCredentialWhitespaceForValidation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".env.production")
-	data := "AZURE_OPENAI_ENDPOINT=https://example.test\n" +
-		"AZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\n" +
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=' synthetic-key '\n"
-	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
-		!strings.Contains(err.Error(), "whitespace") {
-		t.Fatalf("credential whitespace was normalized before validation: %v", err)
+	if value, present, err := reasoningEffortFromEnvironment(process); !errors.Is(err, ErrInvalid) || value != "" || present {
+		t.Fatalf("oversized process environment = %q, %t, %v", value, present, err)
 	}
 }
 
 func TestLoadRejectsUnconfiguredModelOverride(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, ".env.production")
-	data := "AZURE_OPENAI_ENDPOINT=https://example.test\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_SUBSCRIPTION_KEY=secret\n"
-	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
+	path := writeTestAuthFile(t, testAuthJSON)
+	if _, err := Load(path, nil, Overrides{Model: "different-model"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("model override error = %v", err)
+	}
+	configuration, err := Load(path, nil, Overrides{Model: DefaultModel})
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := Load(file, nil, Overrides{Model: "different-model"})
-	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("err=%v", err)
+	if configuration.Provenance["model"] != SourceFlag {
+		t.Fatalf("model provenance = %q", configuration.Provenance["model"])
 	}
 }
 
 func TestLoadLeavesAzureV1VersionImplicit(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, ".env.production")
-	data := "AZURE_OPENAI_ENDPOINT=https://example.test\nAZURE_OPENAI_MODEL_NAME=gpt-5.6-sol\nAZURE_OPENAI_DEPLOYMENT=gpt-5.6-sol\nAZURE_OPENAI_SUBSCRIPTION_KEY=secret\n"
-	if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	configuration, err := Load(file, nil, Overrides{})
+	content := strings.Replace(testAuthJSON, `"api_version": "2024-12-01-preview"`, `"api_version": ""`, 1)
+	path := writeTestAuthFile(t, content)
+	configuration, err := Load(path, nil, Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,6 +452,101 @@ func TestLoadLeavesAzureV1VersionImplicit(t *testing.T) {
 	}
 	if configuration.Provenance["AZURE_OPENAI_API_VERSION"] != SourceDefault {
 		t.Fatalf("API version provenance = %q", configuration.Provenance["AZURE_OPENAI_API_VERSION"])
+	}
+}
+
+func TestLoadPreservesCredentialWhitespaceForValidation(t *testing.T) {
+	content := strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, `"api_key": " synthetic-file-key "`, 1)
+	path := writeTestAuthFile(t, content)
+	if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
+		!strings.Contains(err.Error(), "whitespace") {
+		t.Fatalf("credential whitespace was normalized before validation: %v", err)
+	}
+}
+
+func TestCredentialFileRejectsSymlinkLooseModeAndHardlink(t *testing.T) {
+	if !credentialFileAccessControlVerified {
+		t.Skip("platform cannot verify owner-only credential-file access")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, DefaultAuthFile)
+	if err := os.WriteFile(target, []byte(testAuthJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "auth-link")
+	if err := os.Symlink(target, link); err == nil {
+		if _, err := Load(link, nil, Overrides{}); err == nil {
+			t.Fatal("auth-file symlink was accepted")
+		}
+	}
+
+	loose := filepath.Join(dir, "loose-auth.json")
+	if err := os.WriteFile(loose, []byte(testAuthJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(loose, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(loose, nil, Overrides{}); err == nil {
+		t.Fatal("loosely permissioned credential file was accepted")
+	}
+
+	hardlink := filepath.Join(dir, "auth-hardlink")
+	if err := os.Link(target, hardlink); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	if _, err := Load(target, nil, Overrides{}); err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("hardlinked auth-file error = %v", err)
+	}
+}
+
+func TestCredentialFileDiagnosticsNameAndSafelyQuoteSelectedPath(t *testing.T) {
+	const marker = "credential-bearing-path-marker"
+	path := filepath.Join(t.TempDir(), marker+"\nnext-line")
+	_, err := Load(path, nil, Overrides{})
+	if !errors.Is(err, ErrAuthFileMissing) {
+		t.Fatalf("missing auth file error = %v", err)
+	}
+	if !strings.Contains(err.Error(), marker) {
+		t.Fatalf("auth-file diagnostic omitted the selected path: %q", err)
+	}
+	if strings.Contains(err.Error(), marker+"\nnext-line") || !strings.Contains(err.Error(), `\nnext-line`) {
+		t.Fatalf("auth-file diagnostic did not safely quote the selected path: %q", err)
+	}
+}
+
+func TestCredentialFileRejectsOversizedContentBeforeParsing(t *testing.T) {
+	if !credentialFileAccessControlVerified {
+		t.Skip("platform cannot verify owner-only credential-file access")
+	}
+	path := filepath.Join(t.TempDir(), DefaultAuthFile)
+	content := make([]byte, maxCredentialFileBytes+1)
+	for index := range content {
+		content[index] = ' '
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path, nil, Overrides{}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized auth-file error = %v", err)
+	}
+}
+
+func TestEndpointRejectsInsecureRemote(t *testing.T) {
+	if _, err := normalizeEndpoint("http://example.test", "v1"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestEndpointRejectsUserInfoQueryAndFragment(t *testing.T) {
+	for _, endpoint := range []string{
+		"https://user:password@example.test",
+		"https://example.test?key=value",
+		"https://example.test/#fragment",
+	} {
+		if _, err := normalizeEndpoint(endpoint, "v1"); err == nil {
+			t.Errorf("normalizeEndpoint(%q) succeeded", endpoint)
+		}
 	}
 }
 
@@ -346,7 +577,7 @@ func TestAzureRejectsControlCharactersAndOversizedIdentityFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := Azure{
-		Endpoint: endpoint, ModelName: "gpt-5.6-sol", Deployment: "gpt-5.6-sol", APIKey: "synthetic-key",
+		Endpoint: endpoint, ModelName: DefaultModel, Deployment: DefaultModel, APIKey: "synthetic-key",
 		APIVersion: "2026-07-01-preview", ReasoningEffort: "high", RequestTimeout: time.Second,
 		StreamWatchdog: time.Second, MaxRetries: 1,
 	}
@@ -382,11 +613,12 @@ func TestAzureValidateCannotBypassEndpointCredentialEgressChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := Azure{
-		Endpoint: valid, ModelName: "gpt-5.6-sol", Deployment: "gpt-5.6-sol", APIKey: "synthetic-key",
+		Endpoint: valid, ModelName: DefaultModel, Deployment: DefaultModel, APIKey: "synthetic-key",
 		ReasoningEffort: "high", RequestTimeout: time.Second, StreamWatchdog: time.Second, MaxRetries: 1,
 	}
 	for _, raw := range []string{
 		"http://example.test/openai/v1/responses",
+		"http://[::1]/openai/v1/responses",
 		"https://user:password@example.test/openai/v1/responses",
 		"https://example.test/openai/v1/responses?redirect=attacker",
 		"https://example.test/openai/v1/responses#fragment",
@@ -406,6 +638,7 @@ func TestAzureValidateCannotBypassEndpointCredentialEgressChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	base.Endpoint = loopback
+	base.UnsafeAllowInsecureLoopbackForTesting = true
 	if err := base.Validate(); err != nil {
 		t.Fatalf("loopback test endpoint was rejected: %v", err)
 	}
@@ -419,7 +652,7 @@ func TestConfigurationDiagnosticsOmitConfiguredIdentityAndPath(t *testing.T) {
 	const (
 		credential = "opaque-configuration-credential"
 		identity   = "opaque-deployment-identity"
-		envPath    = "opaque-dotenv-path"
+		authPath   = "opaque-auth-path"
 	)
 	runtime := Runtime{
 		Azure: Azure{
@@ -427,11 +660,11 @@ func TestConfigurationDiagnosticsOmitConfiguredIdentityAndPath(t *testing.T) {
 			APIVersion: "preview", ReasoningEffort: "high", RequestTimeout: time.Second,
 			StreamWatchdog: time.Second, MaxRetries: 1,
 		},
-		EnvFile: envPath,
+		AuthFile: authPath,
 	}
 	for _, rendered := range []string{runtime.String(), runtime.GoString(), fmt.Sprintf("%#v", runtime)} {
 		if strings.Contains(rendered, credential) || strings.Contains(rendered, identity) ||
-			strings.Contains(rendered, envPath) {
+			strings.Contains(rendered, authPath) {
 			t.Fatalf("configuration diagnostic exposed private identity: %q", rendered)
 		}
 	}
@@ -439,7 +672,7 @@ func TestConfigurationDiagnosticsOmitConfiguredIdentityAndPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), credential) || strings.Contains(string(encoded), envPath) {
+	if strings.Contains(string(encoded), credential) || strings.Contains(string(encoded), authPath) {
 		t.Fatalf("configuration JSON exposed a credential path: %s", encoded)
 	}
 }
@@ -455,6 +688,7 @@ func TestConfigurationJSONClosesIdentityAndFramingAliases(t *testing.T) {
 		"Endpoint",
 		"configured",
 		"Runtime",
+		"auth_file",
 		"{",
 		"null",
 		"0",
@@ -466,7 +700,7 @@ func TestConfigurationJSONClosesIdentityAndFramingAliases(t *testing.T) {
 					APIVersion: credential, ReasoningEffort: "high", RequestTimeout: time.Second,
 					StreamWatchdog: time.Second, MaxRetries: 1,
 				},
-				EnvFile: credential,
+				AuthFile: credential,
 			}
 			for name, rendered := range map[string]string{
 				"azure string": runtime.Azure.String(),

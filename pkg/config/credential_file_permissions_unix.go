@@ -7,13 +7,13 @@ import (
 	"syscall"
 )
 
-const envFilePOSIXPermissionsEnforced = true
+const credentialFileAccessControlVerified = true
 
-func envFileModePermitsCredentialUse(mode os.FileMode) bool {
+func credentialFileModePermitsUse(mode os.FileMode) bool {
 	return mode.Perm()&0o077 == 0
 }
 
-func envFileOwnerPermitsCredentialUse(info os.FileInfo) bool {
+func credentialFileOwnerPermitsUse(info os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	return ok && uint64(stat.Uid) == uint64(os.Geteuid())
 }

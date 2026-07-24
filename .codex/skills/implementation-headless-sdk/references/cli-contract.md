@@ -17,9 +17,19 @@
 
 Parse mode-defining arguments before loading the general runtime so special entrypoints can avoid unrelated initialization and establish environment latches before dependent modules evaluate.
 
+The standalone Go profile has one deliberately earlier process prerequisite:
+perform the private application-home bootstrap in `GCFG-PATH-006` before
+the full command-line parser. Immediately afterward, perform the `AUTH-045`
+`auth.json` existence gate before full parsing or dispatching any surface,
+including malformed input. These two bounded filesystem steps do not authorize
+general configuration loading, credential parsing, provider setup, workspace
+discovery, or session construction.
+
 Preserve this precedence:
 
-1. Version-only invocation; print the resolved product build-identity banner with no normal initialization.
+1. Version-only invocation; after the shared bootstrap and credential-file
+   existence gate, print the resolved product build-identity banner with no
+   normal initialization or credential parsing.
 2. Profiler entry.
 3. Build-only system-prompt dump.
 4. Browser/native/computer-use MCP host modes.
@@ -35,7 +45,12 @@ Preserve this precedence:
 14. Bare-mode environment latch.
 15. Start early input capture and load the normal main entrypoint.
 
-- **CLI-001 — Fast-path isolation.** A fast path initializes only the services it requires and uses its own output contract.
+- **CLI-001 — Fast-path isolation.** A fast path initializes only the services
+  it requires and uses its own output contract. The standalone Go
+  `GCFG-PATH-006` directory bootstrap and `AUTH-045` existence gate are common
+  process prerequisites rather than surface services; help, version, and
+  standalone MCP perform them but do not parse `auth.json`, construct a model
+  provider, discover workspace extensions, or create a persistent session.
 - **CLI-002 — Position-sensitive commands.** Special assistant and SSH forms are recognized only in their documented argument position so ordinary prompt text containing those words is not rerouted.
 - **CLI-003 — Deep links.** Recognized application URI forms are handled before full session initialization; interactive direct-connect links may be rewritten into pending connection state, while headless links route to the appropriate noninteractive command.
 
@@ -83,7 +98,7 @@ Output formats:
 
 ## Validation rules
 
-- **CLI-010 — Format constraints.** Stream input requires stream output. Replay requires both directions to stream. Partial assistant events require print plus stream output. Disabling persistence is print-only.
+- **CLI-010 — Format constraints.** Stream input requires stream output. Replay requires both directions to stream. Partial assistant events require print plus stream output. Disabling persistence is print-only; in the standalone Go profile it selects a temporary nonresumable session, conflicts with resume/continue/fork, and disables project-memory loading and commands.
 - **CLI-011 — SDK normalization.** Supplying an SDK URL forces print, verbose, stream input and stream output.
 - **CLI-012 — Prompt source exclusivity.** A direct replacement system prompt conflicts with replacement-from-file; append text conflicts with append-from-file. File read errors identify the failing source before execution.
 - **CLI-013 — Model fallback.** Fallback model must differ from the primary model.
@@ -99,16 +114,20 @@ Output formats:
 
 For ordinary noninteractive execution:
 
-1. Apply explicitly supplied setting sources early enough to affect initialization.
-2. Initialize configuration, identity, network and policy without rendering dialogs.
-3. On configuration error, write a clean error to stderr and shut down with status 1.
-4. Establish permission context before assembling tools.
-5. Complete setup before any cwd-dependent work.
-6. Treat noninteractive project use as already trust-authorized by invocation; apply the full environment afterward.
-7. Begin local MCP configuration reads early, but do not run unapproved work before setup/policy.
-8. Build a non-rendering application-state store and manually attach settings/state subscriptions normally provided by UI components.
-9. Run required setup and session-start hooks in their documented order.
-10. Start the headless runner without requiring a terminal component tree to keep the process alive.
+1. Complete `GCFG-PATH-006`, cross the `AUTH-045` presence gate, and only then
+   run the full CLI parser. Help/version dispatch and ordinary option validation
+   follow parsing. Model-backed execution completes ordinary validation before
+   the strict `AUTH-044`/`AUTH-045` read and provider construction.
+2. Apply explicitly supplied setting sources early enough to affect initialization.
+3. Initialize configuration, identity, network and policy without rendering dialogs.
+4. On configuration error, write a clean error to stderr and shut down with status 1.
+5. Establish permission context before assembling tools.
+6. Complete setup before any cwd-dependent work.
+7. Treat noninteractive project use as already trust-authorized by invocation; apply the full environment afterward.
+8. Begin local MCP configuration reads early, but do not run unapproved work before setup/policy.
+9. Build a non-rendering application-state store and manually attach settings/state subscriptions normally provided by UI components.
+10. Run required setup and session-start hooks in their documented order.
+11. Start the headless runner without requiring a terminal component tree to keep the process alive.
 
 Regular headless MCP connections required for turn one are awaited. Account-hosted connector discovery is bounded to 5,000 ms; on timeout, proceed while background connection updates may affect later turns.
 
@@ -135,6 +154,9 @@ Regular headless MCP connections required for turn one are awaited. Account-host
 ## Failure behavior
 
 - Parse/validation/configuration errors occur before any JSON stdout record when possible.
+- Missing or invalid required model authentication fails before structured
+  protocol initialization; missing `auth.json` also fails informational and
+  standalone-MCP surfaces before their ordinary output.
 - In structured mode, runtime failure emits one terminal error result when the protocol is initialized, then exits nonzero.
 - Diagnostics never appear as unframed stdout in JSON modes.
 - A stdin first-byte timeout warns and continues; a malformed stream record is fatal.
@@ -142,7 +164,11 @@ Regular headless MCP connections required for turn one are awaited. Account-host
 
 ## Acceptance scenarios
 
-1. Run version-only with broken user configuration for both a source-default build and a linker-stamped build; verify the corresponding build-identity banner prints and configuration is never loaded.
+1. Run version-only for both a source-default build and a linker-stamped build
+   with a present but malformed `auth.json`; verify the corresponding
+   build-identity banner prints and credential contents are never parsed.
+   Remove `auth.json` and repeat; both runs fail with the `AUTH-A11`
+   diagnostic and print no banner.
 2. Pipe no data into text mode; verify a warning after 3 seconds and no indefinite block.
 3. Supply positional and stdin prompts; verify newline joining and one user workload.
 4. Request stream input with text output; verify fail-fast validation and no protocol records.

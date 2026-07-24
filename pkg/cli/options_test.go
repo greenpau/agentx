@@ -116,6 +116,19 @@ func TestOwnedProcessTreeFlagAndHelp(t *testing.T) {
 	}
 }
 
+func TestCredentialFileIsNotCommandLineSelectable(t *testing.T) {
+	if _, err := Parse([]string{"--env-file", "credentials.env", "prompt"}); err == nil {
+		t.Fatal("removed --env-file option was accepted")
+	}
+	usage := Usage()
+	if strings.Contains(usage, "--env-file") || strings.Contains(usage, ".env.production") {
+		t.Fatalf("help still advertises dotenv credential selection: %q", usage)
+	}
+	if !strings.Contains(usage, "auth.json") {
+		t.Fatal("help does not identify auth.json as the model configuration source")
+	}
+}
+
 func TestRawPrintRequestedUsesFullOptionGrammar(t *testing.T) {
 	if !RawPrintRequested([]string{"--system-prompt=hello", "--print", "prompt"}) {
 		t.Fatal("valid raw print option was missed")

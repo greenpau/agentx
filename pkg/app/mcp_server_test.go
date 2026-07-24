@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/greenpau/agentx/pkg/cli"
+	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/mcp"
 	agenttesting "github.com/greenpau/agentx/pkg/testing"
 	"github.com/greenpau/agentx/pkg/tool"
@@ -43,6 +44,7 @@ func TestApplicationTestingCapabilityCompositionIsEnvironmentGated(t *testing.T)
 
 func TestStandaloneMCPHostReusesCorePermissionBoundary(t *testing.T) {
 	workspace := t.TempDir()
+	writeMCPAuthFixture(t, filepath.Join(t.TempDir(), "agentx-home"), "synthetic-mcp-host-key")
 	path := filepath.Join(workspace, "note.txt")
 	if err := os.WriteFile(path, []byte("hello from MCP\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -129,18 +131,14 @@ func TestStandaloneMCPHostReusesCorePermissionBoundary(t *testing.T) {
 
 func TestStandaloneMCPHostProtectsSelectedCredentialFileEvenInBypassMode(t *testing.T) {
 	workspace := t.TempDir()
-	credentialName := "private-provider.settings"
-	credentialPath := filepath.Join(workspace, credentialName)
 	const secret = "synthetic-standalone-provider-secret"
-	if err := os.WriteFile(credentialPath, []byte(secret), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	credentialPath := writeMCPAuthFixture(t, filepath.Join(workspace, "agentx-home"), secret)
 	reader, writer := io.Pipe()
 	var output synchronizedBuffer
 	done := make(chan error, 1)
 	go func() {
 		done <- runMCPServer(context.Background(), cli.Options{
-			MCPServer: true, DangerouslyBypass: true, EnvFile: credentialName,
+			MCPServer: true, DangerouslyBypass: true,
 		}, workspace, reader, &output, &bytes.Buffer{})
 	}()
 	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"Read","arguments":{"file_path":` + mustJSON(t, credentialPath) + `}}}` + "\n"
@@ -168,6 +166,152 @@ func TestStandaloneMCPHostProtectsSelectedCredentialFileEvenInBypassMode(t *test
 	if strings.Contains(response, secret) || !strings.Contains(response, `"isError":true`) || !strings.Contains(response, "permission prompt required") {
 		t.Fatalf("selected credential path escaped MCP host protection: %s", response)
 	}
+}
+
+func TestStandaloneMCPHostProtectsApplicationHomeDescendantsInBypassMode(t *testing.T) {
+	workspace := t.TempDir()
+	home := filepath.Join(workspace, "custom-agentx-home")
+	writeMCPAuthFixture(t, home, "synthetic-home-boundary-key")
+	const stateMarker = "synthetic-private-session-state"
+	statePath := filepath.Join(home, "sessions", "workspace", "session", "transcript.jsonl")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, []byte(stateMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, writer := io.Pipe()
+	var output synchronizedBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- runMCPServer(context.Background(), cli.Options{
+			MCPServer: true, DangerouslyBypass: true,
+		}, workspace, reader, &output, &bytes.Buffer{})
+	}()
+	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"Read","arguments":{"file_path":` + mustJSON(t, statePath) + `}}}` + "\n"
+	if _, err := io.WriteString(writer, request); err != nil {
+		t.Fatal(err)
+	}
+	waitForMCPOutput(t, done, &output, `"id":1`)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	response := output.String()
+	if strings.Contains(response, stateMarker) || !strings.Contains(response, `"isError":true`) ||
+		!strings.Contains(response, "permission prompt required") {
+		t.Fatalf("application-home descendant escaped MCP protection: %s", response)
+	}
+}
+
+func TestStandaloneMCPHostProtectsDisplacedApplicationHomeAfterRename(t *testing.T) {
+	workspace := t.TempDir()
+	home := filepath.Join(workspace, ".agentx")
+	const secret = "synthetic-renamed-home-provider-secret"
+	writeMCPAuthFixture(t, home, secret)
+	const stateMarker = "synthetic-renamed-home-session-state"
+	statePath := filepath.Join(home, "sessions", "workspace", "session", "transcript.jsonl")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, []byte(stateMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, writer := io.Pipe()
+	var output synchronizedBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- runMCPServer(context.Background(), cli.Options{
+			MCPServer: true, DangerouslyBypass: true,
+		}, workspace, reader, &output, &bytes.Buffer{})
+	}()
+	if _, err := io.WriteString(writer, `{"jsonrpc":"2.0","id":0,"method":"initialize"}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitForMCPOutput(t, done, &output, `"id":0`)
+
+	displaced := filepath.Join(workspace, "ordinary-old-home")
+	if err := os.Rename(home, displaced); err != nil {
+		t.Fatal(err)
+	}
+	displacedAuth := filepath.Join(displaced, config.DefaultAuthFile)
+	displacedState := filepath.Join(displaced, "sessions", "workspace", "session", "transcript.jsonl")
+	requests := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"Read","arguments":{"file_path":` + mustJSON(t, displacedAuth) + `}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"Read","arguments":{"file_path":` + mustJSON(t, displacedState) + `}}}`,
+	}, "\n") + "\n"
+	if _, err := io.WriteString(writer, requests); err != nil {
+		t.Fatal(err)
+	}
+	waitForMCPOutput(t, done, &output, `"id":1`)
+	waitForMCPOutput(t, done, &output, `"id":2`)
+	if err := os.Rename(displaced, home); err != nil {
+		t.Fatal(err)
+	}
+	restoredRequest := `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"Read","arguments":{"file_path":` + mustJSON(t, statePath) + `}}}` + "\n"
+	if _, err := io.WriteString(writer, restoredRequest); err != nil {
+		t.Fatal(err)
+	}
+	waitForMCPOutput(t, done, &output, `"id":3`)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	response := output.String()
+	if strings.Contains(response, secret) || strings.Contains(response, stateMarker) ||
+		strings.Count(response, `"isError":true`) != 3 ||
+		!strings.Contains(response, "AgentX home identity changed") {
+		t.Fatalf("displaced application home escaped identity protection: %s", response)
+	}
+}
+
+func waitForMCPOutput(t *testing.T, done <-chan error, output *synchronizedBuffer, marker string) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for !strings.Contains(output.String(), marker) {
+		select {
+		case err := <-done:
+			t.Fatalf("MCP host exited before response %s: %v", marker, err)
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for MCP response %s: %s", marker, output.String())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+func writeMCPAuthFixture(t *testing.T, home, secret string) string {
+	t.Helper()
+	t.Setenv("AGENTX_HOME", home)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(home, "auth.json")
+	document := map[string]any{
+		"version":  1,
+		"provider": "azure_openai",
+		"azure_openai": map[string]any{
+			"endpoint":    "https://example.test",
+			"model":       "gpt-5.6-sol",
+			"deployment":  "gpt-5.6-sol",
+			"api_key":     secret,
+			"api_version": "preview",
+		},
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return authPath
 }
 
 type synchronizedBuffer struct {

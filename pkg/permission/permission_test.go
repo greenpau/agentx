@@ -690,7 +690,7 @@ func TestResolverChecksSymlinkTargetAndProtectedPaths(t *testing.T) {
 	if escape.Kind != DecisionAsk || escape.InScope {
 		t.Fatalf("symlink escape unexpectedly authorized: %+v", escape)
 	}
-	for _, name := range []string{".env", ".env.production", ".ENV.LOCAL", ".envrc", ".env-production", ".environment"} {
+	for _, name := range []string{".env", ".env.production", ".ENV.LOCAL", ".envrc", ".env-production", ".environment", "auth.json", "AUTH.JSON"} {
 		protected := resolver.Inspect(filepath.Join(workspace, name), PathWrite, true)
 		if protected.Kind != DecisionAsk || !protected.Protected {
 			t.Fatalf("protected dotenv path %q unexpectedly authorized for write: %+v", name, protected)
@@ -719,6 +719,31 @@ func TestResolverProtectsExactConfiguredCredentialPathAndAgentDirectory(t *testi
 		if decision := resolver.Inspect(path, PathRead, false); decision.Kind != DecisionAsk || !decision.Protected {
 			t.Fatalf("configured control path was not protected: %s => %#v", path, decision)
 		}
+	}
+}
+
+func TestResolverProtectsConfiguredApplicationHomeDescendants(t *testing.T) {
+	workspace := t.TempDir()
+	applicationHome := filepath.Join(workspace, "custom-agentx-home")
+	sessionFile := filepath.Join(applicationHome, "sessions", "workspace", "session", "transcript.jsonl")
+	if err := os.MkdirAll(filepath.Dir(sessionFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionFile, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewResolver(workspace, nil, applicationHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []PathOperation{PathRead, PathWrite} {
+		decision := resolver.Inspect(sessionFile, operation, true)
+		if decision.Kind != DecisionAsk || !decision.Protected {
+			t.Fatalf("application-home descendant %s was not protected: %#v", operation, decision)
+		}
+	}
+	if !IsProtectedPath(sessionFile, applicationHome) {
+		t.Fatal("recursive capability predicate exposed an application-home descendant")
 	}
 }
 

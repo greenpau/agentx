@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-func openedEnvFileLinkCount(file *os.File, _ os.FileInfo) (uint64, error) {
+func openedCredentialFileLinkCount(file *os.File, _ os.FileInfo) (uint64, error) {
 	var info syscall.ByHandleFileInformation
 	if err := syscall.GetFileInformationByHandle(syscall.Handle(file.Fd()), &info); err != nil {
 		return 0, err

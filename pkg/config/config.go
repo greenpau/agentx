@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/textproto"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -18,22 +19,58 @@ import (
 )
 
 const (
-	DefaultEnvFile         = ".env.production"
+	DefaultAuthFile        = "auth.json"
 	DefaultModel           = "gpt-5.6-sol"
 	DefaultAzureAPIVersion = ""
 	DefaultReasoningEffort = "high"
 	DefaultRequestTimeout  = 10 * time.Minute
 	DefaultStreamWatchdog  = 90 * time.Second
 	DefaultMaxRetries      = 10
+
+	// UserGuideURL is the stable user-facing setup guide for authentication
+	// failures that must be resolved outside the running process.
+	UserGuideURL = "https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md"
+
+	// AuthFilePlaceholder is safe to include in diagnostics and documentation.
+	// It is the complete supported auth-file schema, with no live credential.
+	AuthFilePlaceholder = `{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://your-resource.openai.azure.com",
+    "model": "gpt-5.6-sol",
+    "deployment": "gpt-5.6-sol",
+    "api_key": "replace-with-your-secret",
+    "api_version": "preview"
+  }
+}`
 )
 
-var ErrInvalid = errors.New("invalid configuration")
+var (
+	ErrInvalid         = errors.New("invalid configuration")
+	ErrAuthFileMissing = errors.New("auth file is missing")
+)
+
+// MissingAuthFileDiagnostic returns the credential-independent setup guidance
+// presented when ErrAuthFileMissing stops normal startup. The effective path
+// is quoted so control characters cannot alter terminal framing.
+func MissingAuthFileDiagnostic(path string) string {
+	if path == "" {
+		path = "~/.agentx/" + DefaultAuthFile
+	}
+	return fmt.Sprintf(
+		"AgentX credentials are not configured. Create the authentication file at %q with this shape:\n%s\nSee %s",
+		path,
+		AuthFilePlaceholder,
+		UserGuideURL,
+	)
+}
 
 type Source string
 
 const (
 	SourceDefault Source = "default"
-	SourceFile    Source = "dotenv"
+	SourceFile    Source = "auth_file"
 	SourceProcess Source = "process"
 	SourceFlag    Source = "flag"
 )
@@ -50,11 +87,15 @@ type Azure struct {
 	RequestTimeout  time.Duration
 	StreamWatchdog  time.Duration
 	MaxRetries      int
+
+	// UnsafeAllowInsecureLoopbackForTesting is an explicit transport test
+	// seam. Application configuration loading never sets it.
+	UnsafeAllowInsecureLoopbackForTesting bool `json:"-"`
 }
 
 type Runtime struct {
 	Azure      Azure
-	EnvFile    string `json:"-"`
+	AuthFile   string `json:"-"`
 	Provenance map[string]Source
 }
 
@@ -68,76 +109,56 @@ type Overrides struct {
 
 func Load(pathname string, environ []string, overrides Overrides) (Runtime, error) {
 	if pathname == "" {
-		pathname = DefaultEnvFile
+		pathname = DefaultAuthFile
 	}
-	processValues, processKeys, err := parseProcessEnvironment(environ)
+	return load(authFileLocation{path: pathname}, environ, overrides)
+}
+
+// LoadAtRoot loads the literal auth.json child through a caller-owned,
+// descriptor-pinned application-home root. pathname is retained only for
+// diagnostics and protected-path attribution.
+func LoadAtRoot(root *os.Root, pathname string, environ []string, overrides Overrides) (Runtime, error) {
+	if root == nil {
+		return Runtime{}, errors.New("auth file root is unavailable")
+	}
+	if pathname == "" {
+		pathname = DefaultAuthFile
+	}
+	return load(authFileLocation{root: root, path: pathname}, environ, overrides)
+}
+
+func load(location authFileLocation, environ []string, overrides Overrides) (Runtime, error) {
+	auth, err := loadAuthFile(location)
 	if err != nil {
 		return Runtime{}, err
 	}
-	var values map[string]string
-	if completeAzureProcessBundle(processValues) {
-		// A complete process-owned bundle is an alternative credential source,
-		// not an overlay. Do not require or inspect a dotenv file that will not
-		// contribute to the runtime configuration.
-		values = make(map[string]string, len(processValues))
-		for key, value := range processValues {
-			values[key] = value
-		}
-	} else {
-		values, err = loadEnvFile(pathname, processValues)
-		if err != nil {
-			return Runtime{}, err
-		}
-	}
-	provenance := make(map[string]Source)
-	sourceFor := func(key string) Source {
-		if processKeys[key] {
-			return SourceProcess
-		}
-		if _, ok := values[key]; ok {
-			return SourceFile
-		}
-		return SourceDefault
-	}
-	credentialKeys := []string{
-		"AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_MODEL_NAME", "AZURE_OPENAI_DEPLOYMENT",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY", "AZURE_OPENAI_API_VERSION",
-	}
-	credentialSource := Source("")
-	for _, key := range credentialKeys {
-		if strings.TrimSpace(values[key]) == "" {
-			continue
-		}
-		source := sourceFor(key)
-		provenance[key] = source
-		if credentialSource == "" {
-			credentialSource = source
-			continue
-		}
-		if source != credentialSource {
-			return Runtime{}, fmt.Errorf("%w: Azure endpoint, model, deployment, API version, and subscription key must come from one coherent source; process and dotenv values cannot be mixed", ErrInvalid)
-		}
+	processEffort, processEffortSet, err := reasoningEffortFromEnvironment(environ)
+	if err != nil {
+		return Runtime{}, err
 	}
 
-	configuredModel := strings.TrimSpace(values["AZURE_OPENAI_MODEL_NAME"])
-	if configuredModel == "" {
-		configuredModel = DefaultModel
-		provenance["model"] = SourceDefault
-	} else {
-		provenance["model"] = sourceFor("AZURE_OPENAI_MODEL_NAME")
+	provenance := make(map[string]Source)
+	for _, key := range []string{
+		"AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_MODEL_NAME", "AZURE_OPENAI_DEPLOYMENT",
+		"AZURE_OPENAI_SUBSCRIPTION_KEY", "AZURE_OPENAI_API_VERSION",
+	} {
+		provenance[key] = SourceFile
 	}
+
+	configuredModel := strings.TrimSpace(auth.AzureOpenAI.Model)
+	provenance["model"] = SourceFile
 	model := configuredModel
 	if overrides.Model != "" {
 		if strings.TrimSpace(overrides.Model) != configuredModel {
-			return Runtime{}, fmt.Errorf("%w: --model is not the deployment-backed model configured by AZURE_OPENAI_MODEL_NAME", ErrInvalid)
+			return Runtime{}, fmt.Errorf("%w: --model is not the deployment-backed model configured by auth.json", ErrInvalid)
 		}
 		model = overrides.Model
 		provenance["model"] = SourceFlag
 	}
 	effort := DefaultReasoningEffort
-	if v := strings.TrimSpace(values["AGENTX_REASONING_EFFORT"]); v != "" {
+	if v := strings.TrimSpace(processEffort); processEffortSet && v != "" {
 		effort = v
-		provenance["reasoning_effort"] = sourceFor("AGENTX_REASONING_EFFORT")
+		provenance["reasoning_effort"] = SourceProcess
 	} else {
 		provenance["reasoning_effort"] = SourceDefault
 	}
@@ -159,7 +180,7 @@ func Load(pathname string, environ []string, overrides Overrides) (Runtime, erro
 		maxRetries = overrides.MaxRetries
 	}
 
-	apiVersion := strings.TrimSpace(values["AZURE_OPENAI_API_VERSION"])
+	apiVersion := strings.TrimSpace(auth.AzureOpenAI.APIVersion)
 	if apiVersion == "" {
 		// Keep Azure's v1 selector implicit. The OpenAI-compatible endpoint
 		// documents v1 as the default, and omitting the query is required by
@@ -167,7 +188,7 @@ func Load(pathname string, environ []string, overrides Overrides) (Runtime, erro
 		apiVersion = DefaultAzureAPIVersion
 		provenance["AZURE_OPENAI_API_VERSION"] = SourceDefault
 	}
-	rawEndpoint := strings.TrimSpace(values["AZURE_OPENAI_ENDPOINT"])
+	rawEndpoint := strings.TrimSpace(auth.AzureOpenAI.Endpoint)
 	endpoint, err := normalizeEndpoint(rawEndpoint, apiVersion)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("%w: Azure OpenAI endpoint: %v", ErrInvalid, err)
@@ -175,27 +196,18 @@ func Load(pathname string, environ []string, overrides Overrides) (Runtime, erro
 	azure := Azure{
 		Endpoint:        endpoint,
 		ModelName:       strings.TrimSpace(model),
-		Deployment:      strings.TrimSpace(values["AZURE_OPENAI_DEPLOYMENT"]),
-		APIKey:          values["AZURE_OPENAI_SUBSCRIPTION_KEY"],
+		Deployment:      strings.TrimSpace(auth.AzureOpenAI.Deployment),
+		APIKey:          auth.AzureOpenAI.APIKey,
 		APIVersion:      apiVersion,
 		ReasoningEffort: strings.TrimSpace(effort),
 		RequestTimeout:  requestTimeout,
 		StreamWatchdog:  watchdog,
 		MaxRetries:      maxRetries,
 	}
-	if azure.Deployment == "" {
-		azure.Deployment = azure.ModelName
-	}
 	if err := azure.Validate(); err != nil {
 		return Runtime{}, err
 	}
-	return Runtime{Azure: azure, EnvFile: pathname, Provenance: provenance}, nil
-}
-
-func completeAzureProcessBundle(values map[string]string) bool {
-	return strings.TrimSpace(values["AZURE_OPENAI_ENDPOINT"]) != "" &&
-		strings.TrimSpace(values["AZURE_OPENAI_DEPLOYMENT"]) != "" &&
-		strings.TrimSpace(values["AZURE_OPENAI_SUBSCRIPTION_KEY"]) != ""
+	return Runtime{Azure: azure, AuthFile: location.path, Provenance: provenance}, nil
 }
 
 func (a Azure) Validate() error {
@@ -212,7 +224,7 @@ func (a Azure) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("%w: missing %s", ErrInvalid, strings.Join(missing, ", "))
 	}
-	if err := validateEndpoint(a.Endpoint); err != nil {
+	if err := validateEndpoint(a.Endpoint, a.UnsafeAllowInsecureLoopbackForTesting); err != nil {
 		return fmt.Errorf("%w: Azure OpenAI endpoint: %v", ErrInvalid, err)
 	}
 	if strings.TrimSpace(a.ModelName) == "" {
@@ -274,7 +286,7 @@ func normalizeEndpoint(raw, apiVersion string) (*url.URL, error) {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, errors.New("must be an absolute HTTPS URL")
 	}
-	if err := validateEndpoint(u); err != nil {
+	if err := validateEndpoint(u, false); err != nil {
 		return nil, err
 	}
 	u.RawQuery = ""
@@ -298,11 +310,11 @@ func normalizeEndpoint(raw, apiVersion string) (*url.URL, error) {
 	return u, nil
 }
 
-// validateEndpoint is shared by dotenv normalization and the exported Azure
+// validateEndpoint is shared by auth-file normalization and the exported Azure
 // configuration constructor boundary. Callers constructing config.Azure
 // directly must not be able to bypass the same credential-egress constraints
 // enforced by Load.
-func validateEndpoint(u *url.URL) error {
+func validateEndpoint(u *url.URL, allowInsecureLoopbackForTesting bool) error {
 	if u == nil || u.Scheme == "" || u.Host == "" || u.Opaque != "" {
 		return errors.New("must be an absolute HTTPS URL")
 	}
@@ -311,7 +323,7 @@ func validateEndpoint(u *url.URL) error {
 	if address := net.ParseIP(host); address != nil && address.IsLoopback() {
 		loopback = true
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+	if u.Scheme != "https" && !(allowInsecureLoopbackForTesting && u.Scheme == "http" && loopback) {
 		return errors.New("must use HTTPS")
 	}
 	if u.User != nil {
@@ -370,11 +382,11 @@ func (a Azure) MarshalJSON() ([]byte, error) {
 }
 
 func (r Runtime) String() string {
-	envFile := "<unset>"
-	if r.EnvFile != "" {
-		envFile = "<configured>"
+	authFile := "<unset>"
+	if r.AuthFile != "" {
+		authFile = "<configured>"
 	}
-	return r.Azure.Redact(fmt.Sprintf("Runtime{%s env_file=%s}", r.Azure.String(), envFile))
+	return r.Azure.Redact(fmt.Sprintf("Runtime{%s auth_file=%s}", r.Azure.String(), authFile))
 }
 func (r Runtime) GoString() string { return r.String() }
 

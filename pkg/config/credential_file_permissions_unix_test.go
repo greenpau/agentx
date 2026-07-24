@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func TestUnixEnvFileModeRequiresPrivatePermissionBits(t *testing.T) {
-	if !envFilePOSIXPermissionsEnforced {
+func TestUnixCredentialFileModeRequiresPrivatePermissionBits(t *testing.T) {
+	if !credentialFileAccessControlVerified {
 		t.Fatal("Unix must enforce POSIX permission bits")
 	}
 	for _, test := range []struct {
@@ -22,22 +22,22 @@ func TestUnixEnvFileModeRequiresPrivatePermissionBits(t *testing.T) {
 		{mode: 0o604, want: false},
 		{mode: 0o666, want: false},
 	} {
-		if got := envFileModePermitsCredentialUse(test.mode); got != test.want {
+		if got := credentialFileModePermitsUse(test.mode); got != test.want {
 			t.Errorf("mode %04o: got %t want %t", test.mode.Perm(), got, test.want)
 		}
 	}
 }
 
-func TestUnixEnvFileOwnerMatchesEffectiveUser(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".env.production")
-	if err := os.WriteFile(path, []byte("A=B\n"), 0o600); err != nil {
+func TestUnixCredentialFileOwnerMatchesEffectiveUser(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultAuthFile)
+	if err := os.WriteFile(path, []byte(AuthFilePlaceholder), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !envFileOwnerPermitsCredentialUse(info) {
+	if !credentialFileOwnerPermitsUse(info) {
 		t.Fatal("effective user's private credential file was rejected")
 	}
 }

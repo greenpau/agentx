@@ -8,6 +8,7 @@ This document defines provider selection, credential-source precedence, helper e
 - [Bearer-token source precedence](#bearer-token-source-precedence)
 - [API-key source precedence](#api-key-source-precedence)
 - [Credential helpers](#credential-helpers)
+- [Application-owned Azure credential file](#application-owned-azure-credential-file)
 - [First-party OAuth authorization](#first-party-oauth-authorization)
 - [OAuth refresh concurrency and 401 recovery](#oauth-refresh-concurrency-and-401-recovery)
 - [Managed organization enforcement](#managed-organization-enforcement)
@@ -26,6 +27,7 @@ This document defines provider selection, credential-source precedence, helper e
 | --- | --- |
 | first-party | direct API key, bearer token, or AgentX account OAuth |
 | AWS Bedrock | AWS credential chain, optional bearer token, managed refresh command |
+| Azure OpenAI | versioned application-owned `auth.json` API key |
 | Azure Foundry | Foundry API key or Azure identity token provider |
 | Google Vertex | Google application credentials/token and project/region |
 
@@ -99,6 +101,70 @@ An environment-specific managed homespace may suppress `AGENTX_API_KEY` in favor
 
 `AUTH-034` — A stale refresh failure retains the working stale value and refreshes its timestamp to avoid hammering. A cold failure caches a noncredential sentinel so callers do not fall through to OAuth unexpectedly. User sees the helper error; the sentinel is never sent as a real secret to an incompatible provider.
 
+## Application-owned Azure credential file
+
+`AUTH-044` — Treat a selected plaintext credential file as a credential
+container before parsing it. Require a bounded regular non-symlink file, one
+filesystem link, stable identity and size across the complete read, and
+owner-only access evidence. POSIX adapters reject any group or world permission
+bit. An adapter that cannot prove ownership and access control from
+authoritative platform metadata must reject credential-file use; synthesized
+portable mode bits are not DACL evidence. When the application home has
+already been identity-pinned, retain an opened root for that exact directory
+through every credential lstat, open, reread, and final identity check. Open
+the literal child descriptor-relative to that root; never re-resolve the
+credential through the mutable application-home pathname.
+
+`AUTH-045` — The standalone Go Azure OpenAI profile has exactly one model
+credential source: the literal `auth.json` child of the application home
+resolved by `GCFG-PATH-001G`. After `GCFG-PATH-006` bootstrap and before full
+command-line parsing, every invocation requires that path to exist, including
+malformed input, help, version, and the standalone MCP tool host. Non-model
+surfaces perform only the existence gate: they do not parse credentials or
+construct a provider client. Both that gate and a model-backed read use the
+descriptor-pinned home required by `AUTH-044`, then reverify the frozen textual
+home identity before proceeding. A missing or unusable direct-file diagnostic
+must name the expected path, include the stable guide URL
+`https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md`,
+and show this credential-independent placeholder shape:
+
+```json
+{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://your-resource.openai.azure.com",
+    "model": "gpt-5.6-sol",
+    "deployment": "gpt-5.6-sol",
+    "api_key": "replace-with-your-secret",
+    "api_version": "preview"
+  }
+}
+```
+
+A model-backed start reads at most 64 KiB under `AUTH-044` and strictly decodes
+one UTF-8 JSON object with no trailing value. The top level has exactly
+`version`, `provider`, and `azure_openai`; `version` is integer `1`;
+`provider` is the exact string `azure_openai`; and `azure_openai` has exactly
+the five string fields shown above. Endpoint, model, deployment, and API key
+are nonempty; an empty API-version string selects the provider's default v1
+route. Reject unknown or duplicate members at either level, unsupported
+versions/providers, and wrong types. Reject unpaired JSON surrogate escapes
+without rejecting a valid literal or escaped U+FFFD replacement character.
+Require an absolute HTTPS endpoint with no user information, query, or
+fragment. The loopback-only HTTP exception is a separately explicit
+direct-constructor test seam that application configuration loading never
+enables. Model and deployment are each at most 256 UTF-8 bytes. The API key
+is at most 16 KiB, has no Unicode whitespace, surrounding HTTP-header
+whitespace, control, format, line, or paragraph characters. A nonempty API
+version is at most 128 UTF-8 bytes; model, deployment, and API version reject
+the same unsafe control/format/line/paragraph character classes. Reject any
+invalid endpoint or model/deployment mapping before extension discovery, persistent session
+materialization, or provider construction. The selected `api_key` immediately
+joins the immutable redaction union. There is no
+`.env.production`, arbitrary `--env-file`, or process-environment credential
+fallback, even when those legacy sources contain a complete coherent bundle.
+
 ## First-party OAuth authorization
 
 `AUTH-040` — Interactive OAuth uses authorization-code grant with PKCE S256 and unpredictable state. Support automatic loopback callback and manual code flow. Authorization parameters include client ID, response type, exact redirect URI, requested scopes, code challenge, state, and optional organization, login hint, login method, or inference-only mode.
@@ -108,8 +174,6 @@ An environment-specific managed homespace may suppress `AGENTX_API_KEY` in favor
 `AUTH-042` — Token exchange and token refresh are JSON requests bounded to 15 seconds. Exchange validates state/redirect correlation. Refresh uses returned refresh token when present or retains the old one, computes absolute expiration, parses space-separated scopes, and may request the current full AgentX account scope set so older grants can expand under server policy.
 
 `AUTH-043` — Store OAuth tokens in secure platform storage, with a protected credentials-file fallback where required. Durable account profile metadata is separate from the secret token record. Access token, refresh token, authorization code, and verifier never enter transcript or model context.
-
-`AUTH-044` — Treat a selected plaintext dotenv file as a credential container before parsing it. Require a bounded regular non-symlink file, one filesystem link, stable identity and size across the complete read, and owner-only access evidence. POSIX adapters reject any group or world permission bit. An adapter that cannot prove ownership and access control from authoritative platform metadata must reject credential-file use; synthesized portable mode bits are not DACL evidence.
 
 ## OAuth refresh concurrency and 401 recovery
 
@@ -198,9 +262,40 @@ An environment-specific managed homespace may suppress `AGENTX_API_KEY` in favor
 
 **AUTH-A08 — Exact-literal egress closure.** Configure one session credential plus one provider credential whose independently chosen replacement markers would recreate each other. Exercise ordinary output, structured JSON aliases/scalars, metadata, progress, truncation at every byte boundary, persistence, hooks, and model continuation. Construct a bounded union containing the conventional mask plus every guard candidate and verify session composition rejects it before Azure, interactive, task, transcript, or structured sinks start; no pre-closed sanitizer may turn safe output into a false success. Use credentials equal to the canonical separator sequence between two otherwise safe JSON leaves and to a safe JSON suffix plus its physical line terminator; verify the exact final framed bytes fail closed rather than reconstructing either literal after body-only validation. Configure Azure endpoint host, path, decoded API-version query, and User-Agent aliases plus one contributed credential embedded within the selected Azure key; construction and the final pre-dispatch guard reject each with zero transport calls, while an exact duplicate of the selected key in the frozen union remains valid. Submit duplicate object members whose earlier escaped value decodes to a credential but whose later value is safe; every occurrence is inspected, and no last-write-wins normalization can authorize retention of the original raw bytes. Submit a malformed tool argument whose unfinished escape decodes toward a credential; persistence, replay, and continuation retain only the safe schema-invalid projection while the call still receives one terminal result. Wrap a secret-bearing classified error at both the engine and application operational boundaries and verify `%v`, `%+v`, and `%#v` expose only the sanitized message while `errors.Is` still succeeds and `errors.Unwrap` returns nil. Configure credential `a�b`, supply error text `a\x01b`, and verify unsafe-control normalization is followed by redaction in both the returned error and turn-result record. No semantic or encoded output contains either literal; bounded nonstreaming guard exhaustion produces explicit suppression without synthetic fallback text, and no capability context contains a reflectable credential value.
 
-**AUTH-A09 — Unverifiable dotenv access.** A Windows build without native owner/DACL inspection is given an otherwise regular `.env.production`. Loading fails before reading or parsing it. A POSIX build accepts mode `0600` and rejects mode `0640`, symlinks, and hard-linked aliases.
+**AUTH-A09 — Unverifiable credential-file access.** A Windows build without
+native owner/DACL inspection is given an otherwise regular `auth.json`. A
+model-backed start is unavailable and fails before parsing it; operator ACL
+configuration alone cannot make the current adapter accept it. A POSIX build accepts mode `0600`
+and rejects mode `0640`, symlinks, and hard-linked aliases.
 
 **AUTH-A10 — Provider diagnostic composition closure.** Configure one credential equal to a provider-error label plus separator and adjacent message, another equal to an invalid raw `Retry-After` value, and model/deployment identities equal to or containing the API key. Force one retry and format the provider error, retry callback value, retry-exhaustion wrapper, and model client through `%s`, `%v`, `%+v`, and `%#v`. No rendering contains a credential or configured identity, the raw header is absent, and changing the callback's detached structured error does not change the second attempt or terminal retry classification. `errors.As` still reaches the safe structured provider error through the terminal wrapper.
+
+**AUTH-A11 — Missing application credential.** Start with an isolated missing
+application home and invoke one malformed argument form plus one interactive,
+headless, help-only, version-only, and standalone-MCP form. Each process first
+leaves the private application home and `sessions/` child present, then exits
+nonzero because `auth.json` is absent. The malformed form reports the
+credential prerequisite rather than usage until a direct regular `auth.json`
+exists. Structured stdout remains empty; the diagnostic contains the resolved
+path, stable GitHub guide URL, and placeholder object but no credential. No
+provider, extension generation, persistent session child, or MCP request loop
+starts.
+Replace the missing child in turn with a directory and a direct symlink; both
+remain fail-closed and retain the same guide, expected path, and placeholder
+shape without reading a target.
+
+**AUTH-A12 — Strict schema and no legacy fallback.** With private
+`auth.json`, accept the exact version-1 Azure object and construct one client
+from its values. Independently reject an unknown field, duplicate field,
+second JSON value, unsupported version/provider, wrong type, empty
+endpoint/model/deployment/API key, insecure file, and oversized file before
+provider or persistent-session construction. Verify an empty API-version string
+selects the v1 default. Pin the original application-home root, rename that
+directory, and put a different valid `auth.json` at the old pathname: the
+credential loader reads only the original descriptor-rooted child, while the
+application boundary rejects the changed textual home identity. Repeat with a
+valid `.env.production` and a complete Azure process environment while
+`auth.json` is missing or invalid; neither legacy source changes the failure.
 
 ## Non-normative provenance
 
