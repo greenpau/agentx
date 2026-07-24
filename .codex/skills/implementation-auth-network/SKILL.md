@@ -27,14 +27,13 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 - Bare mode is hermetic: no OAuth, user keychain, or ordinary settings credentials.
 - The standalone Go Azure OpenAI profile requires application-home `auth.json`
   to exist on every invocation, before full command-line parsing, and strictly
-  parses it only for model-backed startup. It never falls back to a workspace
-  dotenv file, `--env-file`, or
-  process-environment model credentials. Both the presence gate and strict
-  read remain descriptor-relative to the frozen application-home identity;
-  pathname replacement cannot redirect them. Model-backed use is limited to
-  platforms where the credential adapter can prove owner-only file access;
-  the current Windows adapter fails closed before reading because native DACL
-  verification is unavailable.
+  parses it only for model-backed startup. It is the profile's sole model
+  credential source. Both the presence gate and strict read remain
+  descriptor-relative to the frozen application-home identity; pathname
+  replacement cannot redirect them. Model-backed use is limited to platforms
+  where the credential adapter can prove owner-only file access; the current
+  Windows adapter fails closed before reading because native DACL verification
+  is unavailable.
 - Managed remote or desktop OAuth contexts never fall back to a user's local settings key or helper.
 - Authentication refresh is deduplicated within a process and locked across processes; another process's fresh token wins a race.
 - Explicit user cancellation is never retried or silently converted to transport failure.

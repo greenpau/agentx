@@ -110,7 +110,7 @@ The exact case-insensitive extension allowlist is:
 | Go, Rust, JVM, and .NET | `.go`, `.rs`, `.java`, `.kt`, `.kts`, `.scala`, `.cs` |
 | C-family and Swift | `.c`, `.cpp`, `.cc`, `.cxx`, `.h`, `.hpp`, `.hxx`, `.swift` |
 | shell and command | `.sh`, `.bash`, `.zsh`, `.fish`, `.ps1`, `.bat`, `.cmd` |
-| configuration and database | `.env`, `.ini`, `.cfg`, `.conf`, `.config`, `.properties`, `.sql`, `.graphql`, `.gql` |
+| configuration and database | `.ini`, `.cfg`, `.conf`, `.config`, `.properties`, `.sql`, `.graphql`, `.gql` |
 | protocol, framework, and templates | `.proto`, `.vue`, `.svelte`, `.astro`, `.ejs`, `.hbs`, `.pug`, `.jade` |
 | other language source | `.php`, `.pl`, `.pm`, `.lua`, `.r`, `.dart`, `.ex`, `.exs`, `.erl`, `.hrl`, `.clj`, `.cljs`, `.cljc`, `.edn`, `.hs`, `.lhs`, `.elm`, `.ml`, `.mli`, `.f`, `.f90`, `.f95`, `.for` |
 | build and documentation | `.cmake`, `.make`, `.makefile`, `.gradle`, `.sbt`, `.rst`, `.adoc`, `.asciidoc`, `.org`, `.tex`, `.latex` |

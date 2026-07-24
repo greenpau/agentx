@@ -88,7 +88,7 @@ func TestGitAndSortMutationFlagsAreNotReadOnly(t *testing.T) {
 
 func TestReadOnlyShellStillComposesFilesystemPolicy(t *testing.T) {
 	workspace := t.TempDir()
-	analysis, err := AnalyzeShell("cat .env.production /etc/passwd", workspace)
+	analysis, err := AnalyzeShell("cat .env.private /etc/passwd", workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestReadOnlyShellStillComposesFilesystemPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision, err := evaluator.Authorize(context.Background(), Request{
-		Tool: "Bash", ToolUseID: "tool_read", Input: json.RawMessage(`{"command":"cat .env.production /etc/passwd"}`),
+		Tool: "Bash", ToolUseID: "tool_read", Input: json.RawMessage(`{"command":"cat .env.private /etc/passwd"}`),
 		Content: analysis.Command, MatchContents: analysis.Segments, Classification: Classification{ReadOnly: true, ConcurrencySafe: true}, Paths: analysis.Paths, Shell: &analysis,
 	}, nil)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestShellTildeExpansionCannotEscapeAuthorizedPath(t *testing.T) {
 func TestBypassAndAllowRulesResolveOrdinaryPathAsksButNotProtectedPaths(t *testing.T) {
 	workspace := t.TempDir()
 	ordinary := filepath.Join(workspace, "generated.txt")
-	protected := filepath.Join(workspace, ".env.production")
+	protected := filepath.Join(workspace, ".env.private")
 	request := func(path string) Request {
 		return Request{
 			Tool: "Write", ToolUseID: "tool_write", Input: json.RawMessage(`{"file_path":"` + path + `","content":"ok"}`),
@@ -253,14 +253,14 @@ func TestShellWildcardExpansionCannotEscapeAuthorizedPath(t *testing.T) {
 
 func TestShellCapturesEveryRedirectionTarget(t *testing.T) {
 	workspace := t.TempDir()
-	analysis, err := AnalyzeShell("cat </etc/passwd > ordinary.txt 2> .env.production", workspace)
+	analysis, err := AnalyzeShell("cat </etc/passwd > ordinary.txt 2> .env.private", workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]PathOperation{
-		"/etc/passwd":     PathRead,
-		"ordinary.txt":    PathWrite,
-		".env.production": PathWrite,
+		"/etc/passwd":  PathRead,
+		"ordinary.txt": PathWrite,
+		".env.private": PathWrite,
 	}
 	for suffix, operation := range want {
 		found := false
@@ -690,7 +690,7 @@ func TestResolverChecksSymlinkTargetAndProtectedPaths(t *testing.T) {
 	if escape.Kind != DecisionAsk || escape.InScope {
 		t.Fatalf("symlink escape unexpectedly authorized: %+v", escape)
 	}
-	for _, name := range []string{".env", ".env.production", ".ENV.LOCAL", ".envrc", ".env-production", ".environment", "auth.json", "AUTH.JSON"} {
+	for _, name := range []string{".env", ".env.private", ".ENV.LOCAL", ".envrc", ".env-production", ".environment", "auth.json", "AUTH.JSON"} {
 		protected := resolver.Inspect(filepath.Join(workspace, name), PathWrite, true)
 		if protected.Kind != DecisionAsk || !protected.Protected {
 			t.Fatalf("protected dotenv path %q unexpectedly authorized for write: %+v", name, protected)
@@ -779,9 +779,9 @@ func TestAnalyzeShellConservativeClassification(t *testing.T) {
 func TestAnalyzeShellProjectsAttachedFileOptionsBeforeBypass(t *testing.T) {
 	workspace := t.TempDir()
 	for _, command := range []string{
-		"file -m.env.production /bin/ls",
-		"sort --files0-from=.env.production",
-		"jq --from-file=.env.production .",
+		"file -m.env.private /bin/ls",
+		"sort --files0-from=.env.private",
+		"jq --from-file=.env.private .",
 	} {
 		analysis, err := AnalyzeShell(command, workspace)
 		if err != nil {
@@ -789,7 +789,7 @@ func TestAnalyzeShellProjectsAttachedFileOptionsBeforeBypass(t *testing.T) {
 		}
 		found := false
 		for _, access := range analysis.Paths {
-			if filepath.Base(access.Path) == ".env.production" && access.Operation == PathRead {
+			if filepath.Base(access.Path) == ".env.private" && access.Operation == PathRead {
 				found = true
 			}
 		}
@@ -798,7 +798,7 @@ func TestAnalyzeShellProjectsAttachedFileOptionsBeforeBypass(t *testing.T) {
 		}
 	}
 
-	analysis, err := AnalyzeShell("file -m.env.production /bin/ls", workspace)
+	analysis, err := AnalyzeShell("file -m.env.private /bin/ls", workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -807,7 +807,7 @@ func TestAnalyzeShellProjectsAttachedFileOptionsBeforeBypass(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision, err := evaluator.Authorize(t.Context(), Request{
-		Tool: "Bash", Input: json.RawMessage(`{"command":"file -m.env.production /bin/ls"}`),
+		Tool: "Bash", Input: json.RawMessage(`{"command":"file -m.env.private /bin/ls"}`),
 		Content: analysis.Command, Paths: analysis.Paths, Shell: &analysis,
 	}, nil)
 	if err != nil {
@@ -820,13 +820,13 @@ func TestAnalyzeShellProjectsAttachedFileOptionsBeforeBypass(t *testing.T) {
 
 func TestProtectedShellMutationSpellingsRemainBypassImmune(t *testing.T) {
 	workspace := t.TempDir()
-	protected := filepath.Join(workspace, ".env.production")
+	protected := filepath.Join(workspace, ".env.private")
 	tests := []string{
-		"printf x >| .env.production",
-		"mv -t .env.production source.txt",
-		"mv --target-directory=.env.production source.txt",
-		"install -t .env.production source.txt",
-		"ln -t .env.production source.txt",
+		"printf x >| .env.private",
+		"mv -t .env.private source.txt",
+		"mv --target-directory=.env.private source.txt",
+		"install -t .env.private source.txt",
+		"ln -t .env.private source.txt",
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {
@@ -915,14 +915,14 @@ func TestAssignmentsWrappersAndResolutionBuiltinsCannotHideRemovalSafety(t *test
 
 func TestGitProtectedPathGrammarCannotFallThroughBypassOrToolAllow(t *testing.T) {
 	workspace := t.TempDir()
-	protected := filepath.Join(workspace, ".env.production")
+	protected := filepath.Join(workspace, ".env.private")
 	commands := []string{
-		"git config --file .env.production user.name attacker",
-		"git config --file=.env.production user.name attacker",
-		"git --git-dir=.env.production status",
-		"git --work-tree .env.production status",
-		"git -C .env.production config user.name attacker",
-		"git apply .env.production",
+		"git config --file .env.private user.name attacker",
+		"git config --file=.env.private user.name attacker",
+		"git --git-dir=.env.private status",
+		"git --work-tree .env.private status",
+		"git -C .env.private config user.name attacker",
+		"git apply .env.private",
 	}
 	for _, command := range commands {
 		t.Run(command, func(t *testing.T) {

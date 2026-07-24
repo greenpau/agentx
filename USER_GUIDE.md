@@ -94,23 +94,10 @@ control/formatting characters. A nonempty API version is limited to 128 UTF-8
 bytes. Model, deployment, and API-version values likewise reject unsafe
 control/formatting characters.
 
-When converting an existing `.env.production`, map its values as follows:
-
-| Previous variable | `auth.json` field |
-| --- | --- |
-| `AZURE_OPENAI_ENDPOINT` | `azure_openai.endpoint` |
-| `AZURE_OPENAI_MODEL_NAME` | `azure_openai.model` |
-| `AZURE_OPENAI_DEPLOYMENT` | `azure_openai.deployment` |
-| `AZURE_OPENAI_SUBSCRIPTION_KEY` | `azure_openai.api_key` |
-| `AZURE_OPENAI_API_VERSION` | `azure_openai.api_version` |
-
-AgentX does not read `.env.production` and does not accept process-environment
-credentials as a fallback. It also does not move, rewrite, or delete the old
-file. Create and verify `auth.json` first, then remove the obsolete workspace
-file through your normal secret-management process; rotate the key if that
-file was ever exposed or committed. Keep the JSON outside repositories, never
-replace the placeholder with a secret in committed examples, and do not paste
-its contents into prompts or diagnostics.
+`auth.json` is the sole model credential source. Keep it outside repositories,
+never replace the placeholder with a secret in committed examples, and do not
+paste its contents into prompts or diagnostics. Rotate the key if it is ever
+exposed or committed.
 
 On Unix-like systems, make the directories owner-only and the file readable
 and writable only by its owner:

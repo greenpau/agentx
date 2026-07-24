@@ -88,11 +88,11 @@ Each permission denial records tool name, tool-use ID and effective tool input.
 - **WIRE-015 — Callback containment.** Invoke the configurable whole-record validator and output writer outside the encoder state mutex while preserving serialized complete-record writes. A callback may reenter encoder state inspection/configuration and receive its normal post-start rejection without deadlock. Never format or traverse a callback-owned error. A validator rejection or panic and a writer failure, short write, or panic latch one fixed output failure; no later record invokes either callback. Preserve only exact trusted standard-library leaf identities needed by host exit policy through a sealed classification projection, without retaining the raw callback wrapper. Give the validator an exact copy so it cannot mutate committed bytes. Likewise, a control-broker emitter or ordered post-cancellation callback error/panic becomes one fixed emission failure. Roll back an unresolved waiter, preserve a synchronously selected result, and settle every detached cancellation waiter even when callbacks fail.
 - **WIRE-016 — API-key source discriminator.** The `apiKeySource` vocabulary is
   the closed pair `user | temporary`: file-backed provenance emits `user`,
-  transient process/flag provenance emits `temporary`, and absent legacy
-  provenance retains `user` for compatibility. The standalone
-  application-home `auth.json` profile always emits `user` in both the
-  `system/init` record and the `initialize` response's `account` object. Never
-  emit the credential path, field name, or value as source metadata.
+  transient process/flag provenance emits `temporary`, and absent provenance
+  emits `user`. The standalone application-home `auth.json` profile always
+  emits `user` in both the `system/init` record and the `initialize` response's
+  `account` object. Never emit the credential path, field name, or value as
+  source metadata.
 
 ## System and lifecycle events
 
@@ -271,8 +271,8 @@ Finite background work may hold the ordinary result after the acknowledgement. L
 19. Panic from an initial control emitter before and after synchronous resolution, from cancellation emission, and from the ordered post-cancellation callback. Verify unresolved IDs roll back, an already selected response wins, every detached waiter reaches `ErrAborted`, the broker remains reusable, and no pending ID is stranded.
 20. Repeat member names at the outer envelope, nested request/response, operation payload, and pending-control levels, including an escape-equivalent spelling and raw outbound payloads. Verify every duplicate is rejected with the fixed ambiguity diagnostic while the documented canonical/alias pair remains valid.
 21. Initialize a standalone application-home `auth.json` session; verify both
-    SDK initialization forms emit `apiKeySource=user`, never the prior project
-    dotenv classification or a credential path.
+    SDK initialization forms emit `apiKeySource=user` and never expose the
+    credential path, field name, or value.
 
 ## Non-normative provenance
 

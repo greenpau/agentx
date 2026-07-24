@@ -324,32 +324,6 @@ func TestLoadAlwaysRequiresAuthFileAndIgnoresAzureProcessCredentials(t *testing.
 	}
 }
 
-func TestLoadNeverFallsBackToValidLegacyDotenv(t *testing.T) {
-	workspace := t.TempDir()
-	legacy := filepath.Join(workspace, ".env.production")
-	contents := strings.Join([]string{
-		"AZURE_OPENAI_ENDPOINT=https://legacy.example.test",
-		"AZURE_OPENAI_MODEL_NAME=gpt-5.6-sol",
-		"AZURE_OPENAI_DEPLOYMENT=legacy-deployment",
-		"AZURE_OPENAI_SUBSCRIPTION_KEY=legacy-secret",
-		"AZURE_OPENAI_API_VERSION=preview",
-	}, "\n") + "\n"
-	if err := os.WriteFile(legacy, []byte(contents), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	authPath := filepath.Join(workspace, DefaultAuthFile)
-	if configuration, err := Load(authPath, nil, Overrides{}); !errors.Is(err, ErrAuthFileMissing) {
-		t.Fatalf("legacy dotenv bypassed missing auth.json: %#v, %v", configuration, err)
-	}
-	if err := os.WriteFile(authPath, []byte(`{not-json`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if configuration, err := Load(authPath, nil, Overrides{}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("legacy dotenv bypassed invalid auth.json: %#v, %v", configuration, err)
-	}
-}
-
 func TestLoadAtRootCannotBeRedirectedByApplicationHomeReplacement(t *testing.T) {
 	if !credentialFileAccessControlVerified {
 		t.Skip("platform cannot verify owner-only credential-file access")

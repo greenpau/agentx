@@ -32,14 +32,14 @@ and prints this placeholder shape:
 ```
 
 Model-backed starts strictly parse this versioned, provider-discriminated
-document. They do not read `.env.production` and do not fall back to process
-environment credentials. On Unix, make `auth.json` owner-readable and
-owner-writable only. Across supported runtime paths, the Azure model credential
-is redacted from output, ordinary child environments, model context, and
-transcripts. Explicit MCP-provider environment values are scoped to that
-provider's subprocess, and configured provider credential values are scrubbed
-from its model-facing results. The current Windows build fails closed before
-reading `auth.json` because native owner/DACL verification is not implemented.
+document as their sole model credential source. On Unix, make `auth.json`
+owner-readable and owner-writable only. Across supported runtime paths, the
+Azure model credential is redacted from output, ordinary child environments,
+model context, and transcripts. Explicit MCP-provider environment values are
+scoped to that provider's subprocess, and configured provider credential values
+are scrubbed from its model-facing results. The current Windows build fails
+closed before reading `auth.json` because native owner/DACL verification is not
+implemented.
 
 Provider responses are untrusted even when transport authentication succeeds. Structural IDs, names, phases, discriminators, request IDs, and opaque reasoning state are rejected before persistence or execution if they reflect the credential or contain unsafe controls; text and structured error fields are redacted across streaming chunks and adjacent field boundaries. The provider-neutral engine repeats these checks so a custom model adapter cannot bypass the Azure boundary.
 
@@ -90,7 +90,7 @@ Every model-requested side effect crosses one capability boundary:
 resolve → validate → hooks → permission/path/shell policy → execute → normalize → persist
 ```
 
-Denied, malformed, cancelled, timed-out, unavailable, and interrupted calls receive terminal tool results just like successful calls. Read-only concurrency is conservative; mutations and skill-scope changes are scheduling barriers. Bash always requires explicit authorization even when static analysis recognizes a read-only command. Protected credential files (including `<application-home>/auth.json` and every `.env*` file), protected descendants reached through recursive search, out-of-scope paths, symlink/hardlink substitutions, shell redirections, and dangerous removals cannot inherit automatic read or edit permission.
+Denied, malformed, cancelled, timed-out, unavailable, and interrupted calls receive terminal tool results just like successful calls. Read-only concurrency is conservative; mutations and skill-scope changes are scheduling barriers. Bash always requires explicit authorization even when static analysis recognizes a read-only command. Protected credential and configuration files, protected descendants reached through recursive search, out-of-scope paths, symlink/hardlink substitutions, shell redirections, and dangerous removals cannot inherit automatic read or edit permission.
 The complete selected application-home subtree is protected even when an
 `AGENTX_HOME` override places it inside the active workspace or gives it a
 basename other than `.agentx`. AgentX rechecks the frozen home and `sessions/`

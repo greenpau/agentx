@@ -83,7 +83,7 @@ descriptor-relative to the pinned home and reverify the textual home identity
 afterward, so replacing the pathname cannot redirect credential selection.
 Help, version, and standalone MCP stop if it is absent but do not parse it.
 Model-backed surfaces strictly accept only the version-1 `azure_openai` schema
-in `AUTH-045`, with no dotenv, `--env-file`, or process-credential fallback.
+from that file under `AUTH-045`; it is their sole model credential source.
 Supported POSIX platforms enforce effective-user ownership and private mode
 bits. Windows model-backed startup is unavailable until native owner/DACL
 inspection can authorize reading the credential file. The selected home and
@@ -150,9 +150,9 @@ session file whose basename is otherwise ordinary, and an approval pending
 during detection cannot execute. This guard does not claim atomicity against an
 external rename after authorization returns to execution. Once tripped, its
 process-lifetime latch cannot be cleared by restoring the original inode.
-Credential/configuration paths, `.git`, editor control directories, dotenv
-files, home/root removal targets, ambiguous platform spellings, and symlink
-traversal receive denial or mandatory review. Recursive search filters every
+Credential/configuration paths, `.git`, editor control directories, home/root
+removal targets, ambiguous platform spellings, and symlink traversal receive
+denial or mandatory review. Recursive search filters every
 protected descendant after directory authorization, so approving a workspace
 cannot expose the user-owned `~/.agentx/auth.json`. The user application home
 and a workspace's `.agentx/` extension directory are distinct protected
@@ -252,7 +252,7 @@ Availability is represented across independent axes: compiled inclusion, runtime
 
 | Domain | Current profile |
 | --- | --- |
-| Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse version 1 with no legacy fallback. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
+| Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse its version-1 document as their sole model credential source. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
 | Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. |
 | Headless text and aggregate JSON | Operational over the shared engine. |
 | Bidirectional NDJSON | Partial: correlated controls and bounded priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |

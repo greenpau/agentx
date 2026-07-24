@@ -161,9 +161,8 @@ version is at most 128 UTF-8 bytes; model, deployment, and API version reject
 the same unsafe control/format/line/paragraph character classes. Reject any
 invalid endpoint or model/deployment mapping before extension discovery, persistent session
 materialization, or provider construction. The selected `api_key` immediately
-joins the immutable redaction union. There is no
-`.env.production`, arbitrary `--env-file`, or process-environment credential
-fallback, even when those legacy sources contain a complete coherent bundle.
+joins the immutable redaction union. No other configuration source may provide
+or override the model credential.
 
 ## First-party OAuth authorization
 
@@ -284,7 +283,7 @@ Replace the missing child in turn with a directory and a direct symlink; both
 remain fail-closed and retain the same guide, expected path, and placeholder
 shape without reading a target.
 
-**AUTH-A12 — Strict schema and no legacy fallback.** With private
+**AUTH-A12 — Strict schema and sole credential source.** With private
 `auth.json`, accept the exact version-1 Azure object and construct one client
 from its values. Independently reject an unknown field, duplicate field,
 second JSON value, unsupported version/provider, wrong type, empty
@@ -293,9 +292,8 @@ provider or persistent-session construction. Verify an empty API-version string
 selects the v1 default. Pin the original application-home root, rename that
 directory, and put a different valid `auth.json` at the old pathname: the
 credential loader reads only the original descriptor-rooted child, while the
-application boundary rejects the changed textual home identity. Repeat with a
-valid `.env.production` and a complete Azure process environment while
-`auth.json` is missing or invalid; neither legacy source changes the failure.
+application boundary rejects the changed textual home identity. No other file
+path participates in credential selection.
 
 ## Non-normative provenance
 

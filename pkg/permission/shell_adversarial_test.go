@@ -48,7 +48,7 @@ func TestShellOutputOptionsNeverInheritReadOnlyClassification(t *testing.T) {
 
 func TestResolverProtectsConfiguredFileThroughHardLinkAlias(t *testing.T) {
 	workspace := t.TempDir()
-	protected := filepath.Join(workspace, ".env.production")
+	protected := filepath.Join(workspace, ".env.private")
 	alias := filepath.Join(workspace, "ordinary.txt")
 	if err := os.WriteFile(protected, []byte("opaque"), 0o600); err != nil {
 		t.Fatal(err)

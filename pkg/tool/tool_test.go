@@ -3151,7 +3151,7 @@ func TestCoreReadRejectsHardLinkAlias(t *testing.T) {
 	t.Parallel()
 	workspace := t.TempDir()
 	outside := t.TempDir()
-	secret := filepath.Join(outside, ".env.production")
+	secret := filepath.Join(outside, ".env.private")
 	alias := filepath.Join(workspace, "ordinary.txt")
 	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
@@ -3215,7 +3215,7 @@ func TestGrepCollectsOnlyRequestedWindow(t *testing.T) {
 
 func TestGrepSkipsHardLinkedProtectedAlias(t *testing.T) {
 	workspace := t.TempDir()
-	secret := filepath.Join(t.TempDir(), ".env.production")
+	secret := filepath.Join(t.TempDir(), ".env.private")
 	alias := filepath.Join(workspace, "ordinary.txt")
 	if err := os.WriteFile(secret, []byte("AZURE_OPENAI_API_KEY=secret-value\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -3241,7 +3241,7 @@ func TestGrepSkipsHardLinkedProtectedAlias(t *testing.T) {
 
 func TestRecursiveSearchNeverExpandsDirectoryPermissionIntoProtectedFiles(t *testing.T) {
 	workspace := t.TempDir()
-	secretPath := filepath.Join(workspace, ".env.production")
+	secretPath := filepath.Join(workspace, ".env.private")
 	if err := os.WriteFile(secretPath, []byte("AZURE_OPENAI_SUBSCRIPTION_KEY=never-return-this\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -3259,12 +3259,12 @@ func TestRecursiveSearchNeverExpandsDirectoryPermissionIntoProtectedFiles(t *tes
 	limit := 10
 	grepRaw, _ := json.Marshal(grepInput{Pattern: "never-return-this", Path: workspace, OutputMode: "content", HeadLimit: &limit})
 	grepResult := executor.Execute(context.Background(), Request{ID: "grep-protected-child", Name: "Grep", Input: grepRaw})
-	if grepResult.IsError || strings.Contains(grepResult.Content, "never-return-this") || strings.Contains(grepResult.Content, ".env.production") {
+	if grepResult.IsError || strings.Contains(grepResult.Content, "never-return-this") || strings.Contains(grepResult.Content, ".env.private") {
 		t.Fatalf("recursive grep exposed protected child: %+v", grepResult)
 	}
 	globRaw, _ := json.Marshal(globInput{Pattern: "**/*", Path: workspace, Limit: 10})
 	globResult := executor.Execute(context.Background(), Request{ID: "glob-protected-child", Name: "Glob", Input: globRaw})
-	if globResult.IsError || strings.Contains(globResult.Content, ".env.production") {
+	if globResult.IsError || strings.Contains(globResult.Content, ".env.private") {
 		t.Fatalf("recursive glob exposed protected child: %+v", globResult)
 	}
 }

@@ -918,8 +918,8 @@ func extractShellReadPaths(args []string, workingDirectory string) ([]PathAccess
 		case strings.HasPrefix(arg, "--"):
 			// Every attached long-option value is conservatively projected as a
 			// possible file operand. This intentionally over-approximates options
-			// such as --color=auto so an unlisted --schema=.env.production or
-			// --files0-from=.env.production can never bypass protected-path policy.
+			// such as --color=auto so an unlisted --schema=.env.private or
+			// --files0-from=.env.private can never bypass protected-path policy.
 			_, value, attached := strings.Cut(arg, "=")
 			if !attached {
 				continue
