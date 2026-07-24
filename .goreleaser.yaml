@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: agentx
+
+release:
+  github:
+    owner: greenpau
+    name: agentx
+  draft: false
+  prerelease: auto
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+builds:
+  - id: agentx
+    main: .
+    binary: agentx
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -mod=readonly
+    asmflags:
+      - all=-trimpath={{ .Env.GOPATH }}
+    gcflags:
+      - all=-trimpath={{ .Env.GOPATH }}
+    ldflags:
+      - -s -w
+      - -X main.appVersion={{ .Version }}
+      - -X main.gitBranch={{ .Branch }}
+      - -X main.gitCommit={{ .FullCommit }}
+      - -X main.buildUser=goreleaser
+      - -X main.buildDate={{ index (split .CommitDate "T") 0 }}
+
+archives:
+  - id: agentx
+    ids:
+      - agentx
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - USER_GUIDE.md
+
+nfpms:
+  - id: agentx
+    ids:
+      - agentx
+    package_name: agentx
+    vendor: greenpau
+    homepage: https://github.com/greenpau/agentx
+    maintainer: "Paul Greenberg <greenpau@outlook.com>"
+    description: Terminal-first agentic software-engineering client
+    bindir: /usr/bin
+    formats:
+      - deb
+      - rpm
+    file_name_template: >-
+      {{ .PackageName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs?:"
+      - "^readme:"
+      - "^tests?:"
+      - "^github:"
+      - "^ops:"
+      - "^misc:"
+      - "^upgrade"
+      - "^update"
+      - "^release"
+      - "signed the CLA"
