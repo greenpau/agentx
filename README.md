@@ -117,3 +117,7 @@ go vet ./...
 Network tests bind loopback-only `httptest` servers; they never call the production Azure endpoint.
 
 The repository-local Ruby architecture audits validate the implementation-skill hierarchy. They do not, by themselves, prove that every contract has an executable Go implementation; the conformance profile and Go tests are the implementation evidence.
+
+## License
+
+AgentX is free software licensed under the [GNU General Public License, version 3 only](LICENSE) (`GPL-3.0-only`).
