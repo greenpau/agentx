@@ -7,12 +7,13 @@ description: Audit or refresh AgentX implementation coverage, route reachability
 
 Prove that the engineering-guidance graph is navigable, every source artifact has a primary behavioral owner, and source, tests, contracts, diagrams, and conformance claims remain consistent.
 
-Open [architecture.drawio](assets/architecture.drawio) for the evidence chain. Apply [the architecture diagram contract](../implementation-architecture/references/diagram-contract.md) when reviewing any Draw.io asset. Read [coverage-model.md](references/coverage-model.md) before interpreting the generated [artifact ledger](references/source-coverage.tsv) and manually reviewed [source-to-contract trace](references/source-contract-trace.tsv), and read [conformance-matrix.md](references/conformance-matrix.md) with the generated [contract-to-scenario manifest](references/contract-scenario-coverage.tsv) when evaluating project conformance.
+Open [architecture.drawio](assets/architecture.drawio) for the evidence chain. Apply [the architecture diagram contract](../implementation-architecture/references/diagram-contract.md) when reviewing any Draw.io asset. Read [coverage-model.md](references/coverage-model.md) before interpreting the generated [artifact ledger](references/source-coverage.tsv) and independently reviewed [source-to-contract trace](references/source-contract-trace.tsv), and read [conformance-matrix.md](references/conformance-matrix.md) with the generated [contract-to-scenario manifest](references/contract-scenario-coverage.tsv) when evaluating project conformance.
 
 ## Audit workflow
 
 1. When application source changes, run `ruby .codex/skills/implementation-conformance-audit/scripts/build_source_coverage.rb` to refresh [source-coverage.tsv](references/source-coverage.tsv).
 2. Review each changed artifact's assigned leaf skill. Restate new behavior as a language-neutral contract with a stable ID, failure rules, and an acceptance scenario; a fresh hash alone is not coverage. After review, update only that artifact's row in `source-contract-trace.tsv` with the new reviewed hash, owner, contract anchors, scenario suites, review generation, and any boundary classification.
+   For `make release`, `scripts/review_release_evidence.rb` may attest the `main.go` row only when the previously committed source is already reviewed and the complete source delta consists of the two version fallbacks advancing to the next patch named by `VERSION`. It preserves the existing semantic bindings, requires `PLAT-005` and `PLAT-A07`, and fails closed for any other source or evidence change.
 3. Run `ruby .codex/skills/implementation-conformance-audit/scripts/audit_architecture.rb`. It must reject a refreshed ledger whose reviewed trace still names the old hash.
 4. After changing any stable contract/scenario definition, regenerate `contract-scenario-coverage.tsv` with `ruby .codex/skills/implementation-conformance-audit/scripts/build_contract_scenario_coverage.rb`; each contract is a separate parameterized conformance-suite instance.
 5. Repair missing routes, cycles, placeholders, stale metadata, absent/invalid Draw.io files, source drift, unowned artifacts, or contract-evidence gaps.
@@ -63,7 +64,9 @@ Give a contributor `AGENTS.md`, the routed skills, and the source area being cha
 
 ### `AUD-A05` — Hash refreshed without semantic review
 
-Change one source artifact and refresh only the generated fingerprint ledger. The audit still fails because the manual source-to-contract trace retains the prior reviewed hash. Updating that trace requires naming the reviewed contract anchors, scenario suites, review generation, and any opaque or excluded boundary; copying the new hash alone is not a semantic review procedure.
+Change one source artifact and refresh only the generated fingerprint ledger. The audit still fails because the reviewed source-to-contract trace retains the prior hash. Updating that trace requires naming the reviewed contract anchors, scenario suites, review generation, and any opaque or excluded boundary; copying the new hash alone is not a semantic review procedure.
+
+For the narrowly guarded release case, advance only the two `main.go` source-controlled version fallbacks and `VERSION` to the next patch. The release evidence attestor accepts the already reviewed build-identity bindings and updates the reviewed hash. An additional source edit, stale prior review, mismatched version, missing `PLAT-005` or `PLAT-A07` binding, or unexpected working-tree change makes the attestation fail without updating the trace.
 
 ### `AUD-A06` — Generic trace rejected
 

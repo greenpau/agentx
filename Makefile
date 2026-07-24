@@ -156,11 +156,22 @@ release-update-version: release-git-check
 	@echo "$@: started"
 	@versioned -patch
 	@versioned -prerelease -sync ./main.go
-	@git add VERSION ./main.go
+	@echo "$@: complete"
+
+.PHONY: release-update-references
+release-update-references: release-update-version
+	@echo "$@: started"
+	@ruby .codex/skills/implementation-conformance-audit/scripts/build_source_coverage.rb
+	@ruby .codex/skills/implementation-conformance-audit/scripts/review_release_evidence.rb
+	@go test -count=1 -run '^(TestBuildIdentityDefaults|TestLinkerStampedBuildIdentity)$$' .
+	@$(MAKE) audit
+	@git add VERSION ./main.go \
+		.codex/skills/implementation-conformance-audit/references/source-coverage.tsv \
+		.codex/skills/implementation-conformance-audit/references/source-contract-trace.tsv
 	@echo "$@: complete"
 
 .PHONY: release-git-commit
-release-git-commit: release-update-version
+release-git-commit: release-update-references
 	@echo "$@: started"
 	@git commit -m "ops: released v$$(head -n 1 VERSION)"
 	@git tag -a "v$$(head -n 1 VERSION)" -m "v$$(head -n 1 VERSION)"

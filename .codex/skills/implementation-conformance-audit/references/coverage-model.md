@@ -37,7 +37,7 @@ This prevents two opposite failures:
 | Acceptance scenario | Define observable parity | preconditions, event/side-effect outcome, failure outcome |
 | Conformance trace | Compare a rebuild with the contract | canonical event sequence and durable/side-effect assertions |
 
-Coverage is complete only when all layers agree. The generated ledger and manually reviewed trace intentionally have different update paths: changing source and refreshing fingerprints leaves the old reviewed hash behind, so the audit remains red until a reviewer updates the semantic binding. The one-time trace initializer emits only `unreviewed` scaffold rows with empty anchors; it can never manufacture a passing review from owner defaults. Binding an artifact only to its leaf's broad entry contract proves classification, not review, and is rejected even when the row also names a narrow contract from another domain; each row needs a narrower semantic anchor from its primary owner. A ledger row with no relevant contract is “examined but undocumented.” A contract without a ledger owner may be a deliberate product invariant, but it must still have acceptance evidence.
+Coverage is complete only when all layers agree. The generated ledger and independently reviewed trace intentionally have different update paths: changing source and refreshing fingerprints leaves the old reviewed hash behind, so the audit remains red until a reviewer updates the semantic binding. The one-time trace initializer emits only `unreviewed` scaffold rows with empty anchors; it can never manufacture a passing review from owner defaults. Binding an artifact only to its leaf's broad entry contract proves classification, not review, and is rejected even when the row also names a narrow contract from another domain; each row needs a narrower semantic anchor from its primary owner. A ledger row with no relevant contract is “examined but undocumented.” A contract without a ledger owner may be a deliberate product invariant, but it must still have acceptance evidence.
 
 Large observable data declarations—command identities, model catalogs, configuration schemas, generated event fields, or readable identifier lexicons—need exact standalone tables or wire schemas rather than a phrase such as “include the built-ins.” Where practical, the audit regenerates or compares these manifests against the evidence snapshot so omitted order, duplicate weighting, discriminator, or field optionality cannot hide behind a passing artifact hash.
 
@@ -91,3 +91,12 @@ After source changes, a reviewer must inspect the changed artifact and
 deliberately update its reviewed hash and semantic anchors. This separation is
 what makes a stale review fail closed instead of turning a mechanical hash
 refresh into a passing semantic audit.
+
+The sole guarded automation is
+`scripts/review_release_evidence.rb`, which attests an exact patch-release
+change to the two `main.go` source-controlled version fallbacks. It requires the
+committed source hash to have an existing reviewed build-identity binding,
+requires the new fallbacks and `VERSION` to agree on the next patch, requires
+the regenerated ledger to match the new source, preserves all semantic fields,
+and rejects every unrelated working-tree or source change. This is a bounded
+reuse of an existing review, not a general hash-refresh path.
