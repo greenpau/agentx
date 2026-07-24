@@ -144,15 +144,11 @@ func applicationHomeForContext(ctx context.Context) (context.Context, *applicati
 }
 
 // applicationHomePath returns the effective per-user application root.
-// AGENTX_HOME is the public override. AGENTX_STATE_DIR remains a lower-priority
-// compatibility and test seam; either value relocates the complete
+// AGENTX_HOME is the only supported override and relocates the complete
 // application home rather than only sessions.
 func applicationHomePath() (string, error) {
 	if configured := os.Getenv("AGENTX_HOME"); strings.TrimSpace(configured) != "" {
 		return validateApplicationHomeOverride("AGENTX_HOME", configured)
-	}
-	if configured := os.Getenv("AGENTX_STATE_DIR"); strings.TrimSpace(configured) != "" {
-		return validateApplicationHomeOverride("AGENTX_STATE_DIR", configured)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -38,18 +38,18 @@ operating system's generic configuration directory. Freeze the selected
 source, resolved identity, and every path-selection input before later
 bootstrap work.
 
-`GCFG-PATH-001G` — The standalone Go profile selects the first nonblank value
-from public `AGENTX_HOME`, deprecated `AGENTX_STATE_DIR`, and
-`<user-home>/.agentx`, in that order. Trim only for the blank/unset decision; a
-selected environment value must be an absolute non-root path, and an invalid
-higher-precedence value fails rather than falling through. It applies the
-platform's lexical `filepath.Clean` operation and resolves pre-existing
-external ancestors before freezing the physical directory identity in
-`GCFG-PATH-006`. This profile does not currently normalize the selected string
-to Unicode NFC: canonically equivalent environment spellings may therefore
-remain distinct on a normalization-sensitive filesystem. Treat that as a
-bounded standalone divergence from `GCFG-PATH-001`, not as permission for
-other implementations to omit NFC normalization.
+`GCFG-PATH-001G` — The standalone Go profile uses a nonblank public
+`AGENTX_HOME`; otherwise it uses `<user-home>/.agentx`. This is its sole
+supported override. Trim only for the blank/unset decision. A nonblank value
+must be an absolute non-root path, and an invalid override fails rather than
+selecting the default.
+Apply the platform's lexical `filepath.Clean` operation and resolve
+pre-existing external ancestors before freezing the physical directory
+identity in `GCFG-PATH-006`. This profile does not currently normalize the
+selected string to Unicode NFC: canonically equivalent environment spellings
+may therefore remain distinct on a normalization-sensitive filesystem. Treat
+that as a bounded standalone divergence from `GCFG-PATH-001`, not as
+permission for other implementations to omit NFC normalization.
 
 `GCFG-PATH-002` — Select the global file once per process:
 
@@ -567,13 +567,12 @@ forms but no `auth.json`: each observes the same frozen home, fails through
 platforms.
 Replace either directory or relax its POSIX mode after acquisition and verify
 later use fails; replace a parent during child creation and verify the
-replacement receives no child. Blank `AGENTX_HOME` selects a valid
-`AGENTX_STATE_DIR`; two valid nonblank values select `AGENTX_HOME`; and
-two blank values select `<user-home>/.agentx`. A relative, root, symlinked, or
-identity-swapped selected override is rejected without falling through to the
-lower-precedence override or default. A decomposed-Unicode absolute override
-retains that exact spelling after platform lexical cleaning, proving the
-documented absence of standalone NFC normalization.
+replacement receives no child. A nonblank `AGENTX_HOME` selects that override;
+a blank value selects `<user-home>/.agentx`. A relative, root, symlinked, or
+identity-swapped override is rejected without falling through to the default.
+A decomposed-Unicode absolute override retains that exact spelling after
+platform lexical cleaning, proving the documented absence of standalone NFC
+normalization.
 Start the standalone MCP host in bypass mode with its selected home inside the
 workspace, rename the home, and request reads of the displaced credential and
 an ordinary-basename session child. Both calls receive identity-change denials

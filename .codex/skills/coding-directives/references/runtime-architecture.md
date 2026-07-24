@@ -67,11 +67,12 @@ The `pkg/` tree is importable, but it is presently a trusted-host composition su
 
 ## Application home and Azure `gpt-5.6-sol` mapping
 
-The application home selects the first nonblank value from `AGENTX_HOME`,
-deprecated `AGENTX_STATE_DIR`, and `<user-home>/.agentx`. The selected
-environment value must be absolute and non-root. This standalone profile
-cleans platform path syntax but does not yet normalize the selected spelling to
-Unicode NFC. Every invocation acquires that directory and its `sessions/`
+The application home uses a nonblank `AGENTX_HOME`; otherwise it uses
+`<user-home>/.agentx`. This is the sole supported override. A nonblank value
+must be absolute and non-root, and an invalid override fails rather than
+selecting the default. This standalone profile cleans platform path syntax but
+does not yet normalize the selected spelling to Unicode NFC. Every invocation
+acquires that directory and its `sessions/`
 child before CLI parsing and freezes the selected home plus their acquired
 bootstrap identities. Later session and memory paths derive from that frozen
 selection and acquire their own subsystem identities; this profile does not
@@ -251,7 +252,7 @@ Availability is represented across independent axes: compiled inclusion, runtime
 
 | Domain | Current profile |
 | --- | --- |
-| Application-home bootstrap and authentication | Operational: `AGENTX_HOME`, deprecated `AGENTX_STATE_DIR`, then `~/.agentx`; one physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse version 1 with no legacy fallback. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
+| Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse version 1 with no legacy fallback. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
 | Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. |
 | Headless text and aggregate JSON | Operational over the shared engine. |
 | Bidirectional NDJSON | Partial: correlated controls and bounded priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |

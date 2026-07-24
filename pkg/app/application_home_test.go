@@ -47,11 +47,22 @@ func (authorizer *blockingApplicationHomeAuthorizer) Authorize(
 	}
 }
 
+func setApplicationHomeTestUserHome(t *testing.T, home string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+		return
+	}
+	t.Setenv("HOME", home)
+}
+
 func TestPrepareApplicationHomeDefaultsToUserDotAgentX(t *testing.T) {
 	userHome := t.TempDir()
-	t.Setenv("HOME", userHome)
-	t.Setenv("AGENTX_HOME", "")
-	t.Setenv("AGENTX_STATE_DIR", "")
+	setApplicationHomeTestUserHome(t, userHome)
+	t.Setenv("AGENTX_HOME", "test-reset-before-unset")
+	if err := os.Unsetenv("AGENTX_HOME"); err != nil {
+		t.Fatal(err)
+	}
 
 	home, err := prepareApplicationHome()
 	if err != nil {
@@ -84,7 +95,6 @@ func TestDefaultApplicationHomeRejectsRelativeUserHome(t *testing.T) {
 	}
 	t.Setenv("HOME", "relative-home")
 	t.Setenv("AGENTX_HOME", "")
-	t.Setenv("AGENTX_STATE_DIR", "")
 
 	if _, err := applicationHomePath(); err == nil ||
 		!strings.Contains(err.Error(), "user home directory must be an absolute path") {
@@ -92,11 +102,11 @@ func TestDefaultApplicationHomeRejectsRelativeUserHome(t *testing.T) {
 	}
 }
 
-func TestAGENTXHomePrecedesCompatibilityStateDirectory(t *testing.T) {
+func TestAGENTXHomeOverridesDefaultApplicationHome(t *testing.T) {
+	userHome := t.TempDir()
 	preferred := filepath.Join(t.TempDir(), "preferred")
-	compatibility := filepath.Join(t.TempDir(), "compatibility")
+	setApplicationHomeTestUserHome(t, userHome)
 	t.Setenv("AGENTX_HOME", preferred)
-	t.Setenv("AGENTX_STATE_DIR", compatibility)
 
 	home, err := prepareApplicationHome()
 	if err != nil {
@@ -106,8 +116,8 @@ func TestAGENTXHomePrecedesCompatibilityStateDirectory(t *testing.T) {
 	if home.root.Path() != wantPreferred {
 		t.Fatalf("application home = %q, want AGENTX_HOME %q", home.root.Path(), wantPreferred)
 	}
-	if _, err := os.Lstat(compatibility); !os.IsNotExist(err) {
-		t.Fatalf("lower-priority compatibility root was materialized: %v", err)
+	if _, err := os.Lstat(filepath.Join(userHome, ".agentx")); !os.IsNotExist(err) {
+		t.Fatalf("default application home was materialized: %v", err)
 	}
 }
 
@@ -302,31 +312,31 @@ func TestApplicationHomeIdentityDenialOverridesBaseErrorAndLatches(t *testing.T)
 	}
 }
 
-func TestInvalidAGENTXHomeDoesNotFallThroughToCompatibilityRoot(t *testing.T) {
-	compatibility := filepath.Join(t.TempDir(), "compatibility")
+func TestInvalidAGENTXHomeDoesNotFallThroughToDefault(t *testing.T) {
+	userHome := t.TempDir()
+	setApplicationHomeTestUserHome(t, userHome)
 	t.Setenv("AGENTX_HOME", "relative-agentx-home")
-	t.Setenv("AGENTX_STATE_DIR", compatibility)
 
 	if _, err := prepareApplicationHome(); err == nil || !strings.Contains(err.Error(), "AGENTX_HOME must be an absolute path") {
 		t.Fatalf("relative AGENTX_HOME error = %v", err)
 	}
-	if _, err := os.Lstat(compatibility); !os.IsNotExist(err) {
-		t.Fatalf("invalid higher-precedence value fell through: %v", err)
+	if _, err := os.Lstat(filepath.Join(userHome, ".agentx")); !os.IsNotExist(err) {
+		t.Fatalf("invalid override fell through to the default home: %v", err)
 	}
 }
 
-func TestBlankAGENTXHomeFallsThroughToCompatibilityRoot(t *testing.T) {
-	compatibility := filepath.Join(t.TempDir(), "compatibility")
+func TestBlankAGENTXHomeUsesDefaultApplicationHome(t *testing.T) {
+	userHome := t.TempDir()
+	setApplicationHomeTestUserHome(t, userHome)
 	t.Setenv("AGENTX_HOME", " \t ")
-	t.Setenv("AGENTX_STATE_DIR", compatibility)
 
 	home, err := prepareApplicationHome()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCompatibility := physicalTestPath(t, compatibility)
-	if home.root.Path() != wantCompatibility {
-		t.Fatalf("blank AGENTX_HOME selected %q, want %q", home.root.Path(), wantCompatibility)
+	wantDefault := physicalTestPath(t, filepath.Join(userHome, ".agentx"))
+	if home.root.Path() != wantDefault {
+		t.Fatalf("blank AGENTX_HOME selected %q, want %q", home.root.Path(), wantDefault)
 	}
 }
 

@@ -1,7 +1,7 @@
 path	lines	bytes	sha256	primary_owner	contract_scope
 main.go	91	2606	71215048a9508ee7bf59e2f91b512d4b0306cb61738073ac5312e2cf060a8d5b	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
 pkg/app/app.go	325	10507	5e5391c17a7af3f617fc15029115444a4aa4ceec1efbdddfaf2cdadd332d2096	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
-pkg/app/application_home.go	268	9598	a8a02b276fadac1f7cb8abedb0f5449541873361f40808c7def0e63e5ee33763	implementation-startup-settings	entrypoint, configuration, migration, trust, policy, or startup registry behavior
+pkg/app/application_home.go	264	9359	158903bfe4396fbdc4ca595b1cb88f109b1317e7fc2d9ca337231db975a8db15	implementation-startup-settings	entrypoint, configuration, migration, trust, policy, or startup registry behavior
 pkg/app/capabilities.go	291	10491	764544f6cc7bb3c0ed792ef65ebfbb81e304c6a02c19ecca465ae31c780264b7	implementation-tool-protocol	generic tool schema, orchestration, hook/permission integration, progress, or result behavior
 pkg/app/commands.go	282	11336	05ca3aff8641cc732b2c1a54db831727e975b4e9a1f496a7cfbb63ce990969bf	implementation-commands-input	command discovery/invocation, user-input normalization, suggestions, or local routing
 pkg/app/error_projection.go	186	5254	9bf1018e8e4be425d569a26c8438961b92460290ba6aecbfcbf0eb95ca375b36	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior

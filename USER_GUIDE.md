@@ -15,16 +15,15 @@ AgentX requires:
 
 AgentX stores application-owned state in `~/.agentx/` by default. Set the
 public `AGENTX_HOME` environment variable to an absolute path when the whole
-application home must live elsewhere. The deprecated `AGENTX_STATE_DIR`
-compatibility/test override is consulted only when `AGENTX_HOME` is blank.
-Blank values are treated as unset; a selected nonblank value must be an
-absolute, non-root path and an invalid higher-precedence value fails rather
-than falling through. AgentX selects the application-home path once, before it
-inspects command-line arguments. Credential loading pins that home while
-reading `auth.json`; session and project-memory paths are derived from the same
-frozen selection. Existing user plugins, output styles, and MCP configuration
-retain their operating-system user-configuration root; `AGENTX_HOME` does not
-relocate those extension sources.
+application home must live elsewhere. This is the only supported application-
+home override. Blank values are treated as unset; a nonblank value must be an
+absolute, non-root path, and an invalid override fails rather than selecting
+the default. AgentX selects the application-home path once, before it inspects
+command-line arguments. Credential loading pins that home while reading
+`auth.json`; session and project-memory paths are derived from the same frozen
+selection. Existing user plugins, output styles, and MCP configuration retain
+their operating-system user-configuration root; `AGENTX_HOME` does not relocate
+those extension sources.
 Regardless of its basename or location, the selected application home and all
 of its descendants remain protected control data. Placing `AGENTX_HOME` inside
 a workspace does not make credentials, sessions, transcripts, task state,
@@ -281,29 +280,10 @@ agentx --resume SESSION_ID --fork-session
   it writes no transcript, cannot combine with resume/continue/fork, and does
   not load or expose project memory.
 
-AgentX does not silently move sessions written by older builds under the
-old state root. That root is the previous nonblank `AGENTX_STATE_DIR` value
-when one was used; otherwise it is the old Go user-configuration directory:
-`~/.config/agentx` on Linux and other Unix systems unless
-`XDG_CONFIG_HOME` changed it, `~/Library/Application Support/agentx` on macOS,
-or `%AppData%\agentx` on Windows.
-
-Before deleting anything, back up the complete old root. For every workspace
-hash, copy both kinds of state:
-
-```text
-<old-root>/projects/<workspace-hash>/sessions/<session-id>/
-    → <application-home>/sessions/<workspace-hash>/<session-id>/
-
-<old-root>/projects/<workspace-hash>/memory/
-    → <application-home>/projects/<workspace-hash>/memory/
-```
-
-When the old and new roots are the same, only the session subtree changes
-location; do not copy memory onto itself. Use a copy mechanism that preserves
-owner-only directory and file permissions. Keep the backup and old root until
-the new binary can resume the expected sessions and list the expected memory;
-AgentX never scans, moves, or deletes this legacy data automatically.
+AgentX discovers sessions and project memory only in the current application
+home. It does not scan, migrate, or delete data from another layout or
+directory. Back up and move any such data manually before relying on it, while
+preserving owner-only directory and file permissions.
 
 AgentX never assumes an interrupted side effect succeeded and does not automatically replay an uncertain tool call during recovery.
 

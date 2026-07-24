@@ -6,9 +6,8 @@ For installation and day-to-day terminal and VS Code workflows, see the [AgentX 
 
 This repository currently delivers the operational local-agent core, not every optional product surface. Retained terminal rendering, delegated teams, remote placement, provider OAuth, marketplace installation, and other optional planes remain explicitly unavailable. The repo-local [runtime conformance profile](.codex/skills/coding-directives/references/runtime-conformance.md) separates operational, partial, contract-only, and unavailable behavior so source presence is never mistaken for a working route.
 
-AgentX owns one application home. `AGENTX_HOME` is the public absolute
-path override; the deprecated `AGENTX_STATE_DIR` compatibility/test override is
-consulted only when `AGENTX_HOME` is blank; otherwise the home is `~/.agentx`.
+AgentX owns one application home. `AGENTX_HOME` is the sole supported absolute
+path override; otherwise the home is `~/.agentx`.
 Every invocation creates the application home and its `sessions/` child with
 private permissions on supported Unix platforms before parsing command-line
 arguments. The selected physical home is frozen for bootstrap. Before full CLI
