@@ -26,9 +26,9 @@ func init() {
 	app = versioned.NewPackageManager("agentx")
 	app.Description = "Terminal-first agentic software-engineering client"
 	app.Documentation = "https://github.com/greenpau/agentx/"
-	app.SetVersion(appVersion, "1.0.5")
+	app.SetVersion(appVersion, "1.0.6")
 	app.SetGitBranch(gitBranch, "")
-	app.SetGitCommit(gitCommit, "1.0.5")
+	app.SetGitCommit(gitCommit, "1.0.6")
 	app.SetBuildUser(buildUser, "")
 	app.SetBuildDate(buildDate, "")
 	agentapp.ConfigureBuildIdentity(app.Version, app.Banner())
