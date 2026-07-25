@@ -21,6 +21,7 @@ import (
 	"github.com/greenpau/agentx/pkg/extensions"
 	"github.com/greenpau/agentx/pkg/identity"
 	"github.com/greenpau/agentx/pkg/model"
+	"github.com/greenpau/agentx/pkg/observability"
 	"github.com/greenpau/agentx/pkg/permission"
 	"github.com/greenpau/agentx/pkg/platform"
 	"github.com/greenpau/agentx/pkg/prompt"
@@ -32,6 +33,8 @@ import (
 	"github.com/greenpau/agentx/pkg/task"
 	"github.com/greenpau/agentx/pkg/tool"
 	"github.com/greenpau/agentx/pkg/transcript"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type runtimeSession struct {
@@ -51,6 +54,7 @@ type runtimeSession struct {
 	shutdown       *signals.ProcessShutdown
 	sanitize       func(string) string
 	credentials    *redact.Set
+	logger         *zap.Logger
 	closeOnce      sync.Once
 	closeErr       error
 }
@@ -142,6 +146,28 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		return nil, errors.Join(err, runtimeExt.mcp.Close())
 	}
 	sanitize = credentialSet.Apply
+	logger := observability.NewLogger(observability.LoggerConfig{
+		Writer:      options.Stderr,
+		Debug:       options.CLI.Debug,
+		Credentials: credentialSet,
+	})
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		safeErr := redactOperationalError(resultErr, sanitize)
+		observability.Log(logger, zapcore.ErrorLevel, "session construction failed",
+			zap.String("session_id", string(layout.sessionID)),
+			zap.String("error_message", safeOperationalErrorText(safeErr)),
+		)
+	}()
+	observability.Log(logger, zapcore.DebugLevel, "session construction started",
+		zap.String("session_id", string(layout.sessionID)),
+		zap.String("model", runtimeConfig.Azure.ModelName),
+		zap.String("surface", surfaceName(options.CLI)),
+		zap.Bool("persistent", !options.CLI.NoSessionPersistence),
+		zap.Bool("workspace_trusted", options.CLI.TrustWorkspace),
+	)
 	if warnWorkspaceTrust {
 		if err := writeWorkspaceTrustWarning(options.Stderr, credentialSet); err != nil {
 			return nil, errors.Join(err, runtimeExt.mcp.Close())
@@ -151,14 +177,14 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		HTTPClient:          modelHTTPClientFromContext(ctx),
 		CredentialSanitizer: credentialSet,
 		OnRetry: func(info model.RetryInfo) {
-			if options.Stderr != nil {
-				message := "request failed"
-				if info.Error != nil {
-					message = info.Error.Error()
-				}
-				record := fmt.Sprintf("model request retry %d/%d in %s (%s)\n", info.Attempt, info.MaxAttempts, info.Delay, message)
-				_ = writeTerminalRecord(options.Stderr, credentialSet, record)
-			}
+			observability.Log(logger, zapcore.WarnLevel, "model request retry",
+				zap.String("session_id", string(layout.sessionID)),
+				zap.String("model", runtimeConfig.Azure.ModelName),
+				zap.Int("attempt", info.Attempt),
+				zap.Int("max_attempts", info.MaxAttempts),
+				zap.Duration("delay", info.Delay),
+				zap.String("reason", info.String()),
+			)
 		},
 	})
 	if err != nil {
@@ -368,7 +394,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if store != nil {
 		semanticStore = store
 	}
-	query, err := engine.New(engine.Config{SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName, ReasoningEffort: runtimeConfig.Azure.ReasoningEffort, Instructions: sanitize(system.String()), MaxTurns: options.CLI.MaxTurns, MaxOutputTokens: engine.DefaultMaxOutputTokens, Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink, Sanitize: sanitize, CredentialSanitizer: credentialSet})
+	query, err := engine.New(engine.Config{SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName, ReasoningEffort: runtimeConfig.Azure.ReasoningEffort, Instructions: sanitize(system.String()), MaxTurns: options.CLI.MaxTurns, MaxOutputTokens: engine.DefaultMaxOutputTokens, Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink, Sanitize: sanitize, CredentialSanitizer: credentialSet, Logger: logger})
 	if err != nil {
 		return nil, closeExtensionFailure(err)
 	}
@@ -403,7 +429,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		sessionDir: layout.sessionDir, sessionOwner: layout.sessionOwner,
 		temporary: layout.temporary, lock: layout.lock, services: services,
 		permissionMode: string(mode), shutdown: signals.ProcessShutdownFromContext(ctx),
-		sanitize: sanitize, credentials: credentialSet,
+		sanitize: sanitize, credentials: credentialSet, logger: logger,
 	}
 	if runtimeExt.runner != nil && len(runtimeExt.hooks.Hooks) > 0 {
 		source := "startup"
@@ -415,13 +441,30 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 			return nil, errors.Join(fallbackError(hookErr, aggregate.Reason, "session-start hook stopped startup"), result.Close())
 		}
 	}
+	observability.Log(logger, zapcore.DebugLevel, "session construction completed",
+		zap.String("session_id", string(layout.sessionID)),
+		zap.Int("skill_count", len(skills.Skills)),
+		zap.Int("tool_count", len(registry.Descriptors())),
+		zap.String("permission_mode", string(mode)),
+	)
 	retainLayout = true
 	return result, nil
 }
 
 func (r *runtimeSession) Close() error {
 	r.closeOnce.Do(func() {
+		observability.Log(r.logger, zapcore.DebugLevel, "session shutdown started",
+			zap.String("session_id", string(r.engine.SessionID())),
+		)
 		r.closeErr = redactOperationalError(r.close(), r.sanitize)
+		fields := []zap.Field{
+			zap.String("session_id", string(r.engine.SessionID())),
+			zap.Bool("success", r.closeErr == nil),
+		}
+		if r.closeErr != nil {
+			fields = append(fields, zap.String("error", safeOperationalErrorText(r.closeErr)))
+		}
+		observability.Log(r.logger, zapcore.DebugLevel, "session shutdown completed", fields...)
 	})
 	return r.closeErr
 }

@@ -16,6 +16,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+
 	"github.com/greenpau/agentx/pkg/model"
 	"github.com/greenpau/agentx/pkg/protocol"
 	"github.com/greenpau/agentx/pkg/redact"
@@ -74,6 +78,7 @@ type faultStore struct {
 	failToolCallRemaining int
 	failResultID          protocol.ToolUseID
 	failResultRemaining   int
+	flushErr              error
 }
 
 func (s *faultStore) AppendEvent(_ context.Context, event protocol.Event) (protocol.Event, bool, error) {
@@ -92,7 +97,7 @@ func (s *faultStore) AppendEvent(_ context.Context, event protocol.Event) (proto
 	s.events = append(s.events, event)
 	return event, true, nil
 }
-func (s *faultStore) Flush(context.Context) error { return nil }
+func (s *faultStore) Flush(context.Context) error { return s.flushErr }
 
 type ambiguousAcceptanceStore struct {
 	mu        sync.Mutex
@@ -250,6 +255,223 @@ func newTestEngine(t *testing.T, provider model.Provider, capabilities Capabilit
 		t.Fatal(err)
 	}
 	return engine, store
+}
+
+func newObservedTestEngine(t *testing.T, provider model.Provider, capabilities Capabilities, level zapcore.Level) (*Engine, *observer.ObservedLogs) {
+	t.Helper()
+	core, logs := observer.New(level)
+	query, err := New(Config{
+		SessionID: "ses_observed", Model: "gpt-5.6-sol", ReasoningEffort: "high", Instructions: "test",
+		Provider: provider, Capabilities: capabilities, MaxTurns: 5, Logger: zap.New(core),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return query, logs
+}
+
+func TestTurnLogsCoverModelStreamAndCapabilityBoundariesWithoutPayloads(t *testing.T) {
+	const (
+		promptSecret = "private-prompt-value"
+		streamSecret = "private-stream-delta"
+		answerSecret = "private-final-answer"
+		resultSecret = "private-tool-result"
+	)
+	call := model.FunctionCall("fc_log", "call_log", "Read", `{"path":"private-call-argument"}`)
+	provider := &fakeProvider{responses: [][]model.Event{
+		{
+			{Type: model.EventTextDelta, SequenceNumber: 1, RequestID: "req_log", ResponseID: "resp_log_1", ItemID: "item_log", OutputIndex: 2, ContentIndex: 3, Delta: streamSecret},
+			{Type: model.EventResponseCompleted, SequenceNumber: 2, ResponseID: "resp_log_1", Response: &model.Response{ID: "resp_log_1", Status: "completed", Output: []model.Item{call}, Usage: model.Usage{InputTokens: 5, OutputTokens: 3, TotalTokens: 8}}},
+		},
+		completed([]model.Item{model.TextMessage(model.RoleAssistant, answerSecret)}, model.Usage{InputTokens: 7, OutputTokens: 2, TotalTokens: 9}),
+	}}
+	capabilities := &fakeCapabilities{results: []CapabilityResult{{
+		ID: "call_log", Name: "Read", Status: protocol.ToolResultSuccess,
+		Content: resultSecret, Duration: 12 * time.Millisecond,
+	}}}
+	query, logs := newObservedTestEngine(t, provider, capabilities, zapcore.DebugLevel)
+
+	outcome, err := query.Submit(t.Context(), promptSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.ModelTurns != 2 {
+		t.Fatalf("model turns = %d, want 2", outcome.ModelTurns)
+	}
+
+	wantMessages := map[string]int{
+		"turn started":               1,
+		"turn completed":             1,
+		"turn failed":                0,
+		"model iteration started":    2,
+		"model iteration completed":  2,
+		"model iteration failed":     0,
+		"model stream opened":        2,
+		"model stream event":         3,
+		"capability batch accepted":  1,
+		"capability batch completed": 1,
+		"capability result":          1,
+	}
+	for message, want := range wantMessages {
+		if got := logs.FilterMessage(message).Len(); got != want {
+			t.Errorf("%q logs = %d, want %d", message, got, want)
+		}
+	}
+
+	start := logs.FilterMessage("turn started").All()[0]
+	completedEntry := logs.FilterMessage("turn completed").All()[0]
+	if start.Level != zapcore.DebugLevel || completedEntry.Level != zapcore.DebugLevel {
+		t.Fatalf("turn levels = %s, %s; want debug", start.Level, completedEntry.Level)
+	}
+	startFields := start.ContextMap()
+	completedFields := completedEntry.ContextMap()
+	if startFields["status"] != "running" || completedFields["status"] != string(protocol.TurnResultSuccess) {
+		t.Fatalf("turn statuses = %#v, %#v", startFields["status"], completedFields["status"])
+	}
+	if startFields["turn_id"] == "" || startFields["turn_id"] != completedFields["turn_id"] {
+		t.Fatalf("turn correlation = %#v -> %#v", startFields["turn_id"], completedFields["turn_id"])
+	}
+	for _, key := range []string{"session_id", "turn_id", "model", "status", "stop_reason", "model_turns", "duration", "api_duration", "usage"} {
+		if _, ok := completedFields[key]; !ok {
+			t.Errorf("completed turn log omitted %q", key)
+		}
+	}
+
+	streamEvent := logs.FilterMessage("model stream event").All()[0].ContextMap()
+	if streamEvent["event_count"] != int64(1) || streamEvent["type"] != string(model.EventTextDelta) ||
+		streamEvent["sequence"] != int64(1) || streamEvent["delta_bytes"] != int64(len(streamSecret)) {
+		t.Fatalf("stream metadata = %#v", streamEvent)
+	}
+	resultFields := logs.FilterMessage("capability result").All()[0].ContextMap()
+	if resultFields["id"] != "call_log" || resultFields["name"] != "Read" ||
+		resultFields["status"] != string(protocol.ToolResultSuccess) || resultFields["content_bytes"] != int64(len(resultSecret)) {
+		t.Fatalf("capability result metadata = %#v", resultFields)
+	}
+
+	for _, entry := range logs.All() {
+		fields := entry.ContextMap()
+		for _, forbidden := range []string{"prompt", "prompt_id", "arguments", "content", "delta", "output", "result"} {
+			if _, ok := fields[forbidden]; ok {
+				t.Errorf("%q log exposed forbidden field %q", entry.Message, forbidden)
+			}
+		}
+		rendered := entry.Message + fmt.Sprint(fields)
+		for _, secret := range []string{promptSecret, streamSecret, answerSecret, resultSecret, "private-call-argument"} {
+			if strings.Contains(rendered, secret) {
+				t.Errorf("%q log exposed payload %q", entry.Message, secret)
+			}
+		}
+	}
+}
+
+func TestRoutineTurnLifecycleLogsRequireDebug(t *testing.T) {
+	provider := &fakeProvider{responses: [][]model.Event{
+		completed([]model.Item{model.TextMessage(model.RoleAssistant, "done")}, model.Usage{
+			InputTokens: 1, OutputTokens: 1, TotalTokens: 2,
+		}),
+	}}
+	query, logs := newObservedTestEngine(t, provider, &fakeCapabilities{}, zapcore.InfoLevel)
+
+	outcome, err := query.Submit(t.Context(), "run quietly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != protocol.TurnResultSuccess {
+		t.Fatalf("turn status = %q, want success", outcome.Status)
+	}
+	for _, message := range []string{"turn started", "turn completed"} {
+		if got := logs.FilterMessage(message).Len(); got != 0 {
+			t.Fatalf("%q INFO logs = %d, want 0", message, got)
+		}
+	}
+}
+
+func TestTurnFailureLogsUseSafeOwnedDiagnostics(t *testing.T) {
+	t.Run("provider", func(t *testing.T) {
+		providerFailure := &model.ProviderError{StatusCode: 503, Code: "overloaded", Message: "capacity temporarily unavailable"}
+		query, logs := newObservedTestEngine(t, failingProvider{err: providerFailure}, &fakeCapabilities{}, zapcore.DebugLevel)
+		if _, err := query.Submit(t.Context(), "do not log this prompt"); err == nil {
+			t.Fatal("provider failure was hidden")
+		}
+		failed := logs.FilterMessage("turn failed").All()
+		if len(failed) != 1 {
+			t.Fatalf("turn failed logs = %d, want 1", len(failed))
+		}
+		message, _ := failed[0].ContextMap()["error_message"].(string)
+		if !strings.Contains(message, "status=503") || !strings.Contains(message, "capacity temporarily unavailable") {
+			t.Fatalf("provider diagnostic = %q", message)
+		}
+	})
+
+	t.Run("retry exhausted", func(t *testing.T) {
+		retryFailure := &model.RetryExhaustedError{
+			Attempts: 3,
+			Last:     &model.ProviderError{StatusCode: 429, Code: "rate_limit", Message: "retry later"},
+		}
+		query, logs := newObservedTestEngine(t, failingProvider{err: retryFailure}, &fakeCapabilities{}, zapcore.DebugLevel)
+		if _, err := query.Submit(t.Context(), "do not log this prompt"); err == nil {
+			t.Fatal("retry exhaustion was hidden")
+		}
+		message, _ := logs.FilterMessage("turn failed").All()[0].ContextMap()["error_message"].(string)
+		if !strings.Contains(message, "failed after 3 attempts") || !strings.Contains(message, "retry later") {
+			t.Fatalf("retry diagnostic = %q", message)
+		}
+		iterationMessage, _ := logs.FilterMessage("model iteration failed").All()[0].ContextMap()["error_message"].(string)
+		if iterationMessage != message {
+			t.Fatalf("iteration diagnostic = %q, turn diagnostic = %q", iterationMessage, message)
+		}
+	})
+
+	t.Run("finalization failure", func(t *testing.T) {
+		core, logs := observer.New(zapcore.DebugLevel)
+		query, err := New(Config{
+			SessionID: "ses_flush_failure", Model: "gpt-5.6-sol",
+			Provider:     &fakeProvider{responses: [][]model.Event{completed([]model.Item{model.TextMessage(model.RoleAssistant, "done")}, model.Usage{})}},
+			Capabilities: &fakeCapabilities{},
+			Transcript:   &faultStore{flushErr: errors.New("flush failed")},
+			Logger:       zap.New(core),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		outcome, submitErr := query.Submit(t.Context(), "finish this turn")
+		if submitErr == nil {
+			t.Fatal("flush failure was hidden")
+		}
+		if outcome.Status != protocol.TurnResultSuccess {
+			t.Fatalf("semantic outcome status = %q, want success", outcome.Status)
+		}
+		if got := logs.FilterMessage("turn completed").Len(); got != 0 {
+			t.Fatalf("turn completed logs = %d, want 0", got)
+		}
+		failed := logs.FilterMessage("turn failed").All()
+		if len(failed) != 1 {
+			t.Fatalf("turn failed logs = %d, want 1", len(failed))
+		}
+		fields := failed[0].ContextMap()
+		if failed[0].Level != zapcore.ErrorLevel || fields["status"] != string(protocol.TurnResultError) ||
+			fields["outcome_status"] != string(protocol.TurnResultSuccess) {
+			t.Fatalf("finalization failure log = level %s fields %#v", failed[0].Level, fields)
+		}
+	})
+
+	t.Run("hostile foreign error", func(t *testing.T) {
+		hostile := &hostileSingleError{panicError: true, panicUnwrap: true}
+		query, logs := newObservedTestEngine(t, failingProvider{err: hostile}, &fakeCapabilities{}, zapcore.DebugLevel)
+		if _, err := query.Submit(t.Context(), "do not log this prompt"); err == nil {
+			t.Fatal("hostile provider failure was hidden")
+		}
+		if hostile.errorCalls != 0 || hostile.isCalls != 0 || hostile.asCalls != 0 || hostile.unwrapCalls != 0 {
+			t.Fatalf("logging invoked hostile error callbacks: %#v", hostile)
+		}
+		failed := logs.FilterMessage("turn failed").All()
+		if len(failed) != 1 {
+			t.Fatalf("turn failed logs = %d, want 1", len(failed))
+		}
+		if got := failed[0].ContextMap()["error_message"]; got != "engine operation failed" {
+			t.Fatalf("hostile diagnostic = %#v", got)
+		}
+	})
 }
 
 func TestLocalMetadataCommandsDoNotMaterializeEmptySession(t *testing.T) {

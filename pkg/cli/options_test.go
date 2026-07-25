@@ -5,6 +5,49 @@ import (
 	"testing"
 )
 
+func TestParseDebugFlag(t *testing.T) {
+	defaults, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Debug {
+		t.Fatal("debug logging was enabled by default")
+	}
+
+	for _, alias := range []string{"-d", "--debug"} {
+		t.Run(alias, func(t *testing.T) {
+			opts, err := Parse([]string{alias})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !opts.Debug {
+				t.Fatalf("%s did not enable debug logging", alias)
+			}
+		})
+	}
+}
+
+func TestDebugFlagRejectsUnsupportedForms(t *testing.T) {
+	for _, args := range [][]string{
+		{"--debug=provider"},
+		{"-d2e"},
+		{"--debug-to-stderr"},
+		{"--debug-file", "agentx-debug.log"},
+		{"--mcp-debug"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) accepted an unsupported debug form", args)
+		}
+	}
+}
+
+func TestHelpDocumentsDebugFlag(t *testing.T) {
+	usage := Usage()
+	if !strings.Contains(usage, "-d, --debug") || !strings.Contains(usage, "Enable debug diagnostic logging") {
+		t.Fatal("help does not document debug diagnostic logging")
+	}
+}
+
 func TestCompatibilityVersionAliasIsSoleArgumentOnly(t *testing.T) {
 	opts, err := Parse([]string{"-V"})
 	if err != nil || !opts.Version {

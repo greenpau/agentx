@@ -14,9 +14,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/greenpau/agentx/pkg/compact"
 	"github.com/greenpau/agentx/pkg/identity"
 	"github.com/greenpau/agentx/pkg/model"
+	"github.com/greenpau/agentx/pkg/observability"
 	"github.com/greenpau/agentx/pkg/protocol"
 	"github.com/greenpau/agentx/pkg/redact"
 	"github.com/greenpau/agentx/pkg/transcript"
@@ -157,6 +161,7 @@ type Config struct {
 	// of model-produced JSON before any durable acceptance.
 	CredentialSanitizer *redact.Set
 	Now                 func() time.Time
+	Logger              *zap.Logger
 }
 
 type Engine struct {
@@ -247,6 +252,9 @@ func New(config Config) (*Engine, error) {
 	}
 	if config.Now == nil {
 		config.Now = time.Now
+	}
+	if config.Logger == nil {
+		config.Logger = zap.NewNop()
 	}
 	if config.Sanitize != nil {
 		config.Instructions = applyTextSanitizer(config.Sanitize, config.Instructions)
@@ -671,6 +679,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 	if err != nil {
 		return outcome, err
 	}
+	e.logTurnStarted(outcome)
 	userEvent.Message.PromptID = promptID
 	if _, err := e.record(ctx, userEvent); err != nil {
 		if isEventDeliveryError(err) {
@@ -705,6 +714,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 		request := model.Request{Model: e.config.Model, Instructions: e.config.Instructions, Input: projected, Tools: schemas, Reasoning: model.Reasoning{Effort: e.config.ReasoningEffort}, MaxOutputTokens: e.config.MaxOutputTokens, Metadata: map[string]string{"session_id": string(e.config.SessionID), "turn_id": string(turnID)}}
 		parallel := true
 		request.ParallelToolCalls = &parallel
+		e.logModelIterationStarted(outcome, modelTurn)
 		apiStarted := e.currentTimeOutsideTurnLock()
 		response, _, calls, usage, err := e.runModel(ctx, turnID, request)
 		// API duration is the wall-clock time spent opening and consuming model
@@ -712,9 +722,11 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 		// writes, prompt projection, and presentation remain part of Duration but
 		// not APIDuration. time.Time subtraction preserves Go's monotonic clock
 		// when the production clock supplies it.
-		if elapsed := e.currentTimeOutsideTurnLock().Sub(apiStarted); elapsed > 0 {
-			outcome.APIDuration += elapsed
+		apiDuration := e.currentTimeOutsideTurnLock().Sub(apiStarted)
+		if apiDuration > 0 {
+			outcome.APIDuration += apiDuration
 		}
+		e.logModelIterationFinished(outcome, modelTurn, apiDuration, len(calls), usage, err)
 		if err != nil {
 			status := classifyTurnError(err)
 			stop := "provider_error"
@@ -766,6 +778,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 		}
 
 		accepted, callParents, err := e.acceptCalls(ctx, turnID, calls)
+		e.logCapabilityBatchAccepted(turnID, len(calls), len(accepted), err)
 		e.history = append(e.history, acceptedOutput(response.Output, accepted)...)
 		e.publishStatus()
 		if err != nil {
@@ -773,6 +786,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 			return e.finish(ctx, outcome, protocol.TurnResultError, recordFailureStop(err), errors.Join(err, settlementErr), started)
 		}
 		results := e.executeExactlyOnce(ctx, accepted)
+		e.logCapabilityBatchCompleted(turnID, len(accepted), len(results))
 		e.capturePermissionDenials(results)
 		if err := e.recordCapabilityResults(ctx, turnID, results, callParents); err != nil {
 			return e.finish(ctx, outcome, protocol.TurnResultError, recordFailureStop(err), err, started)
@@ -1406,6 +1420,7 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 		return nil, "", nil, nil, e.validateProviderErrorCause(err)
 	}
 	defer closeModelStream(stream)
+	e.logModelStreamOpened(turnID)
 	var text strings.Builder
 	var completedCalls []model.Item
 	var response *model.Response
@@ -1457,6 +1472,7 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 		if eventCount > maximumModelStreamEvents {
 			return response, text.String(), completedCalls, usage, fmt.Errorf("%w: model stream exceeded %d events", model.ErrProtocol, maximumModelStreamEvents)
 		}
+		e.logModelStreamEvent(turnID, eventCount, event)
 		switch event.Type {
 		case model.EventTextDelta:
 			if textFlushed {
@@ -1920,6 +1936,7 @@ func (e *Engine) recordCapabilityResults(ctx context.Context, turnID protocol.Tu
 	batchDeadline, _ := batchCtx.Deadline()
 	for index, result := range results {
 		result.Content = e.sanitizeText(result.Content)
+		e.logCapabilityResult(turnID, result)
 		parent, ok := parents[result.ID]
 		if !ok || parent == "" {
 			recordErrors = append(recordErrors, fmt.Errorf("accepted tool %s has no durable call parent", result.ID))
@@ -2103,6 +2120,7 @@ func (e *Engine) finish(ctx context.Context, outcome Outcome, status protocol.Tu
 		cancel()
 	}
 	err = errors.Join(err, e.flush())
+	var resultErr error
 	if err != nil {
 		finalizationMessage := safeEngineErrorString(err)
 		combinedMessage := causeMessage
@@ -2111,9 +2129,198 @@ func (e *Engine) finish(ctx context.Context, outcome Outcome, status protocol.Tu
 		} else if combinedMessage == "" {
 			combinedMessage = finalizationMessage
 		}
-		return outcome, e.publicErrorWithMessage(errors.Join(cause, err), combinedMessage)
+		resultErr = e.publicErrorWithMessage(errors.Join(cause, err), combinedMessage)
+	} else {
+		resultErr = e.publicErrorWithMessage(cause, causeMessage)
 	}
-	return outcome, e.publicErrorWithMessage(cause, causeMessage)
+	e.logTurnFinished(outcome, resultErr)
+	return outcome, resultErr
+}
+
+type loggedUsage struct {
+	value protocol.Usage
+}
+
+func (u loggedUsage) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	encoder.AddString("model", u.value.Model)
+	encoder.AddInt64("input_tokens", u.value.InputTokens)
+	encoder.AddInt64("cached_input_tokens", u.value.CachedInputTokens)
+	encoder.AddInt64("output_tokens", u.value.OutputTokens)
+	encoder.AddInt64("reasoning_tokens", u.value.ReasoningTokens)
+	encoder.AddInt64("total_tokens", u.value.TotalTokens)
+	if u.value.CostUSD != nil {
+		encoder.AddFloat64("cost_usd", *u.value.CostUSD)
+	}
+	return nil
+}
+
+func (e *Engine) turnLogFields(outcome Outcome, status string) []zap.Field {
+	return []zap.Field{
+		zap.String("session_id", string(outcome.SessionID)),
+		zap.String("turn_id", string(outcome.TurnID)),
+		zap.String("model", e.config.Model),
+		zap.String("status", status),
+		zap.String("stop_reason", outcome.StopReason),
+		zap.Int("model_turns", outcome.ModelTurns),
+		zap.Duration("duration", outcome.Duration),
+		zap.Duration("api_duration", outcome.APIDuration),
+		zap.Object("usage", loggedUsage{value: outcome.Usage}),
+	}
+}
+
+func (e *Engine) logTurnStarted(outcome Outcome) {
+	outcome.Usage = cloneUsage(e.usage)
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "turn started", e.turnLogFields(outcome, "running")...)
+}
+
+func (e *Engine) logTurnFinished(outcome Outcome, resultErr error) {
+	if resultErr == nil {
+		observability.Log(e.config.Logger, zapcore.DebugLevel, "turn completed", e.turnLogFields(outcome, string(outcome.Status))...)
+		return
+	}
+	fields := e.turnLogFields(outcome, string(protocol.TurnResultError))
+	if outcome.Status != protocol.TurnResultError {
+		fields = append(fields, zap.String("outcome_status", string(outcome.Status)))
+	}
+	fields = append(fields, zap.String("error_message", e.safeEngineDiagnosticString(resultErr)))
+	observability.Log(e.config.Logger, zapcore.ErrorLevel, "turn failed", fields...)
+}
+
+func (e *Engine) modelIterationLogFields(outcome Outcome, modelTurn int) []zap.Field {
+	return []zap.Field{
+		zap.String("session_id", string(outcome.SessionID)),
+		zap.String("turn_id", string(outcome.TurnID)),
+		zap.String("model", e.config.Model),
+		zap.Int("model_turn", modelTurn),
+	}
+}
+
+func (e *Engine) logModelIterationStarted(outcome Outcome, modelTurn int) {
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "model iteration started", e.modelIterationLogFields(outcome, modelTurn)...)
+}
+
+func (e *Engine) logModelIterationFinished(outcome Outcome, modelTurn int, duration time.Duration, toolCalls int, usage *model.Usage, resultErr error) {
+	fields := e.modelIterationLogFields(outcome, modelTurn)
+	fields = append(fields,
+		zap.Duration("duration", duration),
+		zap.Int("tool_calls", toolCalls),
+	)
+	if usage != nil {
+		fields = append(fields,
+			zap.Int64("input_tokens", usage.InputTokens),
+			zap.Int64("cached_input_tokens", usage.CachedInputTokens),
+			zap.Int64("output_tokens", usage.OutputTokens),
+			zap.Int64("reasoning_tokens", usage.ReasoningOutputTokens),
+			zap.Int64("total_tokens", usage.TotalTokens),
+		)
+	}
+	if resultErr == nil {
+		fields = append(fields, zap.String("status", "completed"))
+		observability.Log(e.config.Logger, zapcore.DebugLevel, "model iteration completed", fields...)
+		return
+	}
+	fields = append(fields,
+		zap.String("status", "failed"),
+		zap.String("error_message", e.safeEngineDiagnosticString(resultErr)),
+	)
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "model iteration failed", fields...)
+}
+
+// safeEngineDiagnosticString renders useful failure detail only from error
+// implementations owned by this package or the model package. It never calls
+// Error, Is, As, or Unwrap on a caller-owned error implementation.
+func (e *Engine) safeEngineDiagnosticString(err error) (message string) {
+	if err == nil {
+		return ""
+	}
+	message = "engine operation failed"
+	defer func() {
+		if recover() != nil {
+			message = "engine operation failed"
+		}
+		message = boundedUTF8(e.normalizedPublicErrorMessage(message), 2000)
+	}()
+	inspection := inspectEngineError(err)
+	for _, match := range inspection.matches {
+		if retry, ok := match.(*model.RetryExhaustedError); ok && retry != nil {
+			message = retry.Error()
+			return message
+		}
+	}
+	if inspection.provider != nil {
+		message = inspection.provider.Error()
+		return message
+	}
+	message = safeEngineErrorString(err)
+	return message
+}
+
+func (e *Engine) debugLogFields(turnID protocol.TurnID) []zap.Field {
+	return []zap.Field{
+		zap.String("session_id", string(e.config.SessionID)),
+		zap.String("turn_id", string(turnID)),
+		zap.String("model", e.config.Model),
+	}
+}
+
+func (e *Engine) logModelStreamOpened(turnID protocol.TurnID) {
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "model stream opened", e.debugLogFields(turnID)...)
+}
+
+func (e *Engine) logModelStreamEvent(turnID protocol.TurnID, count int, event model.Event) {
+	fields := e.debugLogFields(turnID)
+	fields = append(fields,
+		zap.Int("event_count", count),
+		zap.String("type", string(event.Type)),
+		zap.Int64("sequence", event.SequenceNumber),
+		zap.Int("output_index", event.OutputIndex),
+		zap.Int("content_index", event.ContentIndex),
+		zap.String("request_id", event.RequestID),
+		zap.String("response_id", event.ResponseID),
+		zap.String("item_id", event.ItemID),
+		zap.Int("delta_bytes", len(event.Delta)),
+	)
+	if event.Call != nil {
+		fields = append(fields, zap.String("call_id", event.Call.CallID))
+	}
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "model stream event", fields...)
+}
+
+func (e *Engine) logCapabilityBatchAccepted(turnID protocol.TurnID, requested, accepted int, resultErr error) {
+	fields := e.debugLogFields(turnID)
+	fields = append(fields,
+		zap.Int("requested_calls", requested),
+		zap.Int("accepted_calls", accepted),
+		zap.Bool("error", resultErr != nil),
+	)
+	if resultErr != nil {
+		fields = append(fields, zap.String("error_message", e.safeEngineDiagnosticString(resultErr)))
+	}
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "capability batch accepted", fields...)
+}
+
+func (e *Engine) logCapabilityBatchCompleted(turnID protocol.TurnID, accepted, results int) {
+	fields := e.debugLogFields(turnID)
+	fields = append(fields,
+		zap.Int("accepted_calls", accepted),
+		zap.Int("terminal_results", results),
+	)
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "capability batch completed", fields...)
+}
+
+func (e *Engine) logCapabilityResult(turnID protocol.TurnID, result CapabilityResult) {
+	fields := e.debugLogFields(turnID)
+	fields = append(fields,
+		zap.String("id", string(result.ID)),
+		zap.String("name", result.Name),
+		zap.String("status", string(result.Status)),
+		zap.Duration("duration", result.Duration),
+		zap.Bool("error", result.IsError),
+		zap.Bool("synthetic", result.Synthetic),
+		zap.String("code", result.Code),
+		zap.Int("content_bytes", len(result.Content)),
+	)
+	observability.Log(e.config.Logger, zapcore.DebugLevel, "capability result", fields...)
 }
 
 func clonePermissionDenials(source []PermissionDenial) []PermissionDenial {

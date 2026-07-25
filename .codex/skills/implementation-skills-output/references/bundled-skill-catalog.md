@@ -1,10 +1,20 @@
-# Bundled skill catalog
+# Dormant bundled-skill catalog
 
-This catalog defines the product-shipped instruction capabilities that are assembled programmatically rather than discovered from a user directory. The prompt wording may evolve, but identity, eligibility, authority, argument handling, and required workflow are implementation contracts. These contracts refine `SKILL-003` and `SKILL-070` through `SKILL-072`.
+This catalog preserves a broader profile's product-shipped instruction
+capabilities. The standalone AgentX profile registers no bundled skills:
+`SKILL-003` admits only the active repository root, and `SKILL-004` excludes
+bundles. Every descriptor, scenario, extraction rule, and registry rule below
+is conditional on a future profile first changing that source contract and
+marking the feature available in runtime conformance.
+
+`BSKILL-000` — In the standalone profile, expose zero bundled descriptors,
+perform no packaged-skill extraction, and do not merge this catalog into the
+project-skill registry. Source presence in this reference is not runtime
+eligibility.
 
 ## Registry and profile
 
-`BSKILL-001` — Register bundled descriptors in deterministic product order before a session registry is exposed. Each descriptor retains canonical name, description, caller visibility, model-invocation policy, optional argument hint, live enablement, temporary allowed tools, and prompt builder. Return registry copies rather than mutable storage. Build-eliminated descriptors are supported absence; a live enablement predicate is checked on registry reads.
+`BSKILL-001` — If a future conformance profile enables bundles, register bundled descriptors in deterministic product order before a session registry is exposed. Each descriptor retains canonical name, description, caller visibility, model-invocation policy, optional argument hint, live enablement, temporary allowed tools, and prompt builder. Return registry copies rather than mutable storage. Build-eliminated descriptors are supported absence; a live enablement predicate is checked on registry reads.
 
 `BSKILL-002` — A bundled skill with reference files extracts them lazily once per process generation under its protected skill root. Concurrent first invocations share one extraction attempt. Validate every relative path, create owner-only directories/files exclusively without following the final symlink, and never unlink-and-retry a collision. If extraction fails, return the core prompt without a false base-directory reference; the skill remains usable unless its contract requires those files.
 
@@ -46,4 +56,3 @@ This catalog defines the product-shipped instruction capabilities that are assem
 - **BSKILL-A04 — Authority containment.** Invoke `update-config`, `keybindings-help`, `agentx-api`, and `agentx-in-chrome`. Prompt generation performs no configuration/file/browser mutation; subsequent work crosses only each descriptor's declared tools and ordinary permission policy.
 - **BSKILL-A05 — Argument and packaged-content stability.** Reinvoke `verify`, `agentx-api`, and `remember` with and without arguments. Packaged/reference content stays byte-stable for one build, optional user text is appended in its declared section, and no argument changes callable identity or source attribution.
 - **BSKILL-A06 — Scheduled parsing.** Exercise leading interval, trailing interval, default interval, `every PR`, and interval-only inputs for `loop`. Only valid nonempty work reaches one create call and one immediate execution, with the original slash prompt preserved.
-

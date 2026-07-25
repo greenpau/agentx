@@ -18,7 +18,7 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 3. Construct a fresh client when credentials or connection health require it. Attach only headers supported by the selected provider and destination.
 4. Build the request from normalized messages, prompt sections, tools, model, limits, and provider-compatible beta fields.
 5. Consume the response stream into explicit message and usage events while watchdogs, cancellation, and incomplete-stream detection remain active.
-6. Classify failures. Refresh credentials or disable a stale connection pool when appropriate, then retry with bounded backoff or persistent heartbeats according to source and policy.
+6. Classify failures. In DEBUG, retain the safe provider status/code, request ID, route family, version-source class, attempt, and retry decision without emitting the endpoint, deployment, exact configured API version, URL/query, headers, body, or credential. Refresh credentials or disable a stale connection pool when appropriate, then retry with bounded backoff or persistent heartbeats according to source and policy.
 7. If a recoverable stream fails before a coherent terminal message, optionally issue a bounded non-streaming fallback without duplicating already-started side effects.
 8. Normalize the terminal response or error and retain correlation identifiers without logging secrets.
 
@@ -46,6 +46,7 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 - In CI, a descriptor-provided key outranks the environment key, while a configured OAuth token causes API-key lookup to return none rather than fail.
 - Concurrent expired-token requests produce one refresh, and a token refreshed by another process is adopted without a second refresh.
 - An `ECONNRESET` retry can disable keep-alive and construct a fresh client without changing the logical request.
+- An Azure response that explicitly rejects the configured API version is one nonretryable configuration failure. It preserves safe provider correlation and remediation, does not rewrite `auth.json`, and does not retry or switch routes behind the operator's back.
 - `retry-after` overrides exponential delay; ordinary backoff starts at 500 ms, adds up to 25% jitter, and caps at 32 seconds.
 - A stream with no `message_start`, or with no completed content and no stop reason, uses the documented fallback instead of reporting false success.
 - A 500 MiB-plus upload is rejected after reading and before network transmission, and a download path attempting traversal is rejected before directory creation.

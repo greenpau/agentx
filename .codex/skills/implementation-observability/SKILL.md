@@ -11,10 +11,11 @@ Observe the semantic runtime without becoming its authority. Read [observability
 
 1. Start from a canonical semantic event or explicit operational measurement.
 2. Classify fields by privacy, cardinality, source, and whether aggregation is sufficient.
-3. Apply opt-out, essential-traffic, managed-policy, build, and sink kill-switch decisions before routing.
-4. Update authoritative local usage/cost counters separately from best-effort exporters.
-5. Bound queues, batches, retries, disk persistence, open spans, and shutdown flush.
-6. Verify that disabling or breaking every sink does not alter semantic events, permissions, transcript, side effects, or exit status.
+3. For local DEBUG diagnostics, prefer maximum safe evidence: stable stage and reason codes, bounded counts, booleans, classifications, correlation IDs, and durations. Never substitute payloads or exact secret-capable configuration merely because DEBUG was requested.
+4. Apply opt-out, essential-traffic, managed-policy, build, and sink kill-switch decisions before routing.
+5. Update authoritative local usage/cost counters separately from best-effort exporters.
+6. Bound queues, batches, retries, disk persistence, open spans, and shutdown flush.
+7. Verify that disabling or breaking every sink does not alter semantic events, permissions, transcript, side effects, or exit status.
 
 ## Completion check
 

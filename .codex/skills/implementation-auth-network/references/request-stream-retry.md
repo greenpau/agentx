@@ -21,13 +21,15 @@ This document defines client construction, request metadata, stream health, non-
 
 `NET-002` — Common safe headers include product identifier and user agent. First-party requests additionally carry session ID and, when supplied by trusted launch context, remote container ID, remote session ID, SDK client-app identifier, and client request ID.
 
-`NET-003` — Generate a random `x-client-request-id` for each first-party request unless the caller already supplied one. Log only URL path, source, and safe correlation ID. Do not send this header to Bedrock, Vertex, Foundry, or an unknown strict proxy.
+`NET-003` — Generate a random `x-client-request-id` for each first-party request unless the caller already supplied one. Diagnostics may retain only a provider-safe normalized route family, source, and safe correlation ID, never the raw URL path or query. Do not send this header to Bedrock, Vertex, Foundry, or an unknown strict proxy.
 
 `NET-004` — Optional additional-protection setting adds its first-party protection header. Custom headers are parsed from newline-delimited `Name: Value`, split on the first colon, trimmed, and ignore malformed/empty names. Apply destination policy; custom Authorization may intentionally override, but diagnostics reveal only its presence.
 
 `NET-005` — Provider/beta compatibility is explicit. First-party-only request fields (fine-grained tool streaming, global cache scope, beta flags) are absent for cloud adapters and incompatible proxies. An experimental-beta kill switch strips all non-base tool fields except standard prompt-cache control.
 
 `NET-006` — Cache the session-stable portion of tool schemas by canonical tool name plus behavior-bearing input schema. Per-request defer/cache overlays copy rather than mutate the cached base.
+
+`NET-007` — Resolve provider route family before sending. For Azure, the empty API-version selector uses `route_family=azure_v1` without a version query; a nonempty configured selector uses `route_family=azure_versioned` and is sent literally after local validation. Values such as `preview` are literal configuration, not latest-version aliases. DEBUG may record that closed route-family enum, `version_source=default|configured`, and a one-based attempt number together with request correlation. It never records the exact configured API version, endpoint, deployment, URL/query, headers, body, or credential. Route selection is deterministic for the attempt and is not silently rewritten after a provider rejection.
 
 ## Streaming lifecycle
 
@@ -129,9 +131,11 @@ Cooldown duration is max(server wait or default 30 minutes, minimum 10 minutes).
 
 `NET-031` — Publish usage only from accepted response events. Do not add partial failed-attempt output usage to conversation semantics; accounting/telemetry may record it separately.
 
-`NET-032` — Terminal errors distinguish authentication, permission/policy, rate limit, overload, timeout, connection, malformed stream, context overflow, provider unavailable, and user abort. Preserve safe server request ID and remediation without raw response secrets.
+`NET-032` — Terminal errors distinguish authentication, permission/policy, rate limit, overload, timeout, connection, malformed stream, context overflow, provider-configuration incompatibility, provider unavailable, and user abort. A provider-configuration subtype may retain the common engine stop reason `provider_error` while exposing its safe classification and remediation. Preserve safe server request ID and remediation without raw response secrets.
 
 `NET-033` — Retry/fallback does not duplicate accepted tool side effects. If streamed tool execution has started and cannot be proven unexecuted, disable automatic non-stream fallback or reconcile tool-use identifiers before continuation.
+
+`NET-034` — Classify an Azure status 400 as `error_class=provider_configuration` only when its already-sanitized provider message is at most 2 KiB and, after removing leading/trailing ASCII space, tab, CR, and LF, matches this complete ASCII-case-insensitive template with one optional final period: `Azure OpenAI Responses API is enabled only for api-version <minimum> and later`. Do not match a substring or a wording variant. This specialized classification sets `retry_decision=do_not_retry` and wins over `x-should-retry:true`; every other 400 retains ordinary provider-error classification. Preserve only the bounded provider status, code, safe message classification, request ID, and operator remediation. The captured `<minimum>` is retained only when it is at most 32 ASCII bytes, matches exactly `YYYY-MM-DD` or `YYYY-MM-DD-preview`, and contains a valid calendar date; otherwise use generic remediation without the token. The minimum is distinct from and does not reveal the configured value. Do not retry, refresh credentials, rebuild solely for this error, change route families, fall back models, or modify credential configuration. The remediation directs the operator to update the application-home credential configuration with a provider-supported dated value without echoing its exact current version or secret-bearing fields; the empty default-v1 selector is mentioned only as a separate explicit choice when supported.
 
 ## Acceptance scenarios
 
@@ -146,6 +150,8 @@ Cooldown duration is max(server wait or default 30 minutes, minimum 10 minutes).
 **NET-A05 — Context overflow adjustment.** Max-token error says 188,059 input plus 20,000 over 200,000. Available context subtracts 1,000 safety buffer; if below 3,000, request fails rather than retrying with an unusable budget.
 
 **NET-A06 — Stale connection recovery.** `ECONNRESET` under the gate disables keep-alive, rebuilds client, and retries without changing logical request identity.
+
+**NET-A07 — Azure API-version mismatch.** Configure Azure with the literal API-version value `preview`; the provider returns status 400 with `x-should-retry:true` and the exact message `Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later`. Verify the specialized classifier wins, exactly one request occurs, and there is no credential refresh, client rebuild for the mismatch, streaming or model fallback, or `auth.json` mutation. One normalized `error_class=provider_configuration` error contains the safe provider request ID and may contain the strictly validated provider minimum as remediation. INFO retains the terminal error. DEBUG additionally identifies `route_family=azure_versioned`, `version_source=configured`, `attempt=1`, and `retry_decision=do_not_retry`, but contains neither the exact configured value nor endpoint, deployment, URL/query, headers, body, or API key. Repeat with the exact template but a malformed minimum; retain the specialized nonretry classification with generic remediation and no minimum token. A wording variant, an over-2-KiB message, and the valid sentence embedded as a substring retain ordinary provider-error classification.
 
 ## Non-normative provenance
 

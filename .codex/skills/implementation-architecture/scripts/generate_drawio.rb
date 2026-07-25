@@ -70,7 +70,7 @@ SPECS = {
     ['Raw prompt / attachments', 'Normalize + expand refs', 'Slash / shell / text classify', 'Command registry resolution', 'Local result / UI · durability is command-specific', 'Process-local priority queue · crash-before-consume loses item', 'Consumption commit → transcript / history'],
     [[0,1],[1,2],[2,3],[3,4],[3,5],[5,6]]],
   'implementation-skills-output' => ['Skill and output-style lifecycle',
-    ['Managed / user / project / plugin / MCP', 'Discover + realpath dedup', 'Parse frontmatter', 'Filter visibility / conditions', 'Substitute invocation context', 'Inject prompt / fork agent', 'Track + survive compaction'],
+    ['Project skills / multi-source output styles', 'Discover + realpath dedup', 'Parse frontmatter', 'Filter visibility / conditions', 'Substitute invocation context', 'Inject prompt / fork agent', 'Track + survive compaction'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]],
   'implementation-plugins-hooks' => ['Plugin, marketplace, and hook lifecycle',
     ['Marketplace / session / built-in source', 'Policy before download', 'Resolve dependencies', 'Validate + version install', 'Load attributed components', 'Run matched lifecycle hooks', 'Reload / disable / cleanup'],
@@ -291,6 +291,10 @@ def definition_ids(line)
 end
 
 def contract_anchors(skill)
+  if skill == 'implementation-skills-output'
+    return %w[SKILL-003 SKILL-011 SKILL-016 SKILL-017 SKILL-018]
+  end
+
   ids = []
   owners = [skill]
   owners.concat(ROUTING_GROUPS.fetch(skill)) if ROUTING_GROUPS.key?(skill)

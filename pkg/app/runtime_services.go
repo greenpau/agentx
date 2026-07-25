@@ -20,6 +20,8 @@ import (
 	"github.com/greenpau/agentx/pkg/observability"
 	"github.com/greenpau/agentx/pkg/platform"
 	"github.com/greenpau/agentx/pkg/sandbox"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type runtimeServices struct {
@@ -295,6 +297,12 @@ func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string
 	}
 	text = r.sanitize(text)
 	hooks := r.services.extensions
+	observability.Log(r.logger, zapcore.DebugLevel, "turn admission started",
+		zap.String("session_id", string(r.engine.SessionID())),
+		zap.Int("input_bytes", len(text)),
+		zap.Bool("prompt_id_present", promptID != ""),
+		zap.Int("hook_count", len(hooks.hooks.Hooks)),
+	)
 	if hooks.runner != nil && len(hooks.hooks.Hooks) > 0 {
 		aggregate, err := hooks.runner.Dispatch(ctx, hooks.hooks, extensions.HookInput{
 			SessionID: string(r.engine.SessionID()), TranscriptPath: r.transcriptPath(), CWD: r.workspace,
@@ -302,15 +310,35 @@ func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string
 			Fields: map[string]any{"prompt": text},
 		})
 		if err != nil {
+			observability.Log(r.logger, zapcore.DebugLevel, "turn admission failed",
+				zap.String("session_id", string(r.engine.SessionID())),
+				zap.String("stage", "user_prompt_hook"),
+				zap.String("error_message", safeOperationalErrorText(redactOperationalError(err, r.sanitize))),
+			)
 			return engine.Outcome{}, fmt.Errorf("user prompt hook: %w", err)
 		}
 		if aggregate.Decision == extensions.HookDecisionDeny || !aggregate.Continue {
+			observability.Log(r.logger, zapcore.DebugLevel, "turn admission failed",
+				zap.String("session_id", string(r.engine.SessionID())),
+				zap.String("stage", "user_prompt_hook"),
+				zap.String("decision", string(aggregate.Decision)),
+				zap.Bool("continue", aggregate.Continue),
+			)
 			return engine.Outcome{}, errors.New(fallback(aggregate.Reason, "user prompt hook stopped the turn"))
 		}
 		if len(aggregate.Contexts) > 0 {
 			text += "\n\n<hook_context>\n" + strings.Join(aggregate.Contexts, "\n") + "\n</hook_context>"
 		}
+		observability.Log(r.logger, zapcore.DebugLevel, "turn hooks completed",
+			zap.String("session_id", string(r.engine.SessionID())),
+			zap.Int("context_count", len(aggregate.Contexts)),
+			zap.Int("effective_input_bytes", len(text)),
+		)
 	}
+	observability.Log(r.logger, zapcore.DebugLevel, "turn admission completed",
+		zap.String("session_id", string(r.engine.SessionID())),
+		zap.Int("effective_input_bytes", len(text)),
+	)
 	return r.engine.SubmitPrompt(ctx, r.sanitize(text), promptID)
 }
 

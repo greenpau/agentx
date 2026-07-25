@@ -20,7 +20,7 @@ This document defines the authoritative append-only session history and how a co
 
 **TX-002 — Stable identities.** Every transcript message has a globally unique message UUID, timestamp, session ID, and zero or one parent UUID. Session IDs are UUIDs and change only through the atomic session-switch contract.
 
-**TX-003 — Transcript-message types.** Only semantic user, assistant, attachment, and system records participate as transcript messages. Progress is ephemeral presentation state and neither persists in new transcripts nor advances the parent cursor.
+**TX-003 — Transcript-message types.** Only semantic user, assistant, attachment, and system records participate as transcript messages. For a model-backed turn, the accepted durable user message carrying its turn identity and timestamp is the authoritative start marker. Progress is ephemeral presentation state and neither persists in new transcripts nor advances the parent cursor.
 
 **TX-004 — Transcript record.** A message record can contain:
 
@@ -32,7 +32,7 @@ This document defines the authoritative append-only session history and how a co
 
 Session-stamp fields are assigned by the destination session after copied message fields so resume/fork cannot retain the source session's ownership metadata.
 
-**TX-005 — Metadata events.** Support append-only events for at least:
+**TX-005 — Metadata and lifecycle events.** Support append-only events for at least:
 
 - session summary, custom/AI title, last prompt, task summary, and tag;
 - agent name, color, selected agent, coordinator/normal mode, worktree state, and linked pull request;
@@ -40,9 +40,15 @@ Session-stamp fields are assigned by the destination session after copied messag
 - queued-message lifecycle operations;
 - speculation acceptance;
 - tool-result content-replacement decisions;
-- ordered context-collapse commits and last-wins context-collapse snapshot.
+- ordered context-collapse commits and last-wins context-collapse snapshot;
+- completed provider-usage records and, when terminal append and flush succeed,
+  exactly one terminal turn-result for each finalized model-backed turn.
 
-Metadata may be session-scoped rather than parent-linked.
+Metadata may be session-scoped rather than parent-linked. Usage and terminal
+turn results carry the owning turn ID, remain durable but model-hidden, and are
+session authority independent of whether DEBUG diagnostics are enabled. A
+terminal append or flush failure is surfaced as a transcript-finalization error,
+not silently described as durable completion.
 
 **TX-006 — Chain versus display.** Parent UUID expresses implementation topology. UI order and API normalization may merge or reorder related records. Never derive authoritative parent relationships from the current rendered order alone.
 
@@ -262,6 +268,17 @@ mutating the replacement. This scenario does not claim resistance to every
 swap-and-restore race inside independently owned stores. A
 `--no-session-persistence` run still observes the bootstrapped top-level
 `sessions/` directory but leaves no workspace-hash or session-ID child.
+
+**TX-A16 — Turn lifecycle round-trip and diagnostic non-authority.** Run two
+model-backed turns in one persistent session: one succeeds after provider usage,
+and one ends in a provider configuration error. Reopen and resume the session.
+Each admitted turn has one accepted user start marker, its completed usage
+events, and exactly one model-hidden terminal `turn_result`; recovery neither
+duplicates them nor inserts them into model context. Repeat with DEBUG enabled
+and verify diagnostics do not change those durable records. Finally, fail the
+accepted-user append after a DEBUG start candidate and verify no diagnostic
+record fabricates a durable start, usage, or terminal result; the operation
+surfaces transcript admission/finalization failure instead.
 
 ## Non-normative provenance
 

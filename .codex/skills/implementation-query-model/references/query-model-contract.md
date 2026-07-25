@@ -109,7 +109,7 @@ Use a fresh state value for every transition; do not infer recovery state solely
 
 **QM-025 — Assistant persistence race.** Assistant transcript appends may be queued without awaiting because later stream deltas mutate the last completed assistant record's cumulative usage and stop reason. Serialization must occur lazily enough to capture those terminal fields. User, compact-boundary, attachment, and deliberate context-changing records preserve their required ordering.
 
-**QM-026 — Result-before-process-exit.** On surfaces allowed to terminate immediately after a result event, flush durable state before publishing the terminal result.
+**QM-026 — Result-before-process-exit.** On surfaces allowed to terminate immediately after a result event, flush durable state before publishing the terminal result. The accepted user event is the durable turn-start marker, completed provider usage is recorded under the same turn identity, and exactly one terminal turn-result event closes every model-backed turn whose terminal append and flush succeed. An append or flush failure is a finalization error, not a claim of durable completion. Diagnostic logger level never changes those records.
 
 **QM-027 — Persistence milestones.** Distinguish semantic admission, submission to transcript storage, FIFO enqueue, completed local append, completed remote append, and explicit flush. Awaiting transcript submission for a user or tool-result message ordinarily guarantees ordered enqueue and any synchronous remote step, not local disk flush. Assistant blocks may be submitted fire-and-forget so their terminal usage fields can settle before lazy serialization. Neither tool completion nor an unsafe execution barrier proves that any earlier result reached disk.
 
@@ -447,7 +447,7 @@ Derived assistance is optional, non-authoritative work. It may improve progress 
 
 ### Normal and local turns
 
-**QM-A01 — Text completion.** Given one accepted user prompt and a stream containing message-start, one text block, message-delta, and message-stop, verify the user prompt is persisted before transport; partial text is shown; one completed assistant record is stored with final usage/stop reason; no tool loop runs; one success result is emitted.
+**QM-A01 — Text completion.** Given one accepted user prompt and a stream containing message-start, one text block, message-delta, and message-stop, verify the user prompt is persisted before transport; partial text is shown; one completed assistant record and its usage are stored with final usage/stop reason; no tool loop runs; exactly one durable success turn-result is flushed before the surface result; and logger level does not change the normalized transcript lifecycle.
 
 **QM-A02 — Local command.** Given input that resolves locally, verify initialization and local output are published, no model client is called, history is persisted, and a success result has null model stop reason.
 

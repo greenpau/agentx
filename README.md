@@ -70,6 +70,18 @@ agentx --mcp-server
 
 Useful controls include `--effort high`, `--permission-mode plan`, `--allowed-tools`, `--disallowed-tools`, `--resume`, `--continue`, `--fork-session`, and `--no-session-persistence`. Project `AGENTS.md`, repository-local `.codex/skills`, and workspace `.agentx/` plugins, hooks, output styles, and MCP configuration are ignored until `--trust-workspace` is explicit. The private user application home is not that workspace extension directory and never becomes project-controlled merely because a workspace is trusted. Skills are never loaded from user configuration, plugins, remote providers, or nested repositories. Run `agentx --help` for the current contract.
 
+Routine model-backed turn lifecycle records are DEBUG diagnostics. Pass `-d`
+or `--debug` to emit turn-correlated lifecycle records plus session,
+model-iteration, stream, retry, tool, usage, timing, and terminal-state metadata
+to stderr; retry warnings carry session and model identity. Without debug,
+successful turns do not emit routine lifecycle records; WARN and ERROR
+conditions remain eligible. For persistent sessions, the accepted user event,
+provider usage, and terminal turn result are instead durable session evidence
+in `transcript.jsonl`. Diagnostic records omit prompts, model text, tool
+arguments and results, file contents, headers, bodies, and configured
+credentials. stdout retains the selected text or structured output contract, so
+troubleshooting output can be captured separately with `2>agentx-debug.log`.
+
 The default reasoning effort is `high`; accepted values for `gpt-5.6-sol` are `none`, `low`, `medium`, `high`, `xhigh`, and `max`. A `--model` override is rejected unless it matches the deployment-backed model in `auth.json`, preventing a logical model label from silently routing to a different Azure deployment.
 
 The bidirectional NDJSON adapter remains live for correlated controls and can queue `now`, `next`, and `later` user records while a turn is active. It does not splice a newly arrived prompt into the active recursive model/tool turn: `now` first cancels that turn, then the accepted record runs as the next serialized turn. MCP integration is stdio-only; image and audio result blocks are validated but become inert text/metadata placeholders rather than model attachments, and trusted project MCP configuration does not yet have a separate approval persisted against its exact configuration fingerprint. Resume, fork, and compaction are useful but similarly bounded; see the conformance profile for their explicit compatibility gaps.

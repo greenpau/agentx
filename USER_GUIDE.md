@@ -192,6 +192,28 @@ Structured stdout contains protocol records only; diagnostics are written separa
 Cost fields are `null` when the configured deployment has no authoritative price;
 numeric `0` is reserved for a known zero cost.
 
+### Troubleshoot a turn
+
+Successful turns do not write routine lifecycle records at the default INFO
+threshold. Enable DEBUG diagnostics to write one correlated start and terminal
+record for each model-backed turn, together with detailed troubleshooting
+context:
+
+```sh
+agentx --trust-workspace --print --output-format text --debug \
+  "investigate this repository" 2>agentx-debug.log
+```
+
+DEBUG adds session construction, model-iteration, stream, retry, tool, usage,
+timing, and terminal-state metadata. WARN and ERROR conditions can still appear
+without debug. For a persistent session, the durable session record is not the
+diagnostic stream: `transcript.jsonl` stores the accepted user event as the turn
+start, provider usage under the same turn ID, and one terminal `turn_result`
+when finalization succeeds. Diagnostics do not include prompts, model text,
+tool arguments or results, file contents, request headers or bodies, or
+configured credentials. stdout remains reserved for the requested text, JSON,
+or NDJSON result.
+
 ### Control reasoning and turn limits
 
 The default reasoning effort is `high`. Supported values are `none`, `low`, `medium`, `high`, `xhigh`, and `max`:

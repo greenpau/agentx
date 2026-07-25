@@ -54,6 +54,29 @@ Keep contracts focused on behavior and ownership instead of duplicating source l
 
 Put shared concepts in the broadest skill that needs them. Put specialized behavior in the narrowest routed skill that owns it. Do not duplicate the same rule across routing and routed skills.
 
+## Derive revisions from a working session
+
+When asked to analyze a session and update skills, first inventory:
+
+- explicit asks and requested changes;
+- observed failures, logs, and reproduction commands;
+- user corrections and stated operating preferences;
+- implementation changes already made during the session.
+
+Classify each item as a durable product contract, reusable troubleshooting
+workflow, implementation evidence, current conformance gap, or transient
+artifact. Do not preserve session IDs, timestamps, credentials, temporary
+paths, one-off outputs, or implementation-library choices unless they are part
+of a public compatibility contract.
+
+Map each durable item to the narrowest existing owner. Compare its source,
+tests, current contract, and conformance profile before editing. State desired
+behavior and acceptance evidence in the owner; when source does not yet satisfy
+the new requirement, mark that boundary partial or unavailable instead of
+silently describing it as implemented. Preserve user intent as observable
+behavior—for example level selection, diagnostic evidence, recovery, and
+remediation—not as a transcript of the conversation.
+
 ## Author architecture diagrams
 
 For every diagram-bearing implementation skill, apply [the shared architecture diagram contract](../implementation-architecture/references/diagram-contract.md). Describe the concrete question answered by each asset, identify the authoritative prose, and ensure every page self-identifies its product route, lifecycle position, owned boundary, neighboring owners, edge grammar, contract anchors, and normative limits without relying on its filename.

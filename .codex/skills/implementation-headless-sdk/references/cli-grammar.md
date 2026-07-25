@@ -73,9 +73,7 @@ Each recognized fast path owns all remaining tokens and does not fall through to
 | --- | --- |
 | `-h, --help` | flag |
 | `-v, --version` | flag; see sole `-V` compatibility in `CLIG-010` |
-| `-d, --debug [filter]` | optional string; present value is normalized to enabled while raw argv retains filter syntax |
-| `-d2e, --debug-to-stderr` | hidden boolean parser |
-| `--debug-file <path>` | required path; implies debug; raw argv supplies the actual path to logging setup |
+| `-d, --debug` | boolean flag selecting the DEBUG session-logger threshold |
 | `--verbose` | flag |
 | `--bare` | flag |
 | `--init` | hidden flag |
@@ -83,6 +81,11 @@ Each recognized fast path owns all remaining tokens and does not fall through to
 | `--maintenance` | hidden flag |
 | `--mcp-debug` | deprecated flag alias behavior, not a new transport option |
 | `--hard-fail` | hidden, feature-gated flag |
+
+The standalone Go profile does not register debug filters, `-d2e`,
+`--debug-to-stderr`, `--debug-file`, or the deprecated `--mcp-debug`; those
+forms are ordinary unknown options. In particular, `--debug=<filter>` is not
+accepted as a boolean spelling.
 
 `CLIG-021` — Noninteractive and structured-output options:
 
@@ -314,6 +317,7 @@ SSH's help stub is `agentx ssh <host> [dir] [--permission-mode <mode>] [--danger
 8. Use both tool-flag spellings and repeatable plugin directories. Verify normalized values are identical and no variadic option swallows the next recognized flag.
 9. Invoke XAA grammar with the gate off. Verify `xaa`/`--xaa` are absent or unknown; with the gate on, validate the setup/login forms exactly.
 10. Build without direct connect, bridge, classifier, and internal distribution support. Help and parser omit all corresponding commands; the default session remains usable.
+11. Invoke `-d` and `--debug` and verify both enable the same boolean diagnostic mode. In the standalone Go profile, reject `--debug=<filter>`, `-d2e`, `--debug-to-stderr`, `--debug-file`, and `--mcp-debug` before session construction.
 
 ## Non-normative provenance
 

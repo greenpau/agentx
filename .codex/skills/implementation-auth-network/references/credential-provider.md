@@ -137,7 +137,7 @@ and show this credential-independent placeholder shape:
     "model": "gpt-5.6-sol",
     "deployment": "gpt-5.6-sol",
     "api_key": "replace-with-your-secret",
-    "api_version": "preview"
+    "api_version": ""
   }
 }
 ```
@@ -148,7 +148,21 @@ one UTF-8 JSON object with no trailing value. The top level has exactly
 `provider` is the exact string `azure_openai`; and `azure_openai` has exactly
 the five string fields shown above. Endpoint, model, deployment, and API key
 are nonempty; an empty API-version string selects the provider's default v1
-route. Reject unknown or duplicate members at either level, unsupported
+route without an API-version query. A nonempty API version selects the
+versioned route and is sent literally after local syntax validation. Values
+such as `preview` are not aliases for the provider's latest preview and are
+not silently upgraded, rewritten, or retried as another version. When the
+provider rejects that configured value and states a supported minimum, report
+one bounded configuration-remediation error and require the operator to edit
+the application-home `auth.json`; never mutate credential configuration during
+a request. A strictly validated provider-reported minimum is public remediation
+metadata and may be shown without echoing the current configured value. Advise
+the operator to select a provider-supported dated value at or after that
+minimum; selecting the empty default-v1 route is a separate explicit operator
+choice only when the provider and deployment support it. DEBUG may classify the route family and whether the version came
+from the default or configuration, but it does not reveal the exact configured
+version, endpoint, deployment, URL/query, header, body, or file contents.
+Reject unknown or duplicate members at either level, unsupported
 versions/providers, and wrong types. Reject unpaired JSON surrogate escapes
 without rejecting a valid literal or escaped U+FFFD replacement character.
 Require an absolute HTTPS endpoint with no user information, query, or
@@ -289,7 +303,12 @@ from its values. Independently reject an unknown field, duplicate field,
 second JSON value, unsupported version/provider, wrong type, empty
 endpoint/model/deployment/API key, insecure file, and oversized file before
 provider or persistent-session construction. Verify an empty API-version string
-selects the v1 default. Pin the original application-home root, rename that
+selects the v1 default with no version query, and verify the diagnostic
+placeholder uses that empty selector. Configure the literal value `preview`,
+return a provider minimum-version rejection with `x-should-retry:true`, and
+verify the specialized nonretryable classifier wins: there is one attempt, no
+fallback or configuration mutation, a strictly validated minimum may appear as
+remediation, and no exact configured value appears in safe diagnostics. Pin the original application-home root, rename that
 directory, and put a different valid `auth.json` at the old pathname: the
 credential loader reads only the original descriptor-rooted child, while the
 application boundary rejects the changed textual home identity. No other file

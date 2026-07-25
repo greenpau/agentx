@@ -25,6 +25,7 @@ type Options struct {
 	Print                  bool
 	Version                bool
 	Help                   bool
+	Debug                  bool
 	Verbose                bool
 	Bare                   bool
 	TrustWorkspace         bool
@@ -110,6 +111,8 @@ func Parse(args []string) (Options, error) {
 			opts.Help = true
 		case "-v", "--version":
 			opts.Version = true
+		case "-d", "--debug":
+			opts.Debug = true
 		case "--verbose":
 			opts.Verbose = true
 		case "--bare":
@@ -391,7 +394,7 @@ func (o Options) validate(finalSurface bool) error {
 
 func booleanOption(name string) bool {
 	switch name {
-	case "-p", "--print", "-h", "--help", "-v", "--version", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
+	case "-p", "--print", "-h", "--help", "-v", "--version", "-d", "--debug", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
 		return true
 	default:
 		return false
@@ -453,6 +456,7 @@ Runtime and extensions:
   --owned-process-tree           Kill Windows descendants when AgentX exits
 
 Information:
+  -d, --debug                    Enable debug diagnostic logging
   -h, --help                     Show help
   -v, --version                  Show version`
 }
