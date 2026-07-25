@@ -121,6 +121,9 @@ func TestAzureRequestProjectionAndCanonicalStream(t *testing.T) {
 	if wire.header.Get("Accept") != "text/event-stream" || wire.header.Get("Content-Type") != "application/json" {
 		t.Fatalf("content negotiation headers = %#v", wire.header)
 	}
+	if got := wire.header.Get("User-Agent"); got != defaultUserAgent {
+		t.Fatalf("User-Agent = %q, want %q", got, defaultUserAgent)
+	}
 	if got := wire.body["model"]; got != "configured-deployment" {
 		t.Fatalf("wire model = %v, want configured deployment", got)
 	}

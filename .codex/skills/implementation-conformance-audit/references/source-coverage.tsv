@@ -75,7 +75,7 @@ pkg/memory/safe_file_other.go	14	371	0ca4887b30c9dd2d4bdaf3d625eb28d3f9ea2cc51ec
 pkg/memory/safe_file_unix.go	19	459	57503bd0a039b1408f94b5dc4ca766d03c44b87b6a44de2b3ec78413aec8ad19	implementation-memory-compaction	memory, summary, token pressure, projection, compaction, or derived assistance
 pkg/memory/safe_file_windows.go	24	665	04a33e80a1629a41ab8c7421d72696246af834ff1408eeed4997e4cbde323593	implementation-memory-compaction	memory, summary, token pressure, projection, compaction, or derived assistance
 pkg/memory/store.go	394	11655	5306e2fbe9a11c0ca3e9f17ba6f3aa9b9f52d16898c4137dff1ad9939647bd2d	implementation-memory-compaction	memory, summary, token pressure, projection, compaction, or derived assistance
-pkg/model/azure.go	1107	35249	21f2ff667ea7ee909f51f1eece1edeedd44d96424261c1f7c176b45f76016fc5	implementation-auth-network	credential, provider, TLS, proxy, API client, or network boundary behavior
+pkg/model/azure.go	1107	35349	7bf789b005fa6762ba7b1e9c3dc6cbc75e210dfaa534ffb74664c68e3e7ae3c1	implementation-auth-network	credential, provider, TLS, proxy, API client, or network boundary behavior
 pkg/model/error_graph.go	158	4217	b9101c9166dfc0751dc8ebe7a8aa0b4eacb2072895f17e863060f67ce8d0fd24	implementation-query-model	recursive query, message normalization, model request/stream, retry, or limit behavior
 pkg/model/provider_metadata.go	332	12529	c1b2e442b1e9575dee1f36095787f4c6e3e63d0a9a124800967b957bdb03d60c	implementation-auth-network	credential, provider, TLS, proxy, API client, or network boundary behavior
 pkg/model/redact.go	38	1281	2a9ecc40fe12fc81eb81ee813c88b6946dcbf2bb032e547b9fe5608e1f8637ce	implementation-auth-network	credential, provider, TLS, proxy, API client, or network boundary behavior
@@ -112,7 +112,7 @@ pkg/platform/process_unix.go	29	780	29c3a1d65c557227ab85099f857ad38d7dc0b6c48555
 pkg/platform/process_windows.go	9	234	5ddd64e229b9e196be4723e1f3f72ac0ba60276c1b43f511818b48c71afe81c6	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
 pkg/platform/profile.go	68	2340	aca9833555ff337a5334aa5c830d05affb8acbe57965568ef30ac654b7107da3	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
 pkg/platform/shutdown.go	336	9793	001fa67f9d2ff02468e0050fbf11d528343002409837350656d84ebb5b574cf4	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
-pkg/prompt/prompt.go	226	8192	2e6972be273ee126b49592c8765b19079a472d9805a5da8fa37e769a68533487	implementation-state-context	bootstrap/session state, prompt/context, identifiers, or shared semantic data
+pkg/prompt/prompt.go	226	8194	a543e22118b3ce07d5c75c8997038e02655fce252e666952ebe3433595d65112	implementation-state-context	bootstrap/session state, prompt/context, identifiers, or shared semantic data
 pkg/protocol/constructors.go	112	3061	477e88a706ab0dcb1b450920fcf4927341f60dbbeb1c73a64aaee56053f08849	implementation-query-model	recursive query, message normalization, model request/stream, retry, or limit behavior
 pkg/protocol/types.go	373	15137	35c4d57fbad345a4009298974ae7cee4a56c2ddee5264c822d92b92d7db9b099	implementation-query-model	recursive query, message normalization, model request/stream, retry, or limit behavior
 pkg/protocol/validate.go	694	20520	f4cc90ce6e2f2f0f4f4a445db95657a0b910740fbef6cf69820adf316956f007	implementation-query-model	recursive query, message normalization, model request/stream, retry, or limit behavior

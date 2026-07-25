@@ -19,7 +19,14 @@ This document defines client construction, request metadata, stream health, non-
 
 `NET-001` — Construct a client for the selected provider and current credential generation. Default SDK request timeout is 600 seconds, configurable by a bounded positive `API_TIMEOUT_MS`. SDK internal retries are disabled or coordinated so the shared retry loop remains authoritative.
 
-`NET-002` — Common safe headers include product identifier and user agent. First-party requests additionally carry session ID and, when supplied by trusted launch context, remote container ID, remote session ID, SDK client-app identifier, and client request ID.
+`NET-002` — Common safe headers include product identifier and user agent. The
+standalone Go Azure OpenAI profile uses the exact reduced Chrome 150 desktop
+user-agent value `Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36` and does
+not append an AgentX, agent-instance, session, or turn identifier to that
+header. First-party requests additionally carry session ID and, when supplied
+by trusted launch context, remote container ID, remote session ID, SDK
+client-app identifier, and client request ID.
 
 `NET-003` — Generate a random `x-client-request-id` for each first-party request unless the caller already supplied one. Diagnostics may retain only a provider-safe normalized route family, source, and safe correlation ID, never the raw URL path or query. Do not send this header to Bedrock, Vertex, Foundry, or an unknown strict proxy.
 
@@ -152,6 +159,11 @@ Cooldown duration is max(server wait or default 30 minutes, minimum 10 minutes).
 **NET-A06 — Stale connection recovery.** `ECONNRESET` under the gate disables keep-alive, rebuilds client, and retries without changing logical request identity.
 
 **NET-A07 — Azure API-version mismatch.** Configure Azure with the literal API-version value `preview`; the provider returns status 400 with `x-should-retry:true` and the exact message `Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later`. Verify the specialized classifier wins, exactly one request occurs, and there is no credential refresh, client rebuild for the mismatch, streaming or model fallback, or `auth.json` mutation. One normalized `error_class=provider_configuration` error contains the safe provider request ID and may contain the strictly validated provider minimum as remediation. INFO retains the terminal error. DEBUG additionally identifies `route_family=azure_versioned`, `version_source=configured`, `attempt=1`, and `retry_decision=do_not_retry`, but contains neither the exact configured value nor endpoint, deployment, URL/query, headers, body, or API key. Repeat with the exact template but a malformed minimum; retain the specialized nonretry classification with generic remediation and no minimum token. A wording variant, an over-2-KiB message, and the valid sentence embedded as a substring retain ordinary provider-error classification.
+
+**NET-A08 — Azure browser user agent.** Construct the standalone Go Azure
+client without a test-only user-agent override and issue one request. Its
+`User-Agent` header is exactly the reduced Chrome 150 desktop value from
+`NET-002`; it contains no AgentX, agent-instance, session, or turn identifier.
 
 ## Non-normative provenance
 

@@ -152,6 +152,11 @@ Resolve the initial cwd to a canonical path and normalize Unicode to NFC when po
 
 When no explicit override is active, append-system text is always last. In proactive/internal modes, a custom agent instruction may append to the default rather than replacing it; gate this behavior explicitly.
 
+The standalone Go default product prompt begins with the exact generic identity
+phrase `You are AI agent,` and must not identify the assistant as AgentX. This
+wording applies only to the default source selected at step 5; an explicit
+override retains its supplied identity text.
+
 **SC-064 — Custom-prompt context.** A custom system prompt suppresses the ordinary generated system context but does not suppress user/project instruction context.
 
 **SC-065 — Side-question projection.** A side question excludes an in-progress assistant message whose stop reason is absent and uses a noninteractive tool context. Thinking defaults to adaptive unless globally disabled.
@@ -214,6 +219,11 @@ A provider-advertised output cap of at least 4,096 may override family data. Max
 **SC-A09 — Nested activity and late transport registration.** Start `api_call`, start `tool_exec`, and register a callback after both starts. Verify one repeating 30,000 ms timer is armed, the diagnostic fires on every tick, callback output occurs only while the environment gate is truthy, stopping one reason leaves the timer active, and stopping the second clears it and arms the one-shot idle diagnostic.
 
 **SC-A10 — Unregister/reconnect accounting.** During one active API call, unregister the callback, advance past 30 seconds, and verify neither timer output nor idle output occurs. Register a replacement callback without another start and verify the retained positive aggregate rearms the active timer. A manual signal obeys the environment gate, cleanup reports the one active reason and elapsed age once, and final stop reaches zero without resetting the historical oldest timestamp.
+
+**SC-A11 — Generic default agent identity.** Build the standalone Go default
+prompt without an explicit override. It begins with `You are AI agent,` and
+does not contain `You are AgentX`. Repeat with an explicit override containing
+its own identity and verify prompt precedence preserves the override unchanged.
 
 ## Non-normative provenance
 

@@ -56,6 +56,16 @@ func TestBuilderCompleteOverrideSuppressesAppend(t *testing.T) {
 	}
 }
 
+func TestDefaultSystemPromptUsesGenericAgentIdentity(t *testing.T) {
+	got := defaultSystemPrompt("gpt-5.6-sol")
+	if !strings.HasPrefix(got, "You are AI agent, ") {
+		t.Fatalf("default system prompt has an unexpected identity: %q", got)
+	}
+	if strings.Contains(got, "You are AgentX") {
+		t.Fatalf("default system prompt retained the product identity: %q", got)
+	}
+}
+
 func TestPromptGitProbeDoesNotInheritCredentialsOrUserConfig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("executable fixture is Unix-specific")

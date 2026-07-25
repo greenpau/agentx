@@ -32,7 +32,7 @@ const (
 	defaultMaximumItems     = 4_096
 	defaultMaximumToolCalls = 256
 	defaultMaximumArguments = 4 << 20
-	defaultUserAgent        = "agentx-go/1"
+	defaultUserAgent        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
 	azureAPIKeyHeader       = "api-key"
 )
 
