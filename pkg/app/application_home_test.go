@@ -477,6 +477,15 @@ func TestMissingAuthStopsEverySurfaceBeforeDispatch(t *testing.T) {
 		{name: "help", args: []string{"--help"}},
 		{name: "version", args: []string{"--version"}},
 		{name: "standalone MCP", args: []string{"--mcp-server"}},
+		{name: "list sessions", args: []string{"--list-sessions", "--cwd", "/workspace"}},
+		{
+			name: "delete session",
+			args: []string{
+				"--delete-session", "ses_missing_auth",
+				"--session-revision", "r1_missing_auth",
+				"--cwd", "/workspace",
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

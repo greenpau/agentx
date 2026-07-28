@@ -170,6 +170,43 @@ accepted as a boolean spelling.
 
 The semantic conflict and validation matrix remains `CLI-010` through `CLI-020`; grammar recognition alone never authorizes dangerous permission mode, extra paths, plugins, files, or MCP servers.
 
+`CLIG-033` — The standalone Go profile exposes native session management as
+additive root flags because v1.0.x treats positional words as prompt text:
+
+```text
+agentx --list-sessions --cwd <workspace>
+       [--output-format text|json]
+       [--session-page-size <1..500>]
+       [--session-page-token <opaque-token>]
+
+agentx --delete-session <session-id>
+       --session-revision <opaque-revision>
+       --cwd <workspace>
+       [--output-format text|json]
+```
+
+`--list-sessions` is a boolean flag and rejects an inline value.
+`--delete-session`, `--session-revision`, `--session-page-size`,
+`--session-page-token`, and `--cwd` each require one value. List and delete are
+mutually exclusive. Both require an explicitly supplied nonempty `--cwd`;
+absence of `--output-format` means text. Revision is delete-only and required
+there. Page size and page token are list-only. Every management option may
+occur at most once; repeats fail before final-value validation so a later
+valid-looking value cannot erase an earlier empty or forbidden value.
+Before the first standalone `--`, a `--list-sessions` or `--delete-session`
+token is never consumed as the missing scalar value of an earlier option:
+reject that invocation before surface inference or runtime construction.
+After standalone `--`, the same spelling remains literal prompt text when no
+management selector was already recognized.
+Management rejects
+`stream-json`, every prompt/positional token (including one after `--`), and
+every explicitly supplied ordinary conversation, model, permission, tool,
+extension, MCP, persistence, structured-input, or SDK option. This check uses
+option occurrence, not only the normalized value, so explicit defaults such as
+`--input-format text` and `--max-turns 100`, empty-valued conversation options,
+and explicit `--print` still conflict. A revision or pagination option without
+its selector is also a usage error.
+
 ## Conditional and internal root options
 
 `CLIG-040` — Register a gated option only when its build/runtime capability exists. A missing gated option is an ordinary unknown option, not a startup failure:

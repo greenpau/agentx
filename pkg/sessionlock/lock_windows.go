@@ -21,6 +21,8 @@ var (
 	unlockFileExProc = kernel32DLL.NewProc("UnlockFileEx")
 )
 
+func sessionLocksSupported() bool { return true }
+
 func tryLockFile(file *os.File) (bool, error) {
 	var overlapped syscall.Overlapped
 	result, _, callErr := lockFileExProc.Call(

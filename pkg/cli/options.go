@@ -51,6 +51,11 @@ type Options struct {
 	Resume                 string
 	Continue               bool
 	ForkSession            bool
+	ListSessions           bool
+	DeleteSession          string
+	SessionRevision        string
+	SessionPageSize        int
+	SessionPageToken       string
 	NoSessionPersistence   bool
 	OwnedProcessTree       bool
 	SystemPrompt           string
@@ -58,6 +63,8 @@ type Options struct {
 	AppendSystemPrompt     string
 	AppendSystemPromptFile string
 	Prompt                 string
+	explicitOptions        []string
+	hadPositionals         bool
 }
 
 var errUsage = errors.New("command-line usage error")
@@ -82,10 +89,14 @@ func Parse(args []string) (Options, error) {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		if arg == "--" {
-			positional = append(positional, args[index+1:]...)
+			if index+1 < len(args) {
+				opts.hadPositionals = true
+				positional = append(positional, args[index+1:]...)
+			}
 			break
 		}
 		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			opts.hadPositionals = true
 			positional = append(positional, arg)
 			continue
 		}
@@ -93,6 +104,7 @@ func Parse(args []string) (Options, error) {
 		if hasInline && booleanOption(name) {
 			return Options{}, &UsageError{Message: name + " does not accept a value"}
 		}
+		opts.explicitOptions = append(opts.explicitOptions, name)
 		next := func() (string, error) {
 			if hasInline {
 				hasInline = false
@@ -101,8 +113,17 @@ func Parse(args []string) (Options, error) {
 			if index+1 >= len(args) {
 				return "", &UsageError{Message: name + " requires a value"}
 			}
+			candidate := args[index+1]
+			if candidate == "--" {
+				return "", &UsageError{Message: name + " requires a value before --"}
+			}
+			if managementSelectorToken(candidate) {
+				return "", &UsageError{
+					Message: fmt.Sprintf("%s requires a value before %s", name, candidate),
+				}
+			}
 			index++
-			return args[index], nil
+			return candidate, nil
 		}
 		switch name {
 		case "-p", "--print":
@@ -129,6 +150,8 @@ func Parse(args []string) (Options, error) {
 			opts.Continue = true
 		case "--fork-session":
 			opts.ForkSession = true
+		case "--list-sessions":
+			opts.ListSessions = true
 		case "--no-session-persistence":
 			opts.NoSessionPersistence = true
 		case "--owned-process-tree":
@@ -237,6 +260,33 @@ func Parse(args []string) (Options, error) {
 				return Options{}, err
 			}
 			opts.Resume = value
+		case "--delete-session":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			opts.DeleteSession = value
+		case "--session-revision":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			opts.SessionRevision = value
+		case "--session-page-size":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			opts.SessionPageSize, err = strconv.Atoi(value)
+			if err != nil || opts.SessionPageSize < 1 || opts.SessionPageSize > 500 {
+				return Options{}, &UsageError{Message: "--session-page-size must be an integer from 1 through 500"}
+			}
+		case "--session-page-token":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			opts.SessionPageToken = value
 		case "--system-prompt":
 			value, err := next()
 			if err != nil {
@@ -279,6 +329,9 @@ func Parse(args []string) (Options, error) {
 // parsing. A structured format is always headless, and redirected text output
 // uses the one-shot adapter unless the standalone MCP host was selected.
 func InferPrint(options Options, stdoutTerminal bool) Options {
+	if options.SessionManagementRequested() {
+		return options
+	}
 	if !options.MCPServer && (options.OutputFormat != OutputText || options.InputFormat == InputStreamJSON || !stdoutTerminal) {
 		options.Print = true
 	}
@@ -291,7 +344,7 @@ func InferPrint(options Options, stdoutTerminal bool) Options {
 // because no headless model turn can start from them.
 func HeadlessRequested(args []string, stdoutTerminal bool) bool {
 	options, err := Parse(args)
-	if err != nil || options.Help || options.Version || options.MCPServer {
+	if err != nil || options.Help || options.Version || options.MCPServer || options.SessionManagementRequested() {
 		return false
 	}
 	return InferPrint(options, stdoutTerminal).Print
@@ -310,6 +363,9 @@ func (o Options) Validate() error {
 }
 
 func (o Options) validate(finalSurface bool) error {
+	if management, err := o.validateSessionManagement(); management || err != nil {
+		return err
+	}
 	if o.Verbose {
 		return &UsageError{Message: "--verbose is unavailable because no verbose diagnostic projection is installed"}
 	}
@@ -392,13 +448,114 @@ func (o Options) validate(finalSurface bool) error {
 	return nil
 }
 
+// SessionManagementRequested reports whether the command line selected a
+// provider-free native session-management operation.
+func (o Options) SessionManagementRequested() bool {
+	return o.ListSessions || o.DeleteSession != "" || o.optionWasExplicit("--delete-session")
+}
+
+func (o Options) validateSessionManagement() (bool, error) {
+	listRequested := o.ListSessions || o.optionWasExplicit("--list-sessions")
+	deleteRequested := o.DeleteSession != "" || o.optionWasExplicit("--delete-session")
+	revisionSet := o.SessionRevision != "" || o.optionWasExplicit("--session-revision")
+	pageSizeSet := o.SessionPageSize != 0 || o.optionWasExplicit("--session-page-size")
+	pageTokenSet := o.SessionPageToken != "" || o.optionWasExplicit("--session-page-token")
+
+	if listRequested && deleteRequested {
+		return true, &UsageError{Message: "--list-sessions and --delete-session are mutually exclusive"}
+	}
+	if !listRequested && !deleteRequested {
+		switch {
+		case revisionSet:
+			return false, &UsageError{Message: "--session-revision requires --delete-session"}
+		case pageSizeSet, pageTokenSet:
+			return false, &UsageError{Message: "--session-page-size and --session-page-token require --list-sessions"}
+		default:
+			return false, nil
+		}
+	}
+
+	if o.hadPositionals || o.Prompt != "" {
+		return true, &UsageError{Message: "session-management operations do not accept a prompt"}
+	}
+	seen := make(map[string]struct{}, len(o.explicitOptions))
+	for _, name := range o.explicitOptions {
+		if _, exists := seen[name]; exists {
+			return true, &UsageError{Message: fmt.Sprintf("%s may be specified only once for session management", name)}
+		}
+		seen[name] = struct{}{}
+	}
+	if !o.optionWasExplicit("--cwd") || o.CWD == "" {
+		return true, &UsageError{Message: "session management requires --cwd with a non-empty workspace path"}
+	}
+	allowed := map[string]bool{
+		"--cwd":           true,
+		"--output-format": true,
+	}
+	if listRequested {
+		allowed["--list-sessions"] = true
+		allowed["--session-page-size"] = true
+		allowed["--session-page-token"] = true
+	} else {
+		allowed["--delete-session"] = true
+		allowed["--session-revision"] = true
+	}
+	for _, name := range o.explicitOptions {
+		if !allowed[name] {
+			return true, &UsageError{Message: fmt.Sprintf("%s cannot be combined with session management", name)}
+		}
+	}
+
+	switch o.OutputFormat {
+	case OutputText, OutputJSON:
+	default:
+		return true, &UsageError{Message: "session management supports only text or json output"}
+	}
+	if listRequested {
+		if revisionSet {
+			return true, &UsageError{Message: "--session-revision requires --delete-session"}
+		}
+		if pageSizeSet && (o.SessionPageSize < 1 || o.SessionPageSize > 500) {
+			return true, &UsageError{Message: "--session-page-size must be an integer from 1 through 500"}
+		}
+		if pageTokenSet && o.SessionPageToken == "" {
+			return true, &UsageError{Message: "--session-page-token requires a non-empty token"}
+		}
+		return true, nil
+	}
+	if o.DeleteSession == "" {
+		return true, &UsageError{Message: "--delete-session requires a non-empty session ID"}
+	}
+	if !revisionSet || o.SessionRevision == "" {
+		return true, &UsageError{Message: "--delete-session requires --session-revision with a non-empty token"}
+	}
+	if pageSizeSet || pageTokenSet {
+		return true, &UsageError{Message: "--session-page-size and --session-page-token require --list-sessions"}
+	}
+	return true, nil
+}
+
+func (o Options) optionWasExplicit(name string) bool {
+	for _, explicit := range o.explicitOptions {
+		if explicit == name {
+			return true
+		}
+	}
+	return false
+}
+
 func booleanOption(name string) bool {
 	switch name {
-	case "-p", "--print", "-h", "--help", "-v", "--version", "-d", "--debug", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
+	case "-p", "--print", "-h", "--help", "-v", "--version", "-d", "--debug", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--list-sessions", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
 		return true
 	default:
 		return false
 	}
+}
+
+func managementSelectorToken(value string) bool {
+	name, _, _ := strings.Cut(value, "=")
+	return name == "--list-sessions" || name == "--delete-session"
 }
 
 func appendList(target []string, value string) []string {
@@ -445,6 +602,13 @@ Continuity and context:
   --system-prompt-file PATH      Replace it from a bounded file
   --append-system-prompt TEXT    Append dynamic system instructions
   --append-system-prompt-file PATH Append them from a bounded file
+
+Native session management:
+  --list-sessions                List sessions for the workspace selected by --cwd
+  --delete-session ID            Delete one session for the workspace selected by --cwd
+  --session-revision TOKEN       Revision required by --delete-session
+  --session-page-size N          List 1 through 500 sessions in one page
+  --session-page-token TOKEN     Continue listing from an opaque page token
 
 Runtime and extensions:
   --cwd PATH                     Select the working directory

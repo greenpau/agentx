@@ -289,6 +289,42 @@ agentx --resume SESSION_ID --fork-session
   it writes no transcript, cannot combine with resume/continue/fork, and does
   not load or expose project memory.
 
+### List and delete native sessions
+
+Use the provider-free management flags to inspect or delete native AgentX
+sessions without starting a model connection or semantic session. Both
+operations require `--cwd`; AgentX normalizes that workspace and scopes the
+operation to its local session partition.
+
+```sh
+agentx --list-sessions --cwd WORKSPACE [--output-format text|json]
+agentx --list-sessions --cwd WORKSPACE --session-page-size 100 \
+  [--session-page-token TOKEN] --output-format json
+
+agentx --delete-session SESSION_ID --session-revision REVISION \
+  --cwd WORKSPACE [--output-format text|json]
+```
+
+List pages default to 100 entries and accept sizes from 1 through 500. When
+more entries remain, pass the returned opaque `next_page_token` as
+`--session-page-token`. Each listed session includes an opaque `revision`;
+deletion requires that exact value so a changed or replaced target returns
+`stale` instead of deleting the wrong directory.
+
+Text output is intended for people and includes session ID, update time, and
+revision. JSON writes exactly one versioned object to stdout, with diagnostics
+on stderr. List status is one of `ok`, `stale`, or `store_unsafe`. Delete
+status is one of `deleted`, `not_found`, `stale`, `session_locked`,
+`delete_incomplete`, or `store_unsafe`; non-success outcomes remain
+machine-readable even when the process exits nonzero. `session_locked` means
+another process owns the session lock. `delete_incomplete` means cleanup is
+still pending and retained data has not been reported as deleted.
+
+Deletion removes only the selected directory from AgentX's local native
+session store. It is not secure media erasure and does not delete backups,
+remote copies, project memory, worktrees, authentication or configuration,
+fork descendants, or any AgentX VS Code extension presentation cache.
+
 AgentX discovers sessions and project memory only in the current application
 home. It does not scan, migrate, or delete data from another layout or
 directory. Back up and move any such data manually before relying on it, while

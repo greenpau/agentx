@@ -8,6 +8,8 @@ import (
 	"syscall"
 )
 
+func sessionLocksSupported() bool { return true }
+
 func tryLockFile(file *os.File) (bool, error) {
 	err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {

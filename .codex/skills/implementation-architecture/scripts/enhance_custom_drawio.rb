@@ -20,6 +20,15 @@ ROUTE_VERSION = '2.2'
 LABEL_LAYOUT_VERSION = '2.3'
 CONTENT_SHIFT = 365.0
 LEGACY_CONTENT_SHIFT = 210.0
+# Hand-authored pages may override mechanically inferred boundary summaries
+# when the inference would hide the primary outcome or name unrelated sibling
+# skills. Values remain visible context-band prose; numbered contracts still
+# own exact semantics.
+CONTEXT_OVERRIDE_ATTRIBUTES = {
+  starts: 'customContextStartsWith',
+  ends_with: 'customContextEndsWith',
+  defers: 'customContextDefersTo'
+}.freeze
 CONTEXT_IDS = %w[
   custom-context-band
   custom-context-breadcrumb
@@ -1213,6 +1222,12 @@ def lifecycle_text(router, skill)
   end
 end
 
+def context_override(model, key, fallback)
+  attribute = CONTEXT_OVERRIDE_ATTRIBUTES.fetch(key)
+  value = model.attributes[attribute].to_s.strip
+  value.empty? ? fallback : value
+end
+
 def new_cell(id, value, style, x, y, width, height, parent_id)
   cell = REXML::Element.new('mxCell')
   cell.add_attribute('id', id)
@@ -1432,10 +1447,13 @@ def transform(path, router_by_skill)
     subject = page_subject(model, diagram, humanize_slug(diagram_slug))
     question = "What does #{subject} own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?"
     starts, ends_with = page_boundary_concepts(model)
+    starts = context_override(model, :starts, starts)
+    ends_with = context_override(model, :ends_with, ends_with)
     owns = "#{skill} · #{subject}"
     adjacent_skills = route_targets(router).reject { |name| name == skill }.first(2)
     adjacent_text = adjacent_skills.empty? ? 'none at this resolution' : adjacent_skills.join(' + ')
     defers = "#{router}/architecture.drawio owns domain placement · #{adjacent_text} own adjacent protocols"
+    defers = context_override(model, :defers, defers)
     contracts = diagram_contract_anchors(skill, diagram_slug, model)
     broader_view = "root routing → #{router} overview → #{skill}/SKILL.md"
 

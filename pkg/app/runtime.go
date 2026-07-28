@@ -2,15 +2,12 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -651,7 +648,9 @@ type sessionLayout struct {
 	sessionID                  protocol.SessionID
 	sessionDir, transcriptPath string
 	sourceTranscriptPath       string
+	sourceRevision             string
 	sessionOwner, sourceOwner  *platform.OwnedDirectory
+	sessionManager             *transcript.SessionManager
 	memoryParent               *platform.OwnedDirectory
 	memoryDir                  string
 	memoryDisabled             bool
@@ -664,6 +663,9 @@ const incompleteForkMarker = ".fork-incomplete"
 func (layout sessionLayout) verify() error {
 	if err := layout.verifySessionDirectory(); err != nil {
 		return err
+	}
+	if layout.sessionManager == nil {
+		return errors.New("session-management authority is unavailable")
 	}
 	if layout.temporary || layout.memoryDisabled {
 		if layout.memoryParent != nil || layout.memoryDir != "" {
@@ -693,9 +695,15 @@ func (layout sessionLayout) verifySessionDirectory() error {
 	if filepath.Clean(layout.sessionDir) != layout.sessionOwner.Path() || filepath.Clean(layout.transcriptPath) != filepath.Join(layout.sessionOwner.Path(), "transcript.jsonl") {
 		return errors.New("session layout path does not match its owned directory")
 	}
-	if layout.sourceOwner != nil &&
-		filepath.Clean(layout.sourceTranscriptPath) != filepath.Join(layout.sourceOwner.Path(), "transcript.jsonl") {
-		return errors.New("source session path does not match its owned directory")
+	if layout.sourceOwner != nil {
+		if filepath.Clean(layout.sourceTranscriptPath) != filepath.Join(layout.sourceOwner.Path(), "transcript.jsonl") {
+			return errors.New("source session path does not match its owned directory")
+		}
+		if layout.sourceRevision == "" {
+			return errors.New("source session revision is unavailable")
+		}
+	} else if layout.sourceTranscriptPath != "" || layout.sourceRevision != "" {
+		return errors.New("source session evidence lacks its owned directory")
 	}
 	return nil
 }
@@ -729,12 +737,16 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 	if err != nil {
 		return sessionLayout{}, nil, err
 	}
-	projectHash := sha256.Sum256([]byte(workspace))
+	sessionManager, err := transcript.NewSessionManager(home.sessions, workspace)
+	if err != nil {
+		return sessionLayout{}, nil, err
+	}
 	// This bounded standalone profile keys both the session partition and the
 	// separate project-memory tree by the selected absolute workspace. It does
 	// not claim canonical-main-repository identity or linked-worktree sharing.
-	projectKey := hex.EncodeToString(projectHash[:12])
+	projectKey := sessionManager.WorkspacePartitionKey()
 	sourceID := ""
+	sourceRevision := ""
 	if opts.Resume != "" {
 		sourceID = opts.Resume
 	}
@@ -742,22 +754,29 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 	requiresStoredSessions := !opts.NoSessionPersistence || sourceID != "" || opts.Continue
 	if requiresStoredSessions {
 		if opts.NoSessionPersistence {
-			projectDir, err = home.sessions.OpenPrivateChild(projectKey)
+			var exists bool
+			projectDir, exists, err = sessionManager.OpenWorkspacePartition()
+			if err == nil && !exists {
+				err = transcript.ErrNoPreviousSession
+			}
 		} else {
-			projectDir, err = home.sessions.EnsurePrivateChild(projectKey)
+			projectDir, err = sessionManager.EnsureWorkspacePartition()
 		}
 		if err != nil {
 			return sessionLayout{}, nil, fmt.Errorf("open workspace session directory: %w", err)
 		}
 	}
 	if opts.Continue {
-		sourceID, err = latestSession(projectDir)
+		var latest transcript.SessionInventoryItem
+		latest, err = sessionManager.LatestItem(ctx)
 		if err != nil {
 			return sessionLayout{}, nil, err
 		}
+		sourceID = latest.SessionID
+		sourceRevision = latest.Revision
 	}
 	if sourceID != "" {
-		if !safeSessionID(sourceID) {
+		if !transcript.ValidSessionID(sourceID) {
 			return sessionLayout{}, nil, errors.New("resume session identifier is invalid")
 		}
 	}
@@ -772,22 +791,31 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 	}
 	var sourceOwner *platform.OwnedDirectory
 	if sourceID != "" {
+		state, stateErr := sessionManager.State(ctx, sourceID)
+		if stateErr != nil {
+			return sessionLayout{}, nil, fmt.Errorf("inspect source session %s: %w", sourceID, stateErr)
+		}
+		switch {
+		case state.DeletionPending:
+			return sessionLayout{}, nil, fmt.Errorf("%w: session %s", transcript.ErrSessionDeletionStaged, sourceID)
+		case state.IncompleteFork:
+			return sessionLayout{}, nil, fmt.Errorf("session %s is an incomplete fork and cannot be resumed", sourceID)
+		case !state.Resumable:
+			return sessionLayout{}, nil, fmt.Errorf("session %s has no durable history", sourceID)
+		}
+		if sourceRevision != "" && state.Revision != sourceRevision {
+			return sessionLayout{}, nil, fmt.Errorf("session %s changed after latest-session selection", sourceID)
+		}
+		sourceRevision = state.Revision
 		sourceOwner, err = projectDir.OpenPrivateChild(sourceID)
 		if err != nil {
 			return sessionLayout{}, nil, fmt.Errorf("open source session %s: %w", sourceID, err)
-		}
-		incomplete, markerErr := hasIncompleteForkMarker(sourceOwner)
-		if markerErr != nil {
-			return sessionLayout{}, nil, fmt.Errorf("inspect source session %s publication state: %w", sourceID, markerErr)
-		}
-		if incomplete {
-			return sessionLayout{}, nil, fmt.Errorf("session %s is an incomplete fork and cannot be resumed", sourceID)
 		}
 	}
 	sessionID := protocol.SessionID(sourceID)
 	if sessionID == "" || opts.ForkSession {
 		if opts.SessionID != "" {
-			if !safeSessionID(opts.SessionID) {
+			if !transcript.ValidSessionID(opts.SessionID) {
 				return sessionLayout{}, nil, errors.New("session identifier is invalid")
 			}
 			sessionID = protocol.SessionID(opts.SessionID)
@@ -800,38 +828,31 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		}
 	}
 	creatingPersistentDestination := !opts.NoSessionPersistence && (sourceID == "" || opts.ForkSession)
+	var destinationState transcript.NativeSessionState
 	if creatingPersistentDestination {
-		_, statErr := os.Lstat(filepath.Join(projectDir.Path(), string(sessionID)))
-		if statErr == nil {
+		destinationState, err = sessionManager.State(ctx, string(sessionID))
+		if err != nil {
+			return sessionLayout{}, nil, fmt.Errorf("inspect requested session state: %w", err)
+		}
+		if destinationState.DeletionPending {
+			return sessionLayout{}, nil, fmt.Errorf("%w: session %s", transcript.ErrSessionDeletionStaged, sessionID)
+		}
+		if destinationState.Exists {
 			// Generated IDs and fork destinations must be genuinely fresh. An
 			// explicitly named ordinary session may reacquire a pre-created empty
 			// directory; the session lock below remains the contention authority.
 			if opts.ForkSession || opts.SessionID == "" {
 				return sessionLayout{}, nil, fmt.Errorf("session %s already exists; choose another identifier or use --resume", sessionID)
 			}
-			existing, openErr := projectDir.OpenPrivateChild(string(sessionID))
-			if openErr != nil {
-				return sessionLayout{}, nil, fmt.Errorf("inspect requested session directory: %w", openErr)
-			}
-			incomplete, markerErr := hasIncompleteForkMarker(existing)
-			if markerErr != nil {
-				return sessionLayout{}, nil, fmt.Errorf("inspect requested session publication state: %w", markerErr)
-			}
-			if incomplete {
+			if destinationState.IncompleteFork {
 				return sessionLayout{}, nil, fmt.Errorf("session %s is an incomplete fork and cannot be reused", sessionID)
 			}
-			info, transcriptErr := directRegularFileInfo(filepath.Join(existing.Path(), "transcript.jsonl"))
-			if transcriptErr == nil && info.Size() > 0 {
+			if destinationState.Resumable {
 				return sessionLayout{}, nil, fmt.Errorf("session %s already exists; use --resume", sessionID)
 			}
-			if transcriptErr != nil && !errors.Is(transcriptErr, os.ErrNotExist) {
-				return sessionLayout{}, nil, fmt.Errorf("inspect requested session transcript: %w", transcriptErr)
-			}
-		}
-		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-			return sessionLayout{}, nil, fmt.Errorf("inspect requested session directory: %w", statErr)
 		}
 	}
+	createdPersistentDestination := false
 	if opts.NoSessionPersistence {
 		temporary, makeErr := os.MkdirTemp("", "agentx-session-")
 		if makeErr != nil {
@@ -842,11 +863,16 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		if ownErr != nil {
 			return sessionLayout{}, nil, fmt.Errorf("acquire temporary session directory: %w", ownErr)
 		}
-		layout = sessionLayout{sessionID: sessionID, sessionDir: temporaryOwner.Path(), transcriptPath: filepath.Join(temporaryOwner.Path(), "transcript.jsonl"), sessionOwner: temporaryOwner, temporary: true}
+		layout = sessionLayout{sessionID: sessionID, sessionDir: temporaryOwner.Path(), transcriptPath: filepath.Join(temporaryOwner.Path(), "transcript.jsonl"), sessionOwner: temporaryOwner, sessionManager: sessionManager, temporary: true}
 	} else {
 		sessionOwner := sourceOwner
 		if sessionOwner == nil || opts.ForkSession {
-			sessionOwner, err = projectDir.EnsurePrivateChild(string(sessionID))
+			if destinationState.Exists {
+				sessionOwner, err = projectDir.OpenPrivateChild(string(sessionID))
+			} else {
+				sessionOwner, err = projectDir.CreatePrivateChild(string(sessionID))
+				createdPersistentDestination = err == nil
+			}
 			if err != nil {
 				return sessionLayout{}, nil, err
 			}
@@ -854,7 +880,8 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		layout = sessionLayout{
 			sessionID: sessionID, sessionDir: sessionOwner.Path(),
 			transcriptPath: filepath.Join(sessionOwner.Path(), "transcript.jsonl"),
-			sessionOwner:   sessionOwner, memoryParent: memoryParent, memoryDir: memoryDir,
+			sessionOwner:   sessionOwner, sessionManager: sessionManager,
+			memoryParent: memoryParent, memoryDir: memoryDir,
 			memoryDisabled: opts.Bare,
 		}
 	}
@@ -868,6 +895,29 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 	layout.lock = heldLock
 	if err := layout.verify(); err != nil {
 		return sessionLayout{}, nil, err
+	}
+	if !opts.NoSessionPersistence {
+		state, stateErr := sessionManager.State(ctx, string(sessionID))
+		if stateErr == nil {
+			switch {
+			case creatingPersistentDestination:
+				stateErr = validateNewSessionDestinationState(state, sessionID)
+			case sourceID != "" && !opts.ForkSession:
+				stateErr = validateSourceSessionGeneration(state, sourceID, sourceRevision)
+			case state.DeletionPending:
+				stateErr = fmt.Errorf("%w: session %s", transcript.ErrSessionDeletionStaged, sessionID)
+			}
+		}
+		if stateErr != nil {
+			closeErr := heldLock.Close()
+			heldLock = nil
+			layout.lock = nil
+			var removeErr error
+			if closeErr == nil && createdPersistentDestination {
+				removeErr = layout.sessionOwner.RemoveAll()
+			}
+			return sessionLayout{}, nil, errors.Join(stateErr, closeErr, removeErr)
+		}
 	}
 	if opts.ForkSession && !opts.NoSessionPersistence {
 		if err := beginForkPublication(layout); err != nil {
@@ -885,6 +935,7 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		sourcePath := filepath.Join(sourceOwner.Path(), "transcript.jsonl")
 		layout.sourceOwner = sourceOwner
 		layout.sourceTranscriptPath = sourcePath
+		layout.sourceRevision = sourceRevision
 		var sourceLock *sessionlock.Lock
 		if sourceOwner.Path() != layout.sessionDir {
 			sourceLock, err = sessionlock.Acquire(ctx, filepath.Join(sourceOwner.Path(), ".session.lock"))
@@ -895,6 +946,24 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 				_ = sourceLock.Close()
 				return sessionLayout{}, nil, fmt.Errorf("verify source session %s after locking: %w", sourceID, err)
 			}
+		}
+		state, stateErr := sessionManager.State(ctx, sourceID)
+		if stateErr == nil {
+			stateErr = validateSourceSessionGeneration(state, sourceID, sourceRevision)
+		}
+		if stateErr != nil {
+			if sourceLock != nil {
+				stateErr = errors.Join(stateErr, sourceLock.Close())
+			}
+			return sessionLayout{}, nil, stateErr
+		}
+		if sourceLock != nil {
+			if err := sourceLock.Verify(); err != nil {
+				_ = sourceLock.Close()
+				return sessionLayout{}, nil, fmt.Errorf("verify source session %s lock: %w", sourceID, err)
+			}
+		} else if err := heldLock.Verify(); err != nil {
+			return sessionLayout{}, nil, fmt.Errorf("verify resumed session %s lock: %w", sourceID, err)
 		}
 		snapshot, readErr := transcript.ReadFile(ctx, sourcePath, transcript.ReadOptions{ExpectedSessionID: protocol.SessionID(sourceID)})
 		readErr = errors.Join(readErr, sourceOwner.Verify())
@@ -938,6 +1007,16 @@ func loadValidatedSourceSnapshot(
 	if err := layout.sourceOwner.Verify(); err != nil {
 		return transcript.Snapshot{}, fmt.Errorf("verify source session after locking: %w", err)
 	}
+	state, err := layout.sessionManager.State(ctx, string(expected))
+	if err != nil {
+		return transcript.Snapshot{}, fmt.Errorf("inspect source session after locking: %w", err)
+	}
+	if err := validateSourceSessionGeneration(state, string(expected), layout.sourceRevision); err != nil {
+		return transcript.Snapshot{}, err
+	}
+	if err := sourceLock.Verify(); err != nil {
+		return transcript.Snapshot{}, fmt.Errorf("verify source session lock: %w", err)
+	}
 	snapshot, err := transcript.ReadFile(ctx, layout.sourceTranscriptPath, transcript.ReadOptions{
 		ExpectedSessionID: expected,
 		ValidateRecord:    validate,
@@ -951,98 +1030,35 @@ func loadValidatedSourceSnapshot(
 	return snapshot, nil
 }
 
-func latestSession(projectDir *platform.OwnedDirectory) (string, error) {
-	if err := projectDir.Verify(); err != nil {
-		return "", err
+func validateNewSessionDestinationState(
+	state transcript.NativeSessionState,
+	sessionID protocol.SessionID,
+) error {
+	if state.DeletionPending {
+		return fmt.Errorf("%w: session %s", transcript.ErrSessionDeletionStaged, sessionID)
 	}
-	entries, err := os.ReadDir(projectDir.Path())
-	if err != nil {
-		return "", err
+	if !state.Exists || state.IncompleteFork || state.Resumable {
+		return fmt.Errorf("new session destination %s changed before ownership was acquired", sessionID)
 	}
-	type candidate struct {
-		id    string
-		mtime time.Time
-	}
-	var items []candidate
-	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() || !safeSessionID(entry.Name()) {
-			continue
-		}
-		sessionDir, openErr := projectDir.OpenPrivateChild(entry.Name())
-		if openErr != nil {
-			return "", fmt.Errorf("inspect session candidate %s: %w", entry.Name(), openErr)
-		}
-		incomplete, markerErr := hasIncompleteForkMarker(sessionDir)
-		if markerErr != nil {
-			return "", fmt.Errorf("inspect session candidate %s publication state: %w", entry.Name(), markerErr)
-		}
-		if incomplete {
-			continue
-		}
-		info, statErr := directRegularFileInfo(filepath.Join(sessionDir.Path(), "transcript.jsonl"))
-		if statErr == nil && info.Size() > 0 {
-			items = append(items, candidate{entry.Name(), info.ModTime()})
-		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-			return "", fmt.Errorf("inspect session candidate %s transcript: %w", entry.Name(), statErr)
-		}
-	}
-	if err := projectDir.Verify(); err != nil {
-		return "", err
-	}
-	if len(items) == 0 {
-		return "", errors.New("no previous session found")
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].mtime.Equal(items[j].mtime) {
-			return items[i].id < items[j].id
-		}
-		return items[i].mtime.After(items[j].mtime)
-	})
-	return items[0].id, nil
+	return nil
 }
 
-func directRegularFileInfo(path string) (os.FileInfo, error) {
-	before, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("path is not a direct regular file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	after, err := file.Stat()
-	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
-		return nil, errors.New("regular file identity changed while opening")
-	}
-	post, err := os.Lstat(path)
-	if err != nil || !post.Mode().IsRegular() || post.Mode()&os.ModeSymlink != 0 || !os.SameFile(after, post) || after.Size() != post.Size() || !after.ModTime().Equal(post.ModTime()) {
-		return nil, errors.New("regular file identity changed while inspecting")
-	}
-	return after, nil
-}
-
-func hasIncompleteForkMarker(owner *platform.OwnedDirectory) (bool, error) {
-	if owner == nil {
-		return false, errors.New("session directory identity is unavailable")
-	}
-	if err := owner.Verify(); err != nil {
-		return false, err
-	}
-	_, err := os.Lstat(filepath.Join(owner.Path(), incompleteForkMarker))
+func validateSourceSessionGeneration(
+	state transcript.NativeSessionState,
+	sessionID string,
+	revision string,
+) error {
 	switch {
-	case err == nil:
-		if verifyErr := owner.Verify(); verifyErr != nil {
-			return false, verifyErr
-		}
-		return true, nil
-	case errors.Is(err, os.ErrNotExist):
-		return false, owner.Verify()
+	case state.DeletionPending:
+		return fmt.Errorf("%w: source session %s", transcript.ErrSessionDeletionStaged, sessionID)
+	case state.IncompleteFork:
+		return fmt.Errorf("source session %s became an incomplete fork", sessionID)
+	case !state.Resumable:
+		return fmt.Errorf("source session %s is no longer resumable", sessionID)
+	case revision == "" || state.Revision != revision:
+		return fmt.Errorf("source session %s changed before its ownership lock was acquired", sessionID)
 	default:
-		return false, err
+		return nil
 	}
 }
 
@@ -1090,17 +1106,6 @@ func completeForkPublication(layout sessionLayout) error {
 		return fmt.Errorf("sync completed fork publication: %w", err)
 	}
 	return layout.verifySessionDirectory()
-}
-func safeSessionID(value string) bool {
-	if value == "" || len(value) > 128 {
-		return false
-	}
-	for _, r := range value {
-		if !(r == '-' || r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
-			return false
-		}
-	}
-	return true
 }
 
 func permissionRules(opts cli.Options) ([]permission.Rule, error) {

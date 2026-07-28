@@ -845,6 +845,9 @@ func TestForkAndNonpersistentResumeRevalidateSourceWithCompleteCredentialUnion(t
 	if err := os.MkdirAll(sourceDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(sourceDir, ".session.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	sourceStore, err := transcript.Open(t.Context(), transcript.Config{
 		Path: filepath.Join(sourceDir, "transcript.jsonl"), SessionID: sourceID, SyncOnAppend: true,
 	})

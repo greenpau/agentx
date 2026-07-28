@@ -9,6 +9,7 @@ This document defines the authoritative append-only session history and how a co
 - [Graph construction and branching](#graph-construction-and-branching)
 - [Load, filtering, and repair](#load-filtering-and-repair)
 - [Resume, continue, and fork](#resume-continue-and-fork)
+- [Native session inventory and deletion](#native-session-inventory-and-deletion)
 - [Remote persistence and disabled behavior](#remote-persistence-and-disabled-behavior)
 - [Limits and constants](#limits-and-constants)
 - [Acceptance scenarios](#acceptance-scenarios)
@@ -18,7 +19,7 @@ This document defines the authoritative append-only session history and how a co
 
 **TX-001 — Authoritative form.** Persist a session as an append-safe event stream, normally one JSON object per line. The file is an event graph with metadata, not a serialized screen and not necessarily the exact active message array.
 
-**TX-002 — Stable identities.** Every transcript message has a globally unique message UUID, timestamp, session ID, and zero or one parent UUID. Session IDs are UUIDs and change only through the atomic session-switch contract.
+**TX-002 — Stable identities.** Every transcript message has a globally unique message UUID, timestamp, session ID, and zero or one parent UUID. Session IDs are stable opaque identifiers, native directory IDs obey `TX-068`, and an active conversation changes identity only through the atomic session-switch contract.
 
 **TX-003 — Transcript-message types.** Only semantic user, assistant, attachment, and system records participate as transcript messages. For a model-backed turn, the accepted durable user message carrying its turn identity and timestamp is the authoritative start marker. Progress is ephemeral presentation state and neither persists in new transcripts nor advances the parent cursor.
 
@@ -199,6 +200,181 @@ For a stale segment followed by a plain boundary, prune before the absolute last
 
 **TX-067 — Unresolved side-effect uncertainty.** Resume never reruns an unresolved mutating call and never infers whether it succeeded from current filesystem state. In the specified compatibility behavior, omit an assistant message whose tool-use blocks are all unresolved from the resumed live conversation. If a retained assistant group contains both resolved and unresolved IDs, provider-request normalization may insert an in-memory synthetic error result for missing IDs; strict pairing mode fails instead. Neither projection appends proof of the external effect, and the raw on-disk event remains audit evidence.
 
+## Native session inventory and deletion
+
+**TX-068 — Authoritative workspace inventory and selection.** Use one
+runtime-owned service for native inventory, latest-session selection, deletion,
+and the eligibility decisions shared by resume, continue, fork, and explicit
+session creation. Give that service only the frozen application-home
+`sessions/` owner and normalized absolute selected workspace from `TX-011`; it
+derives the compatibility workspace hash and never accepts an application-home
+path, workspace hash, session path, or transcript path from a caller.
+
+Inventory is provider-free and read-only: do not create a semantic session,
+query engine, transcript, workspace partition, project memory, or model/provider
+connection. Preserve the ordinary frozen application-home and authentication-
+presence bootstrap, then stop before semantic initialization. A missing
+selected-workspace partition returns an empty inventory without creating it.
+Enumerate only direct children of
+`sessions/<selected-workspace-hash>/`, enforce explicit workspace, deletion-
+stage, and deletion-receipt entry bounds, and never silently truncate.
+Content-bind each revision with a bounded digest of the stable transcript
+snapshot. Cap one complete digest pass at 2 GiB and the fixed set of repeated
+validation passes in one management operation at 8 GiB; exceeding either bound
+fails the operation instead of omitting candidates. Use bounded pages derived
+from a complete scan; bind each continuation token to the full inventory
+generation, require its exact versioned encoded length and a nonterminal
+positive offset, so a changed or malformed token returns the stable `stale`
+outcome.
+Sort by the internal stable `transcript.jsonl` modification time descending and
+then session ID ascending. Emit canonical UTC RFC3339Nano `updated_at` only
+when the filesystem time has a representable four-digit RFC3339 year; omission
+does not change internal ordering.
+
+Treat only ASCII `[A-Za-z0-9_-]{1,128}` names as native session IDs. Ignore
+other ordinary names, including Unicode, overlong, traversal-like, and encoded
+lookalikes, but fail closed on malformed names or unsafe entries in the
+reserved deletion-stage and deletion-receipt namespaces. A resumable candidate
+requires a direct owner-private session
+directory, a nonempty direct single-link `transcript.jsonl`, and the direct
+single-link native session lock. Exclude incomplete-fork markers, committed or
+recoverable deletion intents, and validated deletion stages from ordinary
+inventory, but still validate the reserved files and any present transcript or
+lock inside an incomplete fork. Make the opened file handle the first
+authoritative retained transcript and lock identity before comparing direct
+rooted entries; a plain Windows `Lstat` identity is only a no-follow type guard
+because `SameFile` may otherwise resolve it lazily after a replacement. If any
+valid-looking candidate or reserved
+stage or receipt has an unsafe, replaced, linked, over-bound, or contradictory
+identity, return `store_unsafe` for the whole scan rather than claiming
+completeness.
+
+Inventory does not create, remove, rename, truncate, or rewrite session-store
+entries. It may descriptor-sync and reverify an already present internal final
+receipt or completion marker before treating that metadata as durable; a
+failed durability confirmation makes the complete inventory `store_unsafe`
+and cannot release the ID for reuse.
+
+Project only a version, closed status, session ID, optional canonical UTC
+`updated_at`, and opaque revision or continuation token. The revision binds the
+selected workspace plus the session-directory, transcript identity and
+content, and lock identity;
+inventory statuses are exactly `ok`, `stale`, and `store_unsafe`.
+Do not expose transcript text, prompt, title, tool data, filesystem paths,
+workspace hashes, or application-home information. Latest-session selection is
+the first item in this same ordering. Resume, continue, and fork source
+selection must reject any ID not currently resumable. Explicit creation must
+also reject an existing candidate, incomplete fork, live deletion intent, or
+detached cleanup stage for that ID so deletion recovery cannot be confused with
+new ownership.
+
+**TX-069 — Identity-bound, recoverable local deletion.** Delete exactly one
+valid native session ID in the selected workspace at one opaque listed
+revision through the same provider-free service, without initializing a
+semantic session. Do not support bulk deletion, wildcards, force,
+active-session termination, descendant-fork cascading, or caller-selected
+store paths. Return the closed versioned result union `deleted`, `not_found`,
+`stale`, `session_locked`, `delete_incomplete`, or `store_unsafe`; diagnostics
+may explain the result on a separate channel, but clients never parse raw OS
+paths or human error text.
+
+At the mutation boundary, revalidate the ID, selected-workspace membership,
+opaque revision, parent directory, session directory, transcript, and lock
+identities. Acquire the target's existing session lock nonblocking; healthy
+contention returns `session_locked` and never terminates the owner. While the
+lock is held, preflight the platform no-replace adapter and real directory
+durability boundary before recording intent. Preflight proves primitive
+availability, not that the later target-filesystem syscall cannot fail.
+Publish the versioned deletion intent without replacing an existing
+destination. Before truncating an interrupted temporary or final intent,
+descriptor-verify its direct single-link identity and require its bytes to be
+an exact prefix of this transaction. Revalidate the locked target inside the
+detach primitive's immediate callback, then atomically detach the direct
+session directory with a same-parent no-replace rename into the reserved
+invalid-ID staging namespace. Once intent is durable, a precommit detach
+failure retains that exact intent and any published pending receipt as the
+retry reservation and returns `delete_incomplete`; it does not attempt a
+multi-object rollback whose partial commit could contradict recovery metadata.
+An unsafe revision or intent mutation while the target lock is held also
+retains the reservation and fails closed. Sync the parent and release the lock
+only after inventory, resume, continue, and fork selection can no longer reach
+the live valid-ID name.
+
+Remove the detached owned directory only through descriptor-rooted
+`OwnedDirectory` cleanup, never raw recursive path deletion and never recursive
+removal of the live directory while its internal lock remains addressable.
+Validate and bound every staging and receipt scan. Before detach, atomically
+publish a canonical immutable pending receipt as a fully constructed private
+temporary directory renamed no-replace into its opaque final name.
+Interrupted temporary receipt directories are recoverable only when their
+length-delimited ID and revision and exact record prefix match the live intent
+or a full retained stage. Never delete a competing receipt directory that this
+operation did not exclusively create. A retained committed intent, transcript,
+or lock must be direct, single-link where applicable, and agree with the
+stage's length-delimited ID and revision. A stage without a receipt is accepted
+only in the complete compatibility form containing a matching intent, nonempty
+content-bound transcript, and lock; any partial stage requires its exact
+receipt. The receipt binds the workspace partition, original directory,
+transcript, and lock through opaque hashes, without storing raw paths or
+transcript metadata.
+
+Serialize receipt capacity, publication, retirement, and live-stage creation
+with one persistent cross-process registry lock inside the receipt root, always
+acquired after the target session lock. While both locks are held, rescan and
+reserve workspace, stage, and receipt headroom; refuse before intent when
+creating the receipt root would exceed 4,096 workspace entries or another
+stage would exceed 512. Count pending, completed, temporary, and receipt-GC
+entries together against the 512-entry receipt bound. An empty receipt root may
+be recovered after a crash before first lock creation, but once any transaction
+metadata exists the persistent direct single-link registry-lock identity is
+mandatory; absence or replacement fails closed rather than creating a second
+lock inode beside an older held lease. Reverify that registry lease immediately
+at live detach and staged cleanup/completion mutation boundaries. Never
+recursively remove a final opaque receipt directly. Atomically detach it
+no-replace to the strict `g1_` receipt-GC namespace, sync the receipt root, and
+clean only the detached `OwnedDirectory`. Later registry-locked mutations
+validate and sweep bounded partial or empty GC remnants, so a cleanup crash
+cannot turn a final receipt into an uncorrelatable malformed directory.
+
+For detached cleanup, acquire any remaining staged session lock first and the
+registry lock second. Revalidate or publish the receipt while both are held,
+then release the staged file lock before recursive removal but retain the
+registry lock across descriptor-rooted cleanup, partition sync, absence
+verification, and completion publication. Concurrent retries therefore return
+the stable busy outcome instead of traversing the same stage together.
+
+Treat the intent-at-live-name and detached-stage states as durable recovery
+evidence. Both hide the session from ordinary selection and reserve its
+original ID. A retry naming the original ID and revision resumes the remaining
+detach or cleanup work. A post-intent, post-detach, or cleanup failure returns
+`delete_incomplete`; return `deleted` only after the original live identity,
+validated stage, and all AgentX-owned contents of that session directory are
+absent, the workspace partition has been durably synced, a fresh bounded scan
+cannot find the receipt-bound directory under another direct name, and a
+durable completion marker has been verified. Pending receipts are never
+evicted. Retain up to 256 completed receipts during normal mutation; when space
+is needed, remove completed receipts only in deterministic lexical order,
+while the entire receipt namespace remains hard-bounded at 512 entries. A
+retained completed receipt makes an exact retry idempotently `deleted`; once
+retention removes it, absence is `not_found`.
+
+Cancellation before durable intent leaves the live session selectable and
+does not reserve its ID. Cancellation after durable intent is a recoverable
+post-intent failure: preserve the exact receipt, intent, or detached stage,
+release any target, staged, and registry leases in their required order, and
+return `delete_incomplete` without claiming deletion. Retry with the original
+ID and revision completes the same transaction.
+
+A genuinely new generation may reuse the ID only after staging cleanup
+completed and is not part of the old revision's deletion. An old token against
+a live or staged newer generation is `stale`, and completed receipts never
+reserve the ID. This is deletion
+from AgentX's local native session store, not secure media erasure.
+It does not delete backups, remote copies, project memory, worktrees,
+authentication or configuration, descendant forks, the AgentX VS Code
+extension's local data, VS Code presentation caches, or extension-owned topic
+metadata.
+
 ## Remote persistence and disabled behavior
 
 **TX-070 — Internal-event persistence.** When an internal worker-event writer is registered, emit each transcript message as a typed internal event with compaction and agent metadata. A writer failure logs persistence failure but does not corrupt the local transcript or crash the session.
@@ -224,6 +400,14 @@ For a stale segment followed by a plain boundary, prune before the absolute last
 | optimized-load threshold | 5 MiB |
 | streaming read chunk | 1 MiB |
 | cached last-prompt text | 200 characters plus ellipsis |
+| native session ID | 1–128 ASCII letters, digits, `_`, or `-` |
+| default / maximum inventory page | 100 / 500 sessions |
+| workspace inventory entry bound | 4,096 direct entries |
+| deletion-stage scan bound | 512 direct entries |
+| deletion-receipt namespace bound | 512 direct entries |
+| completed deletion-receipt retention | 256 entries, deterministic lexical GC |
+| transcript digest bound per complete pass | 2 GiB |
+| transcript digest bound per management operation | 8 GiB |
 
 The effective tail window is 64 KiB even where historical prose calls it 16 KiB.
 
@@ -279,6 +463,65 @@ and verify diagnostics do not change those durable records. Finally, fail the
 accepted-user append after a DEBUG start candidate and verify no diagnostic
 record fabricates a durable start, usage, or terminal result; the operation
 surfaces transcript admission/finalization failure instead.
+
+**TX-A17 — Bounded authoritative inventory.** Give two workspace partitions the
+same valid session ID and list each independently. A missing third partition
+returns an empty list without appearing on disk. In one partition, combine
+valid sessions with Unicode, overlong, and traversal-like names, an incomplete
+fork, and a detached deletion stage. Inventory exposes only complete native
+candidates, sorts equal transcript times by ID, and returns every item through
+bounded continuation pages. Mutating an identity between pages makes the old
+token stale. Replace a valid directory with a symlink or non-directory, or make
+its transcript or lock indirect or multiply linked, and verify the entire
+inventory fails `store_unsafe`. Its JSON contains only the versioned minimal
+fields from `TX-068`.
+
+**TX-A18 — Revision, workspace, and active-lock races.** List one session, then
+replace its transcript, session lock, or whole session directory while
+preserving apparent size and modification time; also replace transcript bytes
+in place while preserving inode, size, and modification time. Deletion with
+the old opaque revision returns `stale` and leaves the replacement untouched.
+Use a filesystem time outside canonical RFC3339's year range where supported:
+inventory omits `updated_at` but preserves internal ordering and revision
+binding. Hold the listed lock from another owner and verify deletion returns
+`session_locked`; release it and retry the same revision successfully. Delete
+one of two workspaces' same-named sessions and verify the other remains
+resumable. A malformed or mismatched retained stage or receipt record fails
+`store_unsafe`. Race deletion against list, latest, resume, continue, fork, and
+explicit creation. If selection or creation acquires the target session lock
+first, deletion returns `session_locked`; if deletion publishes durable intent
+or commits detach first, every selector rejects the ID and explicit creation
+treats it as reserved. Inventory may return only a complete pre-intent or
+post-intent generation and never includes a committed intent or deletion
+stage.
+
+**TX-A19 — Crash-retry deletion and scope.** Inject failures after committed
+intent, during empty and partial receipt publication, after atomic detach,
+immediately before descriptor-rooted cleanup, and after stage removal but
+before parent sync. Also inject cancellation before durable intent, after
+durable intent, after detach, and during cleanup. A pre-intent cancellation
+leaves the live generation selectable and unreserved; every post-intent
+failure or cancellation returns `delete_incomplete`, releases leases in
+protocol order, and preserves retry evidence. List, latest, resume, continue,
+fork, and explicit creation cannot select or recreate the pending ID. Retry
+with the original ID and revision and verify cleanup continues from the live
+intent, receipt, or detached stage. Move or replace the receipt-bound stage
+under an ordinary invalid name and verify retry fails closed. Reject partial
+stages without a receipt while accepting a fully validated compatibility
+stage. Fill workspace or stage capacity exactly and verify a new deletion
+refuses before recording intent; contend the receipt registry and verify no
+mutation crosses the busy boundary. Unlink or replace the persistent registry
+lock while transaction metadata remains and verify inventory and deletion fail
+`store_unsafe` without creating a competing lock. Interrupt final receipt
+retirement after its atomic `g1_` detach and verify a later mutation sweeps the
+bounded partial GC stage. Verify pending receipts are never evicted, completed
+receipt retention is bounded and deterministic, and an old receipt returns
+`stale` without touching a genuinely recreated live or staged generation.
+Report `deleted` only after both names and all owned contents are absent and
+the durable receipt transition is revalidated. Verify the operation leaves
+descendant forks, worktrees, project memory, auth/configuration, remote or
+backup copies, and all AgentX VS Code extension data and presentation metadata
+unchanged.
 
 ## Non-normative provenance
 

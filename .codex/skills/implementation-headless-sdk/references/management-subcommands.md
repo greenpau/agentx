@@ -1,6 +1,11 @@
 # Noninteractive management subcommands
 
-This reference specifies the command adapters that inspect or mutate local product configuration without starting an ordinary model turn. Their domain services remain owned by authentication, MCP, plugin, settings, permission, and platform contracts; this document owns argument-to-service routing, output channels, partial-mutation boundaries, and process status.
+This reference specifies the command adapters that inspect or mutate
+runtime-owned local state or product configuration without starting an
+ordinary model turn. Their domain services remain owned by continuity,
+transcript, authentication, MCP, plugin, settings, permission, and platform
+contracts; this document owns argument-to-service routing, output channels,
+partial-mutation boundaries, and process status.
 
 ## Contents
 
@@ -11,7 +16,8 @@ This reference specifies the command adapters that inspect or mutate local produ
 5. [MCP commands](#mcp-commands)
 6. [Plugin and marketplace commands](#plugin-and-marketplace-commands)
 7. [Setup, doctor, and installer](#setup-doctor-and-installer)
-8. [Acceptance scenarios](#acceptance-scenarios)
+8. [Native session inventory and deletion](#native-session-inventory-and-deletion)
+9. [Acceptance scenarios](#acceptance-scenarios)
 
 ## Shared exit contract
 
@@ -73,6 +79,50 @@ The listing is evidence only. It does not initialize required MCP servers, invok
 
 **CLIM-062 — Installer status adapter.** Run ordinary setup first, then invoke the install command with optional target and force flag. The callback text is the compatibility status boundary: select status 1 when it contains the failure marker and 0 otherwise. Do not start a model turn.
 
+## Native session inventory and deletion
+
+**CLIM-070 — Workspace-authoritative adapter.** Route the additive `CLIG-033`
+selectors through one runtime-owned native-session service after validating the
+explicit nonempty `--cwd` and normalizing it with the ordinary absolute
+workspace logic. Give the service only the frozen sessions-root authority and
+normalized workspace, never caller-supplied application-home, workspace hash,
+session path, or transcript path. Preserve the common application-home and
+auth-presence bootstrap, but do not fully parse credentials or construct a
+semantic session, provider, query engine, transcript store, workspace
+partition for an empty inventory, project memory, extensions, tools, or MCP
+connections. Reject every repeated management option before validating its
+final parsed value so a later occurrence cannot overwrite an earlier empty or
+forbidden selection.
+
+**CLIM-071 — Bounded inventory projection.** List only the selected workspace
+through bounded pages; page size defaults to 100 and accepts 1 through 500.
+Return an opaque continuation token when more entries remain and a stable
+`stale` result when a supplied token no longer identifies the inventory
+generation. Text output prints `No sessions found.` for an empty inventory,
+otherwise one tab-separated `session_id`, canonical `updated_at`, and opaque
+revision row per item, followed by a `next_page_token` row when present. JSON
+emits exactly one version-1 object with closed status `ok`, `stale`, or
+`store_unsafe`, a `sessions` array containing only `session_id`, optional
+`updated_at`, and `revision`, plus optional `next_page_token`. No projection
+contains conversation or filesystem metadata.
+
+**CLIM-072 — Revision-bound single deletion.** Require the opaque revision
+returned by inventory and delete exactly one ID in the selected workspace.
+Text output is one tab-separated status and session ID. JSON emits exactly one
+version-1 object with the session ID and one closed status: `deleted`,
+`not_found`, `stale`, `session_locked`, `delete_incomplete`, or
+`store_unsafe`. Return `deleted` only after the runtime-owned directory is
+absent. A stale revision, active nonblocking session lock, committed detach
+whose cleanup remains pending, and unsafe store identity remain distinct
+machine-readable outcomes; do not collapse them into human error text.
+
+**CLIM-073 — No implied duplex control.** Provider-free CLI dispatch is the
+required integration. Do not register `list_sessions` or `delete_session` as
+duplex controls merely because the service exists. The synchronous initialized
+control handler is not a safe deletion owner; a future control adapter must
+first move work off the input-reader path and specify correlation, interrupt,
+permission-response, cancellation, timeout, completion, and shutdown ordering.
+
 ## Acceptance scenarios
 
 ### `CLIM-A01` — Ambiguous MCP scope
@@ -99,6 +149,51 @@ Configure only a custom allow list. Verify effective JSON uses custom allow and 
 
 List a stdio MCP server that starts a child, then complete the listing. Verify bounded concurrency, status output, and child/connection cleanup before status 0.
 
+### `CLIM-A07` — Provider-free empty native inventory
+
+Place a malformed but present `auth.json` in the frozen application home and
+select an existing workspace whose session partition is absent. Run
+`--list-sessions --cwd <workspace>` in text and JSON modes. Verify the
+credential document is not parsed, no model/provider connection or semantic
+session starts, the result is empty, and no workspace partition, project
+memory, or transcript is created.
+
+### `CLIM-A08` — Workspace-scoped revision deletion
+
+Create the same valid native session ID in two workspace partitions. List each
+workspace and retain its opaque revision. Delete the first using its revision;
+verify only that directory disappears and the second remains listable. Repeat
+with a syntactically valid wrong revision and with the target lock held by
+another process; verify the JSON statuses are respectively `stale` and
+`session_locked`, each as the sole stdout object.
+
+### `CLIM-A09` — Bounded minimal projections
+
+List enough sessions to require a continuation token with page size one, then
+drain every page. Verify deterministic, duplicate-free coverage without silent
+truncation. Change the inventory before reusing a token and verify `stale`.
+For both text and JSON, verify no transcript/prompt/title/topic/tool content,
+path, workspace hash, or application-home value is exposed; JSON contains
+exactly one versioned object.
+
+### `CLIM-A10` — Management grammar isolation
+
+Combine list and delete, omit or empty `--cwd`, omit a deletion revision, put a
+revision on list, put pagination on delete, request `stream-json`, add a prompt
+before or after the selector, and explicitly supply every ordinary option,
+including values equal to defaults. Verify each fails before runtime mutation.
+Put each management selector immediately after every scalar option that lacks
+its value and verify the selector is rejected rather than consumed as that
+value or routed into ordinary conversation startup. Keep a selector after a
+standalone `--` literal when no management mode was selected.
+Repeat each management scalar with an earlier empty or forbidden value and
+verify the later valid-looking occurrence cannot override it.
+For valid management invocations, verify print/headless inference stays false
+and no duplex SDK initialization or control record appears.
+
 ## Non-normative provenance
 
-Evidence came from noninteractive command adapters for agents, authentication, automatic mode, MCP, plugins, marketplaces, setup-token, doctor, installation, and the centralized exit helper. Paths and private symbols are not implementation requirements.
+Evidence came from provider-free native-session management and noninteractive
+command adapters for agents, authentication, automatic mode, MCP, plugins,
+marketplaces, setup-token, doctor, installation, and the centralized exit
+helper. Paths and private symbols are not implementation requirements.

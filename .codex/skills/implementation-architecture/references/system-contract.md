@@ -16,7 +16,7 @@
 
 The product is an orchestration runtime between a human or external caller, a model service, the caller's workstation or remote environment, and extension providers. It is not the language model, terminal emulator, operating system, source-control system, or extension server.
 
-The semantic core accepts normalized external events and emits canonical session events. Interactive terminal, one-shot text, structured streams, SDK control, bridge, remote viewer, and standalone capability-host surfaces translate to and from those events. Only the standalone capability host omits the conversation loop; it still reuses capability validation and result contracts.
+The semantic core accepts normalized external events and emits canonical session events. Interactive terminal, one-shot text, structured streams, SDK control, bridge, remote viewer, and standalone capability-host surfaces translate to and from those events. The standalone capability host omits the conversation loop but still reuses capability validation and result contracts. Provider-free native session-management entrypoints also omit the conversation loop: after the shared application-home, authentication-presence, option, and workspace gates, they call the runtime-owned continuity service without constructing a semantic session, transcript writer, model/provider client, extension registry, or project memory.
 
 ### Required ports
 
@@ -85,6 +85,8 @@ Preserve this dependency order:
 
 `ARCH-LIFE-002` — Recovery runs before new user work and converts every accepted but incomplete operation into explicitly authorized resumed work, an interruption/error projection, omission of an incomplete specified branch under the documented compatibility rule, or a documented irrecoverable error. Recovery never infers success from a later filesystem state.
 
+`ARCH-LIFE-003` — A provider-free session-management mode branches before semantic session initialization. It derives the workspace partition only from the frozen application-home capability and normalized absolute workspace, shares one continuity authority with resume, continue, fork, and explicit creation, and exposes only bounded versioned inventory or deletion outcomes. A caller cannot supply an application-home path, workspace key, session path, or transcript path.
+
 ## Concurrency and ordering
 
 - Preserve input order within a session unless a documented priority preempts active work.
@@ -112,6 +114,7 @@ Preserve this dependency order:
 | Telemetry/update failure | log locally if safe; never fail semantic work |
 | Remote disconnect | reconnect/replay within bounds or surface explicit terminal status |
 | Persistence failure | surface loss-of-durability; never claim resumability |
+| Native session cleanup failure | retain validated deletion staging and return an explicit cleanup-pending outcome; never report hidden retained data as deleted |
 | Shutdown interruption | best-effort bounded flush followed by idempotent cleanup |
 
 All retries define eligible errors, maximum attempts or bounded persistent mode, delay and jitter, reset rules, user-visible progress, abort behavior, and idempotency assumptions.
@@ -125,6 +128,8 @@ All retries define eligible errors, maximum attempts or bounded persistent mode,
 `ARCH-SEC-003` — Resolve paths against explicit roots, analyze shell structure rather than raw prefixes alone, protect sensitive internal locations, reject dangerous broad deletion targets, and fail closed when sandbox guarantees are required but unavailable.
 
 `ARCH-SEC-004` — Credentials remain behind the authentication/network port. Redact them from prompts, logs, telemetry, process listings, environment forwarding, and persisted records.
+
+`ARCH-SEC-005` — Native session inventory and deletion accept only a normalized workspace, a grammar-valid opaque session identifier, and runtime-issued opaque continuation or revision tokens. Enumeration fails closed on a safe-looking unsafe identity. Deletion revalidates workspace parent, target, transcript, lock, and token identity at the mutation boundary; it holds the existing nonblocking session lock through a same-parent atomic detach into a reserved non-session name, then releases the lock before descriptor-rooted recursive cleanup.
 
 ## Portability rules
 
@@ -160,3 +165,7 @@ Compaction transforms only the foreground model projection, preserves authoritat
 ### `ARCH-A06` — Remote reconnect and replay
 
 Disconnect at each remote delivery milestone: observed frame identifier, parsed envelope, local dispatch, `received`, `processed`, transport-queue admission, and server acknowledgement. Reconnect starts from only the cursor and identity state that the selected adapter actually retains. The reference SSE cursor is an in-process observed-frame high-water mark, not a durable processing checkpoint, and one bridge adapter reports `received` and `processed` immediately after its local callback; a crash can therefore lose locally uncommitted work that the server considers processed. Deduplicate where identities remain available, never repeat a tool side effect merely to fill missing evidence, and expose loss, fresh-session, or stale-epoch outcomes instead of claiming universal replay recovery. An implementation may add a durable processing cursor or control-generation fence only as a documented safer divergence.
+
+### `ARCH-A07` — Crash-safe native session deletion
+
+List two workspaces that contain the same session ID and obtain distinct runtime-issued revisions. Deletion of one revision acquires that workspace's existing session lock, persists matching intent, revalidates the workspace parent, target, transcript, lock, and revision, and atomically detaches only that target to a reserved invalid-session staging name. Resume, continue, fork, ordinary inventory, and explicit recreation cannot select either live intent or detached staging. A crash or cleanup failure returns `delete_incomplete`; retry by the original session ID and revision validates the bounded staging record and completes descriptor-rooted removal. `deleted` is returned only after the detached owned directory is absent. The other workspace, fork descendants, project memory, worktrees, configuration, authentication, backups, remote copies, and presentation caches are unchanged.

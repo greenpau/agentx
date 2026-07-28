@@ -1,0 +1,338 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mxfile host='app.diagrams.net' modified='2026-07-27T00:00:00.000Z' agent='Codex' version='24.7.17' type='device'>
+  <diagram id='native-session-management' name='Native session management'>
+    <mxGraphModel dx='3260' dy='1280' grid='1' gridSize='10' guides='1' tooltips='1' connect='1' arrows='1' fold='1' page='1' pageScale='1' pageWidth='3260' pageHeight='1697' math='0' shadow='0' customDiagramContextVersion='2.1' customContextEndsWith='bounded list page or closed single-delete outcome · VS Code metadata unchanged' customContextDefersTo='implementation-headless-sdk · CLI/output · implementation-startup-settings · bootstrap · implementation-platform-lifecycle · locks/detach/sync/cleanup'>
+      <root>
+        <mxCell id='0'/>
+        <mxCell id='1' parent='0'/>
+        <mxCell id='sm-title' value='Authoritative native session inventory and deletion' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=24;fontStyle=1;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='390' width='1850' height='42' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-subtitle' value='One runtime-owned SessionManager scopes every decision to the frozen application home and normalized selected workspace. Provider-free CLI management and semantic-runtime selectors share the same store truth. &lt;b&gt;Contracts: TX-068 · TX-069.&lt;/b&gt;' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=12;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='432' width='2570' height='45' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-entry-label' value='ENTRY + FROZEN IDENTITY' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=11;fontStyle=1;fontColor=#1a73e8;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='490' width='590' height='24' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-cli' value='&lt;b&gt;ENTRY · provider-free CLI&lt;/b&gt;&lt;br&gt;&lt;font face=&quot;monospace&quot;&gt;--list-sessions&lt;/font&gt; or &lt;font face=&quot;monospace&quot;&gt;--delete-session ID&lt;/font&gt;&lt;br&gt;explicit &lt;font face=&quot;monospace&quot;&gt;--cwd&lt;/font&gt; · text or one versioned JSON object&lt;br&gt;management modes reject prompts and conversation options' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='50' y='572' width='275' height='135' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-bootstrap' value='&lt;b&gt;BOUNDARY · frozen bootstrap&lt;/b&gt;&lt;br&gt;preserve application-home + auth-presence bootstrap&lt;br&gt;normalize the absolute selected workspace&lt;br&gt;caller supplies no home, hash, session path, or transcript path' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='375' y='572' width='285' height='135' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-manager' value='&lt;b&gt;OWNER · SessionManager&lt;/b&gt;&lt;br&gt;derives workspace partition internally&lt;br&gt;opens existing state read-only for inventory&lt;br&gt;validates native IDs, entries, stages, receipts, revisions, and identity&lt;br&gt;owns List · Delete · State · Latest' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#1a73e8;strokeColor=#174ea6;strokeWidth=3;fontColor=#ffffff;fontSize=13;align=left;verticalAlign=middle;spacingLeft=11;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='562' width='320' height='175' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-list' value='&lt;b&gt;FAN-OUT · bounded complete inventory&lt;/b&gt;&lt;br&gt;scan only the selected workspace partition&lt;br&gt;missing partition → empty without creation&lt;br&gt;validate bounded direct entries + reserved stages + receipt registry&lt;br&gt;exclude incomplete forks, live intents, pending receipts, and detached stages&lt;br&gt;unsafe safe-looking identity → whole-scan &lt;font face=&quot;monospace&quot;&gt;store_unsafe&lt;/font&gt;' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='1100' y='522' width='345' height='165' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-page' value='&lt;b&gt;OUTCOME · stable page&lt;/b&gt;&lt;br&gt;transcript mtime descending, then session ID ascending&lt;br&gt;bounded page; generation-bound opaque continuation token&lt;br&gt;minimal fields: ID · updated_at · opaque revision&lt;br&gt;closed statuses: &lt;font face=&quot;monospace&quot;&gt;ok | stale | store_unsafe&lt;/font&gt;&lt;br&gt;never silently truncates' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;strokeWidth=2;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='1510' y='522' width='340' height='165' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-selectors' value='&lt;b&gt;FAN-OUT · authoritative selection guard&lt;/b&gt;&lt;br&gt;resume · continue-latest · fork source · explicit creation&lt;br&gt;all query the same SessionManager state&lt;br&gt;no duplicate workspace scan or latest-session policy' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='1100' y='737' width='345' height='135' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-selection-outcome' value='&lt;b&gt;OUTCOME · selectable or reserved&lt;/b&gt;&lt;br&gt;only a complete validated native candidate is resumable&lt;br&gt;incomplete fork, live intent, pending receipt, or detached stage stays hidden and reserves the original ID&lt;br&gt;a completed receipt does not reserve a genuinely new generation' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;strokeWidth=2;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='1510' y='727' width='340' height='155' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-vscode-scope' value='&lt;b&gt;OUT OF SCOPE · VS Code&lt;/b&gt;&lt;br&gt;no AgentX VS Code extension mutation&lt;br&gt;no presentation-cache or topic-metadata deletion&lt;br&gt;the extension retains its own local metadata' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;strokeWidth=2;dashed=1;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='1940' y='522' width='390' height='135' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-provider-free' value='&lt;b&gt;PROVIDER-FREE STOP LINE&lt;/b&gt;&lt;br&gt;list/delete create no semantic session, query engine, transcript, workspace partition, project memory, model/provider connection, extension registry, MCP connection, or structured duplex control handler' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#5f6368;strokeWidth=2;dashed=1;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;' vertex='1' parent='1'>
+          <mxGeometry x='2390' y='522' width='545' height='135' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-delete-label' value='DELETE COMMIT PATH · EXACTLY ONE SESSION · LOCK HELD UNTIL LIVE NAME IS UNREACHABLE' style='text;html=1;strokeColor=none;fillColor=none;align=left;whiteSpace=wrap;fontSize=11;fontStyle=1;fontColor=#1a73e8;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='900' width='1680' height='24' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-lock' value='&lt;b&gt;DECISION · acquire target lock&lt;/b&gt;&lt;br&gt;open the existing native lock&lt;br&gt;nonblocking acquisition&lt;br&gt;capture and verify parent, target, and lock identity&lt;br&gt;never terminates an active owner' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=10;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='1007' width='230' height='160' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-intent' value='&lt;b&gt;DECISION · lock bounded receipt registry&lt;/b&gt;&lt;br&gt;registry lease serializes headroom, publication, detach, and completion&lt;br&gt;validate ≤512 entries; pending never evicted&lt;br&gt;retain 256 complete; retire older complete receipts through validated &lt;font face=&quot;monospace&quot;&gt;g1_&lt;/font&gt; GC staging' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=8;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='990' y='1007' width='230' height='160' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-receipt-registry' value='&lt;b&gt;STORE · live intent → pending receipt&lt;/b&gt;&lt;br&gt;while target + registry leases remain held:&lt;br&gt;1 · persist/sync no-replace intent under the live target&lt;br&gt;2 · publish canonical immutable receipt no-replace&lt;br&gt;receipt binds workspace, directory, transcript, and lock identities; the stage is still absent' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=3;fontSize=9;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='1260' y='997' width='300' height='180' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-revalidate' value='&lt;b&gt;DECISION · immediate revalidation&lt;/b&gt;&lt;br&gt;ID + workspace membership&lt;br&gt;revision + parent + target&lt;br&gt;transcript + target-lock identities&lt;br&gt;live intent + exact pending receipt' style='rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;align=center;verticalAlign=middle;' vertex='1' parent='1'>
+          <mxGeometry x='1600' y='997' width='250' height='180' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-detach' value='&lt;b&gt;COMMIT · atomic detach + sync&lt;/b&gt;&lt;br&gt;identity-verified same-parent no-replace rename&lt;br&gt;reserved validated invalid-ID stage&lt;br&gt;pending receipt + both leases remain held&lt;br&gt;sync partition after namespace mutation' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=10;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='1890' y='1007' width='250' height='160' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-release' value='&lt;b&gt;STATE · release target lock; retain registry lease&lt;/b&gt;&lt;br&gt;release the target/staged session lock only after the live valid-ID name is unreachable&lt;br&gt;ordinary selection cannot reach it&lt;br&gt;carry the registry lease through cleanup and completion' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=10;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='2180' y='1007' width='250' height='160' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-cleanup' value='&lt;b&gt;PROCESS · descriptor-rooted cleanup&lt;/b&gt;&lt;br&gt;registry lease remains held across cleanup&lt;br&gt;remove only the validated detached OwnedDirectory through rooted safety primitives&lt;br&gt;never recursively remove the live directory&lt;br&gt;cleanup remains bounded and retryable' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=10;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='2470' y='1007' width='250' height='160' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-deleted' value='&lt;b&gt;STORE + OUTCOME · complete receipt → deleted&lt;/b&gt;&lt;br&gt;retain the live-path registry lease, or acquire it after the staged-session lock on retry&lt;br&gt;sync partition; prove stage + bound directory absent with a fresh bounded scan&lt;br&gt;persist and verify completion, then release registry&lt;br&gt;&lt;font face=&quot;monospace&quot;&gt;deleted&lt;/font&gt; means local native-store absence—not secure erasure' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#34a853;strokeColor=#137333;strokeWidth=3;fontColor=#ffffff;fontSize=10;align=left;verticalAlign=middle;spacingLeft=9;' vertex='1' parent='1'>
+          <mxGeometry x='2760' y='997' width='450' height='180' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-not-found' value='&lt;b&gt;OUTCOME · not_found&lt;/b&gt;&lt;br&gt;no matching live candidate or validated retry stage' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=11;' vertex='1' parent='1'>
+          <mxGeometry x='720' y='1252' width='250' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-session-locked' value='&lt;b&gt;OUTCOME · session_locked&lt;/b&gt;&lt;br&gt;another process owns a required healthy lock; no mutation' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;' vertex='1' parent='1'>
+          <mxGeometry x='990' y='1252' width='260' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-stale' value='&lt;b&gt;OUTCOME · stale&lt;/b&gt;&lt;br&gt;revision/generation changed, or an old receipt/token names a newer live or staged generation; replacement stays untouched' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=10;' vertex='1' parent='1'>
+          <mxGeometry x='1450' y='1252' width='300' height='95' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-store-unsafe' value='&lt;b&gt;OUTCOME · store_unsafe&lt;/b&gt;&lt;br&gt;unsafe, linked, replaced, malformed, or contradictory identity fails closed' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;strokeWidth=2;fontSize=11;' vertex='1' parent='1'>
+          <mxGeometry x='1835' y='1252' width='300' height='85' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-incomplete' value='&lt;b&gt;RECOVERY STATE · delete_incomplete / cleanup_pending&lt;/b&gt;&lt;br&gt;Any retained live intent, pending receipt, detached stage, owned content, unsynced absence, or unverified completion marker is hidden-but-retained data—not deletion. Retry with the original session ID + opaque revision resumes receipt publication, detach, cleanup, sync, or completion; a different generation cannot inherit this evidence.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;strokeWidth=3;fontSize=12;align=left;verticalAlign=middle;spacingLeft=12;' vertex='1' parent='1'>
+          <mxGeometry x='1310' y='1447' width='1605' height='105' as='geometry'/>
+        </mxCell>
+        <mxCell id='sm-e-entry-bootstrap' value='freezes app + workspace identity' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.667;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-cli' target='sm-bootstrap' customRouteVersion='2.2' customFullSemanticLabel='freezes app + workspace identity' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.901' y='0'>
+            <Array as='points'>
+              <mxPoint x='337' y='639.5'/>
+              <mxPoint x='337' y='662'/>
+            </Array>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-bootstrap-manager' value='constructs path-free runtime authority' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.333;entryX=0;entryY=0.143;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-bootstrap' target='sm-manager' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.254' y='0'>
+            <Array as='points'>
+              <mxPoint x='672' y='617'/>
+              <mxPoint x='672' y='587'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-manager-list' value='enumerates workspace candidates' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.429;entryX=0;entryY=0.667;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-manager' target='sm-list' customRouteVersion='2.2' customFullSemanticLabel='enumerates workspace candidates' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.557' y='0'>
+            <Array as='points'>
+              <mxPoint x='1088' y='637'/>
+              <mxPoint x='1088' y='632'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-list-page' value='projects bounded inventory page' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.333;entryX=0;entryY=0.333;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-list' target='sm-page' customRouteVersion='2.2' customFullSemanticLabel='projects bounded inventory page' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-76' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-manager-selectors' value='guards continuity + creation' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.857;exitY=1;entryX=0;entryY=0.333;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-manager' target='sm-selectors' customRouteVersion='2.2' customFullSemanticLabel='guards continuity + creation' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.018' y='0'>
+            <Array as='points'>
+              <mxPoint x='994.286' y='782'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-selectors-outcome' value='returns eligibility state' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.667;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-selectors' target='sm-selection-outcome' customRouteVersion='2.2' customFullSemanticLabel='returns eligibility state' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.152' y='0'>
+            <Array as='points'>
+              <mxPoint x='1457' y='827'/>
+              <mxPoint x='1457' y='804.5'/>
+            </Array>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-page-vscode' value='leaves presentation metadata untouched' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;endFill=0;strokeWidth=2;strokeColor=#80868b;dashed=1;dashPattern=4 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.667;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-page' target='sm-vscode-scope' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.176' y='0'>
+            <Array as='points'>
+              <mxPoint x='1862' y='632'/>
+              <mxPoint x='1862' y='589.5'/>
+            </Array>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-manager-lock' value='validates deletion ID + revision' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.200;exitY=1;entryX=0.280;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-manager' target='sm-lock' customRouteVersion='2.2' customFullSemanticLabel='validates deletion ID + revision' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.298' y='0'>
+            <Array as='points'>
+              <mxPoint x='690' y='737'/>
+              <mxPoint x='690' y='960'/>
+              <mxPoint x='784.4' y='960'/>
+            </Array>
+            <mxPoint x='-120' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-manager-not-found' value='returns missing original identity' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0;exitY=0.714;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-manager' target='sm-not-found' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.345' y='0'>
+            <Array as='points'>
+              <mxPoint x='672' y='687'/>
+              <mxPoint x='672' y='1294.5'/>
+            </Array>
+            <mxPoint x='-120' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-lock-intent' value='acquires receipt-registry lease' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-lock' target='sm-intent' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-lock-busy' value='reports lock contention' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.800;exitY=1;entryX=0.500;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-lock' target='sm-session-locked' customRouteVersion='2.2' customFullSemanticLabel='reports lock contention' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.250' y='0'>
+            <Array as='points'>
+              <mxPoint x='904' y='1215'/>
+              <mxPoint x='1120' y='1215'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-registry-busy' value='reports registry contention' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.750;exitY=1;entryX=0.667;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-intent' target='sm-session-locked' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.490' y='0'>
+            <Array as='points'>
+              <mxPoint x='1162.5' y='1240'/>
+              <mxPoint x='1163.333' y='1240'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-preintent-unsafe' value='rejects unsafe pre-intent store' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.250;entryX=1;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-intent' target='sm-store-unsafe' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.448' y='0'>
+            <Array as='points'>
+              <mxPoint x='1240' y='960'/>
+              <mxPoint x='2160' y='960'/>
+              <mxPoint x='2160' y='1294.5'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-intent-revalidate' value='reserves bounded registry headroom' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-intent' target='sm-receipt-registry' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-receipt-revalidate' value='publishes exact pending receipt' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-receipt-registry' target='sm-revalidate' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-revalidate-detach' value='authorizes atomic detach' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-revalidate' target='sm-detach' customRouteVersion='2.2' customFullSemanticLabel='authorizes atomic detach' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-revalidate-stale' value='rejects changed generation' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#f9ab00;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.250;exitY=1;entryX=0.700;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-revalidate' target='sm-stale' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-revalidate-unsafe' value='retains unsafe post-intent state' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.750;exitY=1;entryX=0.100;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-revalidate' target='sm-incomplete' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.065' y='0'>
+            <Array as='points'>
+              <mxPoint x='1787.5' y='1395'/>
+              <mxPoint x='1470' y='1395'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-detach-release' value='commits invalid stage + sync' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-detach' target='sm-release' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-release-cleanup' value='carries registry lease to cleanup' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-release' target='sm-cleanup' customRouteVersion='2.2' customFullSemanticLabel='carries registry lease to cleanup' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-cleanup-deleted' value='syncs absence, then completes receipt' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#1a73e8;labelBackgroundColor=#ffffff;fontSize=9;exitX=1;exitY=0.500;entryX=0;entryY=0.500;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-cleanup' target='sm-deleted' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.400' y='0'>
+            <Array as='points'/>
+            <mxPoint x='0' y='-100' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-receipt-incomplete' value='retains live intent / pending receipt' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.500;exitY=1;entryX=0;entryY=0.400;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-receipt-registry' target='sm-incomplete' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='0.063' y='0'>
+            <Array as='points'>
+              <mxPoint x='1410' y='1385'/>
+              <mxPoint x='1285' y='1385'/>
+              <mxPoint x='1285' y='1489'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-detach-incomplete' value='retains committed-detach failure' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.250;exitY=1;entryX=0.400;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-detach' target='sm-incomplete' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.737' y='0'>
+            <Array as='points'>
+              <mxPoint x='1952.5' y='1195'/>
+              <mxPoint x='2190' y='1195'/>
+              <mxPoint x='2190' y='1415'/>
+              <mxPoint x='1952' y='1415'/>
+            </Array>
+            <mxPoint x='0' y='18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-cleanup-incomplete' value='reports retained cleanup-pending data' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.750;exitY=1;entryX=0.800;entryY=0;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-cleanup' target='sm-incomplete' customRouteVersion='2.2' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.567' y='0'>
+            <Array as='points'>
+              <mxPoint x='2657.5' y='1415'/>
+              <mxPoint x='2594' y='1415'/>
+            </Array>
+            <mxPoint x='-20' y='0' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-complete-incomplete' value='withholds deleted pending completion' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#d93025;dashed=1;dashPattern=8 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0.750;exitY=1;entryX=1;entryY=0.200;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-deleted' target='sm-incomplete' customRouteVersion='2.2' customLabelLayoutVersion='2.3' customFullSemanticLabel='withholds deleted pending completion'>
+          <mxGeometry relative='1' as='geometry' x='0.404' y='0'>
+            <Array as='points'>
+              <mxPoint x='3097.5' y='1400'/>
+              <mxPoint x='3225' y='1400'/>
+              <mxPoint x='3225' y='1468'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='sm-e-incomplete-retry' value='retries original ID + revision' style='edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#9334e6;dashed=1;dashPattern=4 4;labelBackgroundColor=#ffffff;fontSize=9;exitX=0;exitY=0.600;entryX=0.286;entryY=1;jumpStyle=arc;jumpSize=8;exitDx=0;exitDy=0;entryDx=0;entryDy=0;labelBorderColor=#dfe1e5;spacing=2;' edge='1' parent='1' source='sm-incomplete' target='sm-manager' customRouteVersion='2.2' customFullSemanticLabel='retries original ID + revision' customLabelLayoutVersion='2.3'>
+          <mxGeometry relative='1' as='geometry' x='-0.754' y='0'>
+            <Array as='points'>
+              <mxPoint x='680' y='1510'/>
+              <mxPoint x='680' y='760'/>
+              <mxPoint x='811.429' y='760'/>
+            </Array>
+            <mxPoint x='0' y='-18' as='offset'/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id='custom-context-band' value='CUSTOM DIAGRAM CONTEXT · v2.1' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#1a73e8;strokeWidth=2;align=left;verticalAlign=top;spacingTop=8;spacingLeft=10;fontSize=10;fontStyle=1;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='20' y='20' width='3220' height='325' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-breadcrumb' value='&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-continuity → implementation-transcript-recovery → session-management / Native session management' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='40' width='3164' height='25' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-lifecycle' value='&lt;b&gt;Lifecycle:&lt;/b&gt; startup + policy → state + registries → query + model → capability execution → &lt;font color=&quot;#1a73e8&quot;&gt;&lt;b&gt;[YOU ARE HERE · continuity + tasks]&lt;/b&gt;&lt;/font&gt; → surface + remote' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='67' width='3164' height='40' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-question' value='&lt;b&gt;Question:&lt;/b&gt; What does Authoritative native session inventory and deletion own, how do inputs become outcomes, and where do decision, failure, or recovery paths hand off?' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=14;fontColor=#202124;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='108' width='3164' height='38' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-starts' value='&lt;b&gt;Starts with:&lt;/b&gt; ENTRY · provider-free CLI' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#f1f3f4;strokeColor=#80868b;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='153' width='782' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-owns' value='&lt;b&gt;Owns:&lt;/b&gt; implementation-transcript-recovery · Authoritative native session inventory and deletion' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;' vertex='1' parent='1'>
+          <mxGeometry x='842' y='153' width='782' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-ends' value='&lt;b&gt;Ends with:&lt;/b&gt; bounded list page or closed single-delete outcome · VS Code metadata unchanged' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#e6f4ea;strokeColor=#34a853;' vertex='1' parent='1'>
+          <mxGeometry x='1636' y='153' width='782' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-defers' value='&lt;b&gt;Defers to:&lt;/b&gt; implementation-headless-sdk · CLI/output · implementation-startup-settings · bootstrap · implementation-platform-lifecycle · locks/detach/sync/cleanup' style='rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=8;fontSize=10;fillColor=#ffffff;strokeColor=#9aa0a6;dashed=1;' vertex='1' parent='1'>
+          <mxGeometry x='2430' y='153' width='782' height='66' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-contracts' value='&lt;b&gt;Contracts:&lt;/b&gt; TX-068 · TX-069 · prose: transcript-recovery-contract.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='225' width='1835' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-links' value='&lt;b&gt;Broader view:&lt;/b&gt; root routing → implementation-continuity overview → implementation-transcript-recovery/SKILL.md' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='1895' y='225' width='1317' height='34' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-legend' value='&lt;b&gt;Line grammar:&lt;/b&gt; solid = primary · dashed = alternate / feedback / recovery · arc = crossing without merge · “handoff” asserts topology only; other edge text is prose-verified' style='text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#5f6368;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='264' width='3164' height='27' as='geometry'/>
+        </mxCell>
+        <mxCell id='custom-context-authority' value='&lt;b&gt;Authority:&lt;/b&gt; This page owns only the visible topology, state relation, and boundary handoffs. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility.' style='rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=middle;spacingLeft=8;fontSize=11;fontColor=#3c4043;' vertex='1' parent='1'>
+          <mxGeometry x='48' y='298' width='3164' height='32' as='geometry'/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -7,11 +7,12 @@
 3. [Prompt acquisition](#prompt-acquisition)
 4. [Option families](#option-families)
 5. [Validation rules](#validation-rules)
-6. [Initialization ordering](#initialization-ordering)
-7. [Output and exit behavior](#output-and-exit-behavior)
-8. [Failure behavior](#failure-behavior)
-9. [Acceptance scenarios](#acceptance-scenarios)
-10. [Non-normative provenance](#non-normative-provenance)
+6. [Native session-management path](#native-session-management-path)
+7. [Initialization ordering](#initialization-ordering)
+8. [Output and exit behavior](#output-and-exit-behavior)
+9. [Failure behavior](#failure-behavior)
+10. [Acceptance scenarios](#acceptance-scenarios)
+11. [Non-normative provenance](#non-normative-provenance)
 
 ## Early dispatch
 
@@ -83,6 +84,7 @@ The externally meaningful option grammar includes:
 | --- | --- |
 | Interaction | print, bare/simple presentation, input format, output format, verbose streaming, partial events, hook events |
 | Session | continue, resume, fork, explicit session ID, resume at message, rewind files, disable persistence |
+| Native management | list sessions, delete one revision, workspace, bounded page size, opaque page token |
 | Model/limits | primary and fallback model, effort/thinking, max turns, max budget, structured-output schema/retry limit |
 | Prompt context | replace system prompt or file, append system prompt or file, setting sources, extra directories |
 | Capabilities | base/allowed/disallowed tools, permission mode, permission-prompt tool, agents, plugins, plugin directories, MCP configs |
@@ -109,6 +111,36 @@ Output formats:
 - **CLI-018 — Teammate identity.** Team name, agent name and agent identifier are all present or all absent.
 - **CLI-019 — MCP composition.** Parse each CLI MCP item as inline JSON first, otherwise as a file. Accumulate all parse errors. Later configurations override earlier entries deterministically. Reject reserved names and apply managed policy filters.
 - **CLI-020 — Managed restrictions.** Enterprise/managed MCP configuration may forbid dynamic SDK servers or strict-mode combinations. Report filtered/forbidden entries rather than silently enabling them.
+
+## Native session-management path
+
+- **CLI-024 — Provider-free native management.** After the common frozen
+  application-home bootstrap, `auth.json` presence gate, full option
+  validation, and normalized absolute-workspace selection, dispatch the
+  `CLIG-033` list/delete modes to one runtime-owned native-session service.
+  Return before full credential parsing, model/provider or query-engine
+  construction, transcript-store opening, extension/MCP/tool discovery,
+  semantic-session creation, workspace-partition creation for an empty list,
+  and project-memory creation. A present malformed auth document therefore
+  permits management, while a missing document retains the common bootstrap
+  failure. Never accept application-home, workspace-hash, session-directory,
+  or transcript paths from the caller.
+- **CLI-025 — Native-management projection.** Text mode emits only the bounded
+  human inventory/deletion result. JSON mode emits exactly one versioned object
+  on stdout and sends diagnostics only to stderr. Inventory JSON contains only
+  status, minimal session identity/update/revision fields, and an optional
+  opaque continuation token; deletion JSON contains only its closed status and
+  session identifier. Neither projection exposes transcript or prompt text,
+  title/topic/tool data, filesystem paths, workspace hash, or application-home
+  information. Non-success closed outcomes remain machine-readable on stdout
+  even when process status is nonzero.
+- **CLI-026 — CLI/control separation.** Native list/delete selectors do not
+  infer print/headless mode, start prompt acquisition, or enter the duplex SDK
+  runner. The first implementation requires only this provider-free CLI path;
+  it exposes no `list_sessions` or `delete_session` control. Add such controls
+  only with an asynchronous input-reader-safe design that specifies
+  correlation, permission-response and interrupt races, cancellation, timeout,
+  result ordering, and shutdown settlement.
 
 ## Initialization ordering
 

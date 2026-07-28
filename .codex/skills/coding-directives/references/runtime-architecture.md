@@ -1,5 +1,18 @@
 # AgentX architecture
 
+## Contents
+
+- [Runtime boundary](#runtime-boundary)
+- [Component ownership](#component-ownership)
+- [Application home and Azure `gpt-5.6-sol` mapping](#application-home-and-azure-gpt-56-sol-mapping)
+- [Turn and tool ordering](#turn-and-tool-ordering)
+- [Permissions and deliberate hardening](#permissions-and-deliberate-hardening)
+- [Transcript and recovery](#transcript-and-recovery)
+- [Surfaces and control plane](#surfaces-and-control-plane)
+- [Trust and extension plane](#trust-and-extension-plane)
+- [Feature profile](#feature-profile)
+- [Validation strategy](#validation-strategy)
+
 ## Runtime boundary
 
 This implementation follows the language-neutral contracts reachable from the repository `AGENTS.md` and `.codex/skills/implementation-*`. Package dependencies point inward toward a single semantic runtime:
@@ -8,7 +21,10 @@ This implementation follows the language-neutral contracts reachable from the re
 main.go
   → build identity, signal ownership, and private application-home bootstrap
   → early CLI/mode selection and required auth.json existence gate
-  → strict model credential parsing, provider, platform, and session construction
+  → provider-free native session inventory/deletion
+       → normalized absolute workspace and runtime-owned session manager
+       → bounded text or one-object JSON result
+  → otherwise strict model credential parsing, provider, platform, and session construction
   → immutable extension and capability snapshots
   → prompt/context projection
   → shared engine
@@ -48,7 +64,7 @@ The operational target in this tree is the local-agent core. It is not a declara
 | `pkg/model` | Provider-neutral requests/events plus the Azure OpenAI Responses API adapter. |
 | `pkg/engine` | Serialized submissions, provider streaming, recursive tool continuation, accounting, and terminal outcomes. |
 | `pkg/protocol` | Versioned canonical events with explicit visibility and persistence classes. |
-| `pkg/transcript` | Append-only JSONL ownership, defensive loading, deduplication, correlation, and crash recovery. |
+| `pkg/transcript` | Append-only JSONL ownership, defensive loading, deduplication, correlation, crash recovery, and authoritative workspace-scoped native session inventory/selection/deletion. |
 | `pkg/permission` | Modes, deny-first rules, path/symlink protection, and conservative shell analysis. |
 | `pkg/tool` | Descriptors, deterministic registry, lifecycle hooks, exact-once execution ledger, scheduler, output persistence, and core tools. |
 | `pkg/task` | Durable local task/work-item state, output files, process cancellation, polling, and restart reconciliation. |
@@ -58,8 +74,8 @@ The operational target in this tree is the local-agent core. It is not a declara
 | `pkg/extensions` | Immutable skill/plugin/hook/output-style generations and precedence. |
 | `pkg/mcp` | Untrusted MCP configuration, lifecycle, discovery, and stdio JSON-RPC transport. |
 | `pkg/memory`, `pkg/compact` | Bounded derived memory and context-pressure projection; neither replaces transcript authority. |
-| `pkg/sandbox`, `pkg/sessionlock` | Explicit OS-isolation availability and exclusive durable-session ownership. |
-| `pkg/platform`, `pkg/observability` | Production platform detection, credential-filtered session-scoped Zap diagnostics, atomic diagnostic fallback, and ordered cleanup plus reusable process/filesystem contracts; OS signal acquisition belongs to `pkg/signals`, and not every portable helper has a production caller. |
+| `pkg/sandbox`, `pkg/sessionlock` | Explicit OS-isolation availability and identity-verifiable exclusive durable-session ownership. |
+| `pkg/platform`, `pkg/observability` | Production platform detection, descriptor-rooted owned-directory inspection/detach/sync/cleanup, credential-filtered session-scoped Zap diagnostics, atomic diagnostic fallback, and ordered cleanup plus reusable process/filesystem contracts; OS signal acquisition belongs to `pkg/signals`, and not every portable helper has a production caller. |
 | `pkg/distributed`, `pkg/features` | Contract-only remote identity/delivery primitives and explicit multi-axis feature availability; no remote transport is registered. |
 | [VS Code extension repository](https://github.com/greenpau/agentx-vscode-extension) | External workspace-host adapter for process placement, NDJSON framing and correlation, Workspace Trust gating, editor-context projection, bounded presentation state, webview rendering, diagnostics, and target-specific VSIX packaging. It owns no session, transcript, permission-policy, or tool-execution truth. |
 
@@ -82,6 +98,10 @@ before full CLI parsing. Credential gates and reads open that child
 descriptor-relative to the pinned home and reverify the textual home identity
 afterward, so replacing the pathname cannot redirect credential selection.
 Help, version, and standalone MCP stop if it is absent but do not parse it.
+Native session inventory and deletion preserve the same frozen-home and
+`auth.json`-presence bootstrap, then branch before credential parsing,
+provider/model construction, semantic session creation, workspace-partition
+creation, project memory, extensions, and MCP.
 Model-backed surfaces strictly accept only the version-1 `azure_openai` schema
 from that file under `AUTH-045`; it is their sole model credential source.
 Supported POSIX platforms enforce effective-user ownership and private mode
@@ -192,11 +212,38 @@ Legacy records without response identity use conservative per-call synthesis.
 
 Fork selects the active durable projection, restamps identifiers, and appends the destination batch without copying ephemeral recovery evidence. A durable incomplete-publication marker is created before the copy and removed only after the copied transcript loads successfully; `--continue`, explicit resume, and destination reuse reject or ignore marked sessions. Source and destination are still independent stores rather than one cross-store transaction, but a process failure cannot publish a copied prefix as a resumable completed fork.
 
+One runtime-owned session manager derives the v1.0.6 workspace partition from
+the frozen `sessions/` capability and normalized absolute workspace. Its
+bounded, paginated inventory includes only grammar-valid native sessions with
+direct single-link transcript and lock identities; incomplete forks and
+deletion staging are not resumable. Ordering is transcript modification time
+descending and session ID ascending. Opaque revisions bind workspace parent,
+session directory, transcript, and lock identities. Deletion acquires the
+existing nonblocking lock, commits durable intent, repeats identity and
+revision checks at the mutation boundary, atomically renames the live directory
+within the same parent to a reserved invalid-session staging name, syncs the
+parent where supported, and releases the lock only after normal selectors
+cannot reach the old name. Descriptor-rooted cleanup then removes the detached
+owned directory. A cleanup failure remains visible as retryable staging and is
+reported as `delete_incomplete`; `deleted` means only that the selected native
+AgentX directory and contents are absent, not secure media erasure or deletion
+of backups, remote copies, project memory, worktrees, fork descendants,
+configuration, authentication, or presentation caches.
+
 Provider-output metadata, semantic assistant messages, tool calls, and results are intentionally separate. Semantic data remains readable and presentation-neutral while opaque encrypted provider state can be replayed without pretending it is model reasoning text.
 
 ## Surfaces and control plane
 
 Interactive, headless text, single-result JSON, and live NDJSON all use the same engine. Every surface classifies syntactically valid slash commands before model submission. Noninteractive registries advertise only descriptor-opted-in commands; recognized-but-unsupported and valid-unknown commands fail locally, while invalid slash grammar remains ordinary prompt text. Structured stdout contains JSON records only; warnings and session-scoped diagnostic logs use stderr. Routine turn start and successful-completion diagnostics are DEBUG, so the default INFO threshold keeps successful turns quiet while WARN and ERROR conditions remain eligible. `-d` or `--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata; retry warnings carry session and model identity. For persistent sessions, the accepted user event, provider-usage records, and terminal turn result remain authoritative in the append-only transcript regardless of logger level whenever their append and flush succeed. Diagnostics never admit prompts, model text, tool arguments or results, file contents, headers, bodies, or configured credential values. The decoder handles arbitrary chunks, blank lines, a final unterminated record, malformed-input failure, and unknown-type warnings. U+2028/U+2029 are escaped.
+
+The additive `--list-sessions` and `--delete-session` modes are separate
+provider-free CLI adapters, not headless turns or duplex SDK controls. Their
+exact allowlist requires `--cwd`, permits only text or one versioned JSON
+object on stdout, and rejects prompts and all conversation, model, permission,
+tool, extension, MCP, persistence, and stream-JSON options. Pagination and
+revision tokens are opaque. The shared session manager, rather than the CLI
+renderer or VS Code presentation cache, owns filesystem enumeration and
+mutation.
 
 The live reader continues while a turn runs so permission/control responses cannot deadlock behind model execution. Control waiters register before emission. User messages enter a bounded stable-priority queue; a `now` record cancels the current turn and then runs as the next serialized workload, while `next` and `later` wait. This is queued-turn preemption, not injection of new context into an in-flight recursive model/tool turn. Duplicate UUIDs are silent unless replay acknowledgement is enabled, in which case a schema-valid replay user record is emitted without execution. Interrupt returns a correlated control response and cancels the active turn; accepted tool IDs still settle before idle. Public records use the closed SDK discriminator union rather than wrapping internal protocol events. Initialize-time hook/MCP/prompt/agent/schema injection, historical assistant replay, and live environment/model/permission-mode mutation are explicit unsupported control outcomes.
 
@@ -254,13 +301,13 @@ Availability is represented across independent axes: compiled inclusion, runtime
 | --- | --- |
 | Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse its version-1 document as their sole model credential source. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
 | Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. |
-| Headless text and aggregate JSON | Operational over the shared engine. |
+| Headless text and aggregate JSON | Operational over the shared engine; separate additive session list/delete flags use a provider-free text or one-object JSON management adapter. |
 | Local diagnostic logging | Operational: credential-filtered JSON records use stderr; routine turn start/success records are DEBUG, WARN/ERROR conditions remain eligible at the default INFO threshold, and `-d`/`--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata without payload content. Retry warnings carry session and model identity. With persistence enabled, durable lifecycle evidence remains in the transcript independently of logger level whenever append and flush succeed. |
 | Bidirectional NDJSON | Partial: correlated controls and bounded priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |
-| VS Code workspace extension | Partial: Activity Bar chat, streaming, tool/result projection, permissions/questions, workspace-scoped sessions, editor references, Restricted Mode gating, diagnostics, and target VSIX packaging are operational; attachments, authoritative session inventory/history replay, live runtime mutation, remote AgentX transport, IDE MCP/LSP bridging, and native qualification of every packaged platform are unavailable. |
+| VS Code workspace extension | Partial: Activity Bar chat, streaming, tool/result projection, permissions/questions, workspace-scoped sessions, editor references, Restricted Mode gating, diagnostics, and target VSIX packaging are operational. The runtime CLI now owns authoritative inventory/deletion, but this change does not integrate it into or modify the extension's lossy presentation cache; attachments, authoritative inventory/history replay in the extension, live runtime mutation, remote AgentX transport, IDE MCP/LSP bridging, and native qualification of every packaged platform are unavailable. |
 | Interactive terminal | Partial: a terminal-safe line REPL is operational; retained rendering, rich editor state, and the full terminal engine are unavailable. |
 | Read/Write/Edit/Glob/Grep/Bash/question/task tools | Operational with permission enforcement; text-file profile. |
-| Durable transcripts, resume, continue, fork | Partial: append/recovery, response-group uncertainty handling, active-branch projection, and completion-gated fork publication are operational; legacy graph compatibility, rewind, tombstone/snip replay, and general sidechain editing are unavailable. |
+| Durable transcripts, resume, continue, fork, inventory, deletion | Partial: append/recovery, response-group uncertainty handling, active-branch projection, completion-gated fork publication, bounded workspace inventory, and identity-bound crash-retry deletion are operational; legacy graph compatibility, rewind, tombstone/snip replay, and general sidechain editing are unavailable. |
 | Local background shell and task/work-item state | Operational; restart marks uncertain local processes failed and never replays. |
 | Repository `.codex/skills`, plugin manifests, output styles, hooks | Operational as immutable, source-attributed session generations; project sources require explicit trust. |
 | MCP stdio client | Partial: lifecycle, tool discovery/calls, generation fencing, and result normalization are operational; media forwarding and fingerprint-bound project approval are unavailable. |

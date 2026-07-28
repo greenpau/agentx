@@ -2,6 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +17,7 @@ import (
 
 	agentapp "github.com/greenpau/agentx/pkg/app"
 	"github.com/greenpau/agentx/pkg/cli"
+	"github.com/greenpau/agentx/pkg/transcript"
 )
 
 func TestBuildIdentityDefaults(t *testing.T) {
@@ -158,6 +164,43 @@ func TestRunProcessMissingAuthShowsSetupGuidance(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "sessions")); err != nil {
 		t.Fatalf("missing-auth process did not create sessions: %v", err)
+	}
+}
+
+func TestRunProcessProjectsOneJSONManagementOutcome(t *testing.T) {
+	configureProcessAuth(t)
+	workspace := t.TempDir()
+	revision := "r1_" + base64.RawURLEncoding.EncodeToString(make([]byte, sha256.Size))
+	var stdout, stderr bytes.Buffer
+
+	code := runProcess([]string{
+		"--delete-session", "ses_absent",
+		"--session-revision", revision,
+		"--cwd", workspace,
+		"--output-format", "json",
+	}, strings.NewReader(""), &stdout, &stderr, func(int) {
+		t.Fatal("non-success management outcome invoked forceExit")
+	})
+	if code != 1 {
+		t.Fatalf("not-found deletion exit code = %d, want 1", code)
+	}
+	var result transcript.SessionDeleteResult
+	decoder := json.NewDecoder(strings.NewReader(stdout.String()))
+	if err := decoder.Decode(&result); err != nil {
+		t.Fatalf("decode management stdout %q: %v", stdout.String(), err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		t.Fatalf("management stdout contains more than one object: %q (%v)", stdout.String(), err)
+	}
+	if result.Version != transcript.SessionManagementVersion ||
+		result.Status != transcript.SessionNotFound ||
+		result.SessionID != "ses_absent" {
+		t.Fatalf("management JSON result = %#v", result)
+	}
+	const diagnostic = "native session deletion completed with status not_found\n"
+	if stderr.String() != diagnostic {
+		t.Fatalf("management stderr = %q, want %q", stderr.String(), diagnostic)
 	}
 }
 

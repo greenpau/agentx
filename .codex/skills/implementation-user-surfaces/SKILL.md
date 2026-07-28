@@ -7,7 +7,13 @@ description: Implement the observable product surfaces that adapt the shared ses
 
 ## Objective
 
-Implement product surface as an adapter over shared session, capability, permission, task, transcript, and persistence contracts. Preserve surface-specific input, output, prompts, and lifecycle behavior without creating a second meaning for model messages, tools, tasks, or cancellation.
+Implement product surfaces as adapters over shared session, capability,
+permission, task, transcript, and persistence contracts. Preserve
+surface-specific input, output, prompts, and lifecycle behavior without
+creating a second meaning for model messages, tools, tasks, or cancellation.
+Provider-free management modes may adapt a runtime-owned local-state service
+without constructing a semantic session, but the surface still must not
+duplicate that service's filesystem authority.
 
 See the [surface architecture diagram](assets/architecture.drawio) for the required boundary map.
 
@@ -38,7 +44,7 @@ Use [implementation-terminal-engine](../implementation-terminal-engine/SKILL.md)
 
 Use [implementation-interactive-repl](../implementation-interactive-repl/SKILL.md) to implement the interactive session controller, prompt dispatch guard, queued work, dialogs, message projection, fullscreen transcript, and cancellation behavior.
 
-Use [implementation-headless-sdk](../implementation-headless-sdk/SKILL.md) to implement CLI mode selection, one-shot output, the serialized headless runner, SDK NDJSON schemas, correlated controls, event ordering, and structured shutdown.
+Use [implementation-headless-sdk](../implementation-headless-sdk/SKILL.md) to implement CLI mode selection, provider-free native session inventory/deletion projection, one-shot output, the serialized headless runner, SDK NDJSON schemas, correlated controls, event ordering, and structured shutdown.
 
 Use [implementation-optional-experiences](../implementation-optional-experiences/SKILL.md) to implement feature-gated assistant viewing, voice input, terminal companion behavior, browser-extension automation, direct desktop control, and supported absence or stub behavior.
 

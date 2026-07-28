@@ -22,6 +22,7 @@ Use this map to load every owner involved in a cross-cutting feature. The first 
 | Plugin and hook lifecycle | `implementation-plugins-hooks` | tool protocol, startup settings, MCP/LSP |
 | MCP and LSP protocols | `implementation-mcp-lsp` | tool protocol, auth/network, headless SDK |
 | Transcript and resume truth | `implementation-transcript-recovery` | state/context, memory compaction, remote bridge |
+| Native session inventory, selection, and deletion | `implementation-transcript-recovery` | headless SDK, platform lifecycle, startup settings |
 | Shared append-only JSONL primitives | `implementation-platform-lifecycle` | transcript recovery, state/context, task runtime |
 | Context pressure and memory | `implementation-memory-compaction` | query/model, transcript recovery, plugins/hooks |
 | Remote placement and bridge | `implementation-remote-bridge` | headless SDK, auth/network, permissions/sandbox |

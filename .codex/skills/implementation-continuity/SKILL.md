@@ -15,7 +15,7 @@ Continuity work must preserve message identity, parent relationships, tool-use/r
 
 ## Specialized workflows
 
-- Use [implementation-transcript-recovery](../implementation-transcript-recovery/SKILL.md) to implement the append-only transcript protocol, message graph, sidechains, metadata, branching, tombstones, resume, fork, and consistency repair.
+- Use [implementation-transcript-recovery](../implementation-transcript-recovery/SKILL.md) to implement the append-only transcript protocol, native session inventory and deletion, message graph, sidechains, metadata, branching, tombstones, resume, fork, and consistency repair.
 - Use [implementation-memory-compaction](../implementation-memory-compaction/SKILL.md) to implement token pressure, summaries, preserved segments, session memory, microcompaction, context collapse, cleanup, and post-compaction reinjection.
 
 ## Continuity acceptance criteria
@@ -24,3 +24,6 @@ Continuity work must preserve message identity, parent relationships, tool-use/r
 - Rewound and compacted sessions load the intended live branch without resurrecting removed context.
 - Derived summaries reduce active context without destroying the authoritative event history or tool pairing evidence.
 - Resume restores session identity and state without accidentally adopting another session's cwd, metadata, or replacement records.
+- Native deletion continuity survives interrupted intent, receipt publication,
+  detach, descriptor-rooted cleanup, and parent sync without making a pending
+  ID selectable or letting an old receipt target a recreated generation.

@@ -14,7 +14,16 @@ import (
 )
 
 func TestIncompleteForkIsNotContinuableUntilPublished(t *testing.T) {
-	root, err := platform.AcquirePrivateDirectory(t.TempDir())
+	sessionsRoot, err := platform.AcquirePrivateDirectory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	manager, err := transcript.NewSessionManager(sessionsRoot, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := manager.EnsureWorkspacePartition()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +37,11 @@ func TestIncompleteForkIsNotContinuableUntilPublished(t *testing.T) {
 	}
 	completeTranscript := filepath.Join(complete.Path(), "transcript.jsonl")
 	incompleteTranscript := filepath.Join(incomplete.Path(), "transcript.jsonl")
+	for _, directory := range []*platform.OwnedDirectory{complete, incomplete} {
+		if err := os.WriteFile(filepath.Join(directory.Path(), ".session.lock"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(completeTranscript, []byte("complete\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -43,17 +57,18 @@ func TestIncompleteForkIsNotContinuableUntilPublished(t *testing.T) {
 	}
 	layout := sessionLayout{
 		sessionID: "ses_incomplete", sessionDir: incomplete.Path(), transcriptPath: incompleteTranscript, sessionOwner: incomplete,
+		sessionManager: manager,
 	}
 	if err := beginForkPublication(layout); err != nil {
 		t.Fatal(err)
 	}
-	if latest, err := latestSession(root); err != nil || latest != "ses_complete" {
+	if latest, err := manager.Latest(t.Context()); err != nil || latest != "ses_complete" {
 		t.Fatalf("incomplete fork was selected: latest=%q err=%v", latest, err)
 	}
 	if err := completeForkPublication(layout); err != nil {
 		t.Fatal(err)
 	}
-	if latest, err := latestSession(root); err != nil || latest != "ses_incomplete" {
+	if latest, err := manager.Latest(t.Context()); err != nil || latest != "ses_incomplete" {
 		t.Fatalf("published fork was not selected: latest=%q err=%v", latest, err)
 	}
 }

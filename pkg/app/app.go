@@ -92,10 +92,10 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err != nil {
 		return err
 	}
-	if opts.Help {
+	if opts.Help && !opts.SessionManagementRequested() {
 		return writeStringExact(stdout, cli.Usage()+"\n")
 	}
-	if opts.Version {
+	if opts.Version && !opts.SessionManagementRequested() {
 		return writeStringExact(stdout, productVersionBanner()+"\n")
 	}
 	opts = cli.InferPrint(opts, writerIsTerminal(stdout))
@@ -128,6 +128,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	if info, statErr := os.Stat(workspace); statErr != nil || !info.IsDir() {
 		return fmt.Errorf("working directory is unavailable: %v", statErr)
+	}
+	if opts.SessionManagementRequested() {
+		return runSessionManagement(ctx, home.sessions, opts, workspace, stdout)
 	}
 
 	switch {

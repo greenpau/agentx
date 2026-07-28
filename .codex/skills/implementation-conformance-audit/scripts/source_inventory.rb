@@ -41,6 +41,7 @@ module SourceInventory
     'pkg/app/renderers.go' => 'implementation-headless-sdk',
     'pkg/app/runtime.go' => 'implementation-transcript-recovery',
     'pkg/app/runtime_services.go' => 'implementation-observability',
+    'pkg/app/session_management.go' => 'implementation-headless-sdk',
     'pkg/app/session_directory_sync_other.go' => 'implementation-transcript-recovery',
     'pkg/app/session_directory_sync_unix.go' => 'implementation-transcript-recovery',
     'pkg/app/structured.go' => 'implementation-headless-sdk',

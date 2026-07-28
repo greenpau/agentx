@@ -11,15 +11,16 @@ callers that need the stronger broad contract must use a different port.
 1. [Boundary and conformance profile](#boundary-and-conformance-profile)
 2. [Filesystem port and path evidence](#filesystem-port-and-path-evidence)
 3. [Bounded file reads](#bounded-file-reads)
-4. [Path, cache, temporary, and XDG rules](#path-cache-temporary-and-xdg-rules)
-5. [Platform, locale, and hyperlink services](#platform-locale-and-hyperlink-services)
-6. [Process execution and process discovery](#process-execution-and-process-discovery)
-7. [Buffered output, timers, signals, and locks](#buffered-output-timers-signals-and-locks)
-8. [Notification and sleep prevention](#notification-and-sleep-prevention)
-9. [Retention cleanup and background housekeeping](#retention-cleanup-and-background-housekeeping)
-10. [Graceful shutdown](#graceful-shutdown)
-11. [Acceptance scenarios](#acceptance-scenarios)
-12. [Provenance](#provenance)
+4. [Native owned-directory primitives](#native-owned-directory-primitives)
+5. [Path, cache, temporary, and XDG rules](#path-cache-temporary-and-xdg-rules)
+6. [Platform, locale, and hyperlink services](#platform-locale-and-hyperlink-services)
+7. [Process execution and process discovery](#process-execution-and-process-discovery)
+8. [Buffered output, timers, signals, and locks](#buffered-output-timers-signals-and-locks)
+9. [Notification and sleep prevention](#notification-and-sleep-prevention)
+10. [Retention cleanup and background housekeeping](#retention-cleanup-and-background-housekeeping)
+11. [Graceful shutdown](#graceful-shutdown)
+12. [Acceptance scenarios](#acceptance-scenarios)
+13. [Provenance](#provenance)
 
 ## Boundary and conformance profile
 
@@ -161,6 +162,104 @@ do not lock the file. Appends after the size snapshot are ignored; truncation
 or replacement can produce a short read. The readers report the original size
 snapshot rather than restatting. Callers must treat these operations as
 diagnostic views, not authoritative transactional reads.
+
+## Native owned-directory primitives
+
+**PORT-FS-017 — Read-only private-child inspection.** For inventory and other
+read-only discovery, accept only simple child components beneath an acquired
+private-directory identity. Open the verified parent root, inspect the direct
+entry without following links, open that exact child as a directory root, and
+require the before, opened, and after identities to match before reverifying
+the textual parent. Do not create or chmod during inspection. Absence remains
+absence; a non-directory, direct symlink, parent replacement, child identity
+change, filesystem or mount boundary, reparse point, or access state that would
+require permission repair fails closed. Linux compares both device and
+`/proc/self/fdinfo` mount identifiers so a same-device bind mount is not
+accepted as an ordinary child. Supported POSIX profiles require owner-private
+access. Windows preserves direct-directory, same-volume, non-reparse, and
+stable-identity evidence without claiming DACL privacy from synthesized mode
+bits. Make an opened root or file handle the first authoritative retained
+identity, then compare direct textual and rooted entries to it. In particular,
+do not retain a plain Windows `Lstat` identity before opening the handle:
+Windows may populate that identity lazily during `SameFile` and otherwise
+adopt a replacement pathname as the expected object.
+
+**PORT-FS-018 — Creator-exclusive private child.** When later cleanup authority
+depends on having created a directory, accept exactly one simple component,
+prove it absent beneath the verified parent root, and perform one
+descriptor-relative owner-private directory creation. If another creator wins
+after the absence observation, return the existence collision; never reacquire,
+chmod, remove, or return ownership of that winner. After a successful creation,
+prove that the child remains on the parent's filesystem and mount identity,
+secure and capture the created identity, retain the owned parent relationship,
+and reverify the textual parent before returning it. Keep this contract
+distinct from compatibility helpers that may reacquire a safe concurrent
+winner. Every acquired owned child retains the same direct-parent relationship;
+verification recursively proves the complete retained ancestry rather than
+accepting a stable child that was moved beneath a replacement parent.
+
+**PORT-FS-019 — Identity-verified same-parent detach.** Detach only an acquired
+direct child to a different simple destination name under the same acquired
+parent. Verify textual and descriptor-rooted parent and child identities and
+destination absence both initially and immediately before the rooted atomic
+rename. When a caller supplies another authority verifier, run it after those
+final checks and immediately before rename; verifier failure is a pre-commit
+failure. The commit operation itself must be one operating-system no-replace
+rename (`renameat2(RENAME_NOREPLACE)`, `renameatx_np(RENAME_EXCL)`, or
+`SetFileInformationByHandle` with replacement disabled); absence observations
+are not authority to use an ordinary replacing rename. A destination that
+appears at the final syscall boundary remains unchanged. A platform, kernel,
+filesystem, or architecture without the primitive fails closed. Expose a
+nonmutating preflight that validates the exact parent/child, the available
+kernel adapter, and `PORT-FS-020` before a caller persists deletion intent.
+Linux's same-name `RENAME_NOREPLACE` collision proves only that the syscall and
+flag route are available, not that the target filesystem implements the
+eventual distinct-name rename. Windows' same-name `FileRenameInfo` collision
+likewise proves only the adapter and collision path. Darwin additionally
+requires the target volume's `VOL_CAP_INT_RENAME_EXCL` capability. If the real
+rename then fails before commit because the platform or filesystem does not
+support it, a session-deletion caller retains its already-durable exact intent
+and pending receipt as a retry reservation and reports `delete_incomplete`; it
+must not introduce a partially committed multi-object rollback. After rename,
+retain the original child and parent identities in an owner bound to the
+destination. Report
+committed state even if a later
+source-absence check, destination-identity check, parent sync, or textual
+verification fails, so recovery can target only the detached owner. A caller
+removes contents through that owner rather than recursively removing the live
+source pathname.
+
+**PORT-FS-020 — Owned-directory sync.** Open a root pinned to the acquired
+directory identity, open its directory handle through that root, and compare
+the handle identity before and after synchronization. Reject a replaced
+textual pathname before using the handle. Unix profiles sync the directory
+descriptor so preceding entry mutations reach the host's directory-durability
+boundary. Windows reopens the same non-reparse directory identity with
+write-through semantics and calls `FlushFileBuffers`; a reopen, identity,
+flush, or close failure is not durable success. A profile without a real
+directory durability primitive returns a stable unsupported error. Re-stat
+alone is never a successful mutation durability boundary. Always close the
+root and handle and preserve close failures.
+
+**PORT-FS-021 — Strict owned-directory cleanup.** When a caller's success
+claim depends on removing one exact acquired directory identity, absence of
+the acquired textual path before cleanup is an identity failure rather than
+idempotent success. Otherwise retain the ordinary descriptor-rooted recursive
+cleanup: use the child's retained owned parent when available, pin both
+identities, and reject a moved child or replacement anywhere in the ancestry.
+Stream enumeration in fixed-size batches under total entry, depth, and rescan
+ceilings; a bound failure leaves only identity-safe partial progress and the
+detached owner remains retryable. Recursively descend through newly opened,
+before/opened/after-verified direct directory handles instead of a raw
+recursive-remove helper. Require every child to retain the cleanup root's
+filesystem and mount identity; on Linux the mount identifier rejects
+same-device bind mounts, and an unavailable identity check fails closed.
+Revalidate the direct child immediately before a nonrecursive parent-root
+removal, and never traverse a replacement, reparse point, external symlink,
+device boundary, or mount boundary. Strict cleanup on a nil owner fails
+identity verification. Keep the ordinary idempotent cleanup form for lifecycle
+callers whose nil or already-absent temporary directory is a successful cleanup
+outcome.
 
 ## Path, cache, temporary, and XDG rules
 
@@ -469,6 +568,59 @@ affect that run; the registry is not cleared. An asynchronously failed callback
 causes fail-fast aggregate rejection while siblings continue. A callback that
 throws synchronously while the invocation list is being constructed can
 prevent later callbacks from being invoked.
+
+### Native session lease
+
+**PORT-LOCK-001 — Rooted nonblocking acquisition.** Reject unsupported
+cross-process locking before opening or creating any filesystem object.
+Otherwise require a pre-existing direct session directory and a simple lock
+leaf, open a rooted parent view, derive and retain a direct parent descriptor
+through that view, and open or exclusively create the direct lock entry
+through a rooted view bound back to that descriptor. Before and after
+owner-only chmod and after the nonblocking operating-system lock succeeds,
+require the retained-parent, rooted-parent, and textual-parent identities plus
+the held/rooted/textual lock identities to match one regular file with exactly
+one link. Close each rooted parent view after its bounded operation. A healthy
+lock held through the v1.0.6 path-opened protocol remains ordinary contention;
+never break or replace its inode. Return contention separately from unsafe
+identity and unsupported-platform outcomes. Derive authoritative parent and
+lock identities from opened `File.Stat` handles before comparing their direct
+textual paths; a plain Windows path stat is not retained as identity because
+its file ID may be loaded lazily after a replacement.
+
+**PORT-LOCK-002 — Mutation-boundary verification and release.** Retain the
+locked file handle, delete-share-capable parent handle, parent identity, and
+file identity for the lease lifetime. Serialize verification against close.
+Verification requires an open lease, opens a short-lived rooted parent view,
+binds that view to the retained parent handle, then revalidates the held
+regular handle, single-link count, same direct rooted and textual lock entry,
+and same rooted and textual parent immediately before the protected mutation.
+Close the rooted view before returning from verification. Any missing, linked,
+symlinked, replaced, or closed identity fails closed. Close is idempotent:
+unlock before closing the file, then close the retained parent handle. Leave
+the lock file in place so an older owner cannot remain locked on an unlinked
+inode while a new process acquires a replacement.
+
+**PORT-LOCK-003 — Rename-while-held lifetime.** Open native Windows retained
+parent handles and lock files with delete sharing so the owning session
+directory can be renamed while the acquired operating-system lease remains
+held; never retain a non-delete-shared pathname root across that rename. Unix
+descriptor semantics provide the same lifetime. Pass lock verification as the
+immediate verifier of `PORT-FS-019`; that verification must close its
+short-lived rooted view before detach. Retain the lease through a committed
+detach and release it only after the live source name is unreachable.
+Verification against the old textual parent intentionally fails after rename
+and is not a post-commit requirement. The lock file moves with the detached
+directory and remains subject to cleanup through that detached owner.
+
+**PORT-LOCK-004 — Existing-only acquisition.** A destructive management flow
+acquires the same nonblocking operating-system lease only through an already
+existing direct, regular, single-link lock identity. A missing parent or lock
+remains missing; acquisition does not create either object, chmod the lock, or
+change its contents. Apply every rooted parent/file identity check and the same
+lease lifetime, verification, contention, unsupported-platform, and release
+rules as `PORT-LOCK-001` through `PORT-LOCK-003`. It must contend with the
+v1.0.6 path-opened lock on the same inode.
 
 ## Notification and sleep prevention
 
@@ -874,6 +1026,73 @@ standard streams, EPIPE, other output errors, and backpressure. Assert the raw
 URL fallback, exact BEL-terminated OSC 8 form, caller-owned validation, EPIPE
 destruction, swallowed non-EPIPE error events, and deliberately ignored
 backpressure.
+
+### `PORT-A19` — Read-only inspection and creator exclusivity
+
+Inspect a stable private child, an absent child, a permission-insecure child,
+a regular-file replacement, a direct symlink, and a child beneath a replaced
+parent. Assert that inspection never creates or chmods an entry, preserves
+untrusted content, and returns only a stable direct private-directory owner.
+Then race two creator-exclusive acquisitions after both observe absence.
+Exactly one returns the identity it created; the other reports existence and
+does not acquire, chmod, replace, or remove the winner.
+
+### `PORT-A20` — Verified detach and directory sync
+
+Acquire a parent and direct child, create source and destination replacement
+races before the final rename, create an empty destination at the exact syscall
+boundary, and inject a failing mutation-boundary verifier. Assert every
+pre-commit failure leaves the source and collision identity untouched; the
+final-boundary collision proves no ordinary replacing rename is used. Run the
+nonmutating preflight and assert the child namespace identity and parent entry
+set do not change. On Linux and Windows, treat the same-name collision as an
+adapter and kernel-path check only; inject an unsupported-filesystem failure at
+the real distinct-name rename and assert no commit, exact intent and pending
+receipt retention under the lease, and a retryable `delete_incomplete` result.
+On Darwin,
+reject a volume lacking `VOL_CAP_INT_RENAME_EXCL` before intent is persisted.
+On success, assert the source name is absent, the destination owner retains the
+source and parent identities, and the parent is synchronized. Inject a
+post-rename verification or sync failure and assert committed state plus the
+detached owner remain available for bounded recovery.
+Sync a stable owned directory and then a replaced pathname; only the stable
+identity reaches the platform sync boundary. On Windows, reject an unavailable
+write-through reopen or `FlushFileBuffers` boundary; on unsupported profiles,
+reject before mutation rather than treating re-stat as sync. Move an acquired
+detached owner away immediately before strict cleanup and assert cleanup fails
+identity verification instead of claiming that the moved, retained contents
+were removed.
+
+### `PORT-A21` — Native session-lock identity and rename
+
+Hold a lock through the v1.0.6 path-opened protocol and assert rooted
+acquisition and existing-only acquisition report contention. After release,
+acquire the existing-only rooted lease and assert its contents and mode remain
+unchanged; a missing parent or lock remains absent. Race parent replacement,
+including replacement between root opening and the first identity comparison,
+direct lock replacement, and an added hard link against verification; each
+fails closed without chmod or content mutation. On Windows and Unix, rename
+the owning directory while both the delete-share-capable parent identity
+anchor and lease are held, assert the old textual path is no longer verifiable,
+then release successfully from the retained handles. On Windows this scenario
+must fail if any pathname root retained for the lease lacks
+`FILE_SHARE_DELETE`. On an unsupported profile, assert both acquisition forms
+create no lock entry.
+
+### `PORT-A22` — Bounded, mount-safe strict cleanup and ancestry
+
+Move a retained child identity out of its parent, replace that parent, and move
+the original child back beneath the replacement at the same textual child
+path. Assert self identity remains stable but complete verification rejects the
+retained-parent mismatch. Race retained-parent replacement after strict cleanup
+opens both roots and assert neither the moved original nor replacement contents
+are traversed. Present a nested cross-device mount, Linux same-device bind
+mount, or Windows reparse mount and assert both child acquisition and cleanup
+fail closed without touching mounted contents. Exercise entry, depth, and
+rescan ceilings and assert a bound error is returned with only identity-safe,
+retryable partial progress; no enumeration call materializes an attacker-sized
+directory in memory. Strict cleanup of a nil owner is an identity failure while
+ordinary lifecycle cleanup remains idempotent.
 
 ## Provenance
 

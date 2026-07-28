@@ -3,12 +3,13 @@
 package sessionlock
 
 import (
-	"errors"
 	"os"
 )
 
+func sessionLocksSupported() bool { return false }
+
 func tryLockFile(*os.File) (bool, error) {
-	return false, errors.New("cross-process session locks are unsupported on this platform")
+	return false, ErrUnsupported
 }
 
 func unlockFile(*os.File) error { return nil }

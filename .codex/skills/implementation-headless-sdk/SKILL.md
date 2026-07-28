@@ -1,6 +1,6 @@
 ---
 name: implementation-headless-sdk
-description: Implement noninteractive execution and the structured SDK stream, including CLI mode inference and validation, stdin acquisition, text/JSON/NDJSON output, the serialized headless turn runner, correlated control requests, permission races, replay and deduplication, task/result ordering, and protocol-clean shutdown. Use for print mode, automation, SDK clients, structured I/O, or headless lifecycle behavior.
+description: Implement noninteractive execution and the structured SDK stream, including provider-free native session management, CLI mode inference and validation, stdin acquisition, text/JSON/NDJSON output, the serialized headless turn runner, correlated control requests, permission races, replay and deduplication, task/result ordering, and protocol-clean shutdown. Use for print mode, native session inventory or deletion, automation, SDK clients, structured I/O, or headless lifecycle behavior.
 ---
 
 # Implementation Headless SDK
@@ -20,7 +20,7 @@ See the [headless and SDK architecture diagram](assets/architecture.drawio) for 
 - Read [sdk-permission-wire.md](references/sdk-permission-wire.md) to implement the exact `can_use_tool` request, permission-update and response unions, absent/null behavior, request-ID compatibility, waiter-specific validation, cancellation, and orphan-response semantics.
 - Read [remote-io-transports.md](references/remote-io-transports.md) to implement the SDK URL adapter, WebSocket, Hybrid, SSE, and CCR worker transports, ordered uploaders, retry and cursor semantics, close loss windows, and stdout protection.
 - Read [public-sdk-contract.md](references/public-sdk-contract.md) to implement the public SDK facade, session inspection and mutation helpers, scheduler and remote-control handles, sandbox configuration, and schema-compatibility boundary.
-- Read [management-subcommands.md](references/management-subcommands.md) to implement the noninteractive agents, authentication, auto-mode, MCP, plugin, marketplace, setup-token, doctor, and installer command adapters with exact output and exit behavior.
+- Read [management-subcommands.md](references/management-subcommands.md) to implement provider-free native session inventory/deletion and the noninteractive agents, authentication, auto-mode, MCP, plugin, marketplace, setup-token, doctor, and installer command adapters with exact output and exit behavior.
 - Read [update-command.md](references/update-command.md) to implement the explicit update/upgrade command, including installation reconciliation, package-manager guidance, native forcing, legacy status mapping, and the specified channel/installed-target mismatch.
 
 ## Core contracts
@@ -46,6 +46,9 @@ See the [headless and SDK architecture diagram](assets/architecture.drawio) for 
 ## Boundary rules
 
 - Never initialize the interactive terminal renderer in structured mode.
+- Route native session inventory and deletion through their provider-free CLI
+  adapter before semantic-session construction; do not imply that equivalent
+  duplex SDK controls exist.
 - Recompute tools and late-arriving extension clients at turn boundaries rather than freezing the first-turn registry.
 - Keep transport-specific reconnection outside the stdio protocol; both must preserve the same event order and correlation semantics.
 - Fail closed on permission/control errors and fail fast on malformed protocol framing.
