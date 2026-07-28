@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/cli"
 	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/engine"
@@ -27,6 +28,7 @@ import (
 	"github.com/greenpau/agentx/pkg/sandbox"
 	"github.com/greenpau/agentx/pkg/sessionlock"
 	"github.com/greenpau/agentx/pkg/signals"
+	"github.com/greenpau/agentx/pkg/surface"
 	"github.com/greenpau/agentx/pkg/task"
 	"github.com/greenpau/agentx/pkg/tool"
 	"github.com/greenpau/agentx/pkg/transcript"
@@ -35,25 +37,36 @@ import (
 )
 
 type runtimeSession struct {
-	engine         *engine.Engine
-	transcript     *transcript.Store
-	tasks          *task.Manager
-	registry       *tool.Registry
-	skills         extensions.Snapshot
-	config         config.Runtime
-	workspace      string
-	sessionDir     string
-	sessionOwner   *platform.OwnedDirectory
-	temporary      bool
-	lock           *sessionlock.Lock
-	services       runtimeServices
-	permissionMode string
-	shutdown       *signals.ProcessShutdown
-	sanitize       func(string) string
-	credentials    *redact.Set
-	logger         *zap.Logger
-	closeOnce      sync.Once
-	closeErr       error
+	engine             *engine.Engine
+	attachments        *attachment.Store
+	inputMedia         model.InputMediaCapability
+	inputMediaEnabled  bool
+	transcript         *transcript.Store
+	tasks              *task.Manager
+	registry           *tool.Registry
+	skills             extensions.Snapshot
+	config             config.Runtime
+	workspace          string
+	sessionDir         string
+	sessionOwner       *platform.OwnedDirectory
+	temporary          bool
+	lock               *sessionlock.Lock
+	services           runtimeServices
+	permissionMode     string
+	shutdown           *signals.ProcessShutdown
+	sanitize           func(string) string
+	credentials        *redact.Set
+	logger             *zap.Logger
+	uploadMu           sync.Mutex
+	uploadPrompts      map[attachment.UploadID]string
+	uploadReserved     map[attachment.UploadID]int64
+	attachmentPrompts  map[attachment.ID]string
+	attachmentReserved map[attachment.ID]int64
+	promptCounts       map[string]int
+	promptBytes        map[string]int64
+	uploadTerminalSent map[attachment.UploadID]bool
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 type buildOptions struct {
@@ -170,6 +183,20 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 			return nil, errors.Join(err, runtimeExt.mcp.Close())
 		}
 	}
+	attachmentOwner, err := layout.sessionOwner.EnsurePrivateChild("attachments")
+	if err != nil {
+		return nil, errors.Join(errors.New("prepare session attachment store"), runtimeExt.mcp.Close())
+	}
+	attachmentStore, err := attachment.OpenStore(attachmentOwner.Path(), attachment.Options{})
+	if err != nil {
+		return nil, errors.Join(errors.New("open session attachment store"), runtimeExt.mcp.Close())
+	}
+	retainAttachmentStore := false
+	defer func() {
+		if !retainAttachmentStore {
+			resultErr = errors.Join(resultErr, attachmentStore.Close())
+		}
+	}()
 	provider, err := model.NewAzureClient(runtimeConfig.Azure, model.AzureOptions{
 		HTTPClient:          modelHTTPClientFromContext(ctx),
 		CredentialSanitizer: credentialSet,
@@ -187,6 +214,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if err != nil {
 		return nil, errors.Join(err, runtimeExt.mcp.Close())
 	}
+	inputMedia, inputMediaEnabled := provider.InputMediaCapability()
 	validateJSON := credentialJSONValidator(credentialSet)
 	var store *transcript.Store
 	if !options.CLI.NoSessionPersistence {
@@ -391,15 +419,23 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if store != nil {
 		semanticStore = store
 	}
-	query, err := engine.New(engine.Config{SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName, ReasoningEffort: runtimeConfig.Azure.ReasoningEffort, Instructions: sanitize(system.String()), MaxTurns: options.CLI.MaxTurns, MaxOutputTokens: engine.DefaultMaxOutputTokens, Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink, Sanitize: sanitize, CredentialSanitizer: credentialSet, Logger: logger})
+	query, err := engine.New(engine.Config{SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName, ReasoningEffort: runtimeConfig.Azure.ReasoningEffort, Instructions: sanitize(system.String()), MaxTurns: options.CLI.MaxTurns, MaxOutputTokens: engine.DefaultMaxOutputTokens, Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink, Sanitize: sanitize, CredentialSanitizer: credentialSet, Attachments: attachmentStore, Logger: logger})
 	if err != nil {
 		return nil, closeExtensionFailure(err)
 	}
+	attachmentOwners := make(map[attachment.ID]string)
 	if sourceSnapshot != nil {
 		snapshot := *sourceSnapshot
 		if options.CLI.ForkSession {
 			if store == nil {
 				return nil, closeExtensionFailure(errors.New("fork requires persistence"))
+			}
+			// Blob selection and transcript copying must use the identical
+			// active-branch projection. Copying media from discarded branches
+			// could otherwise exhaust limits or produce unreferenced fork data.
+			snapshot = snapshot.ActiveConversation()
+			if err := copyForkAttachments(ctx, layout, snapshot, attachmentStore); err != nil {
+				return nil, closeExtensionFailure(err)
 			}
 			if err := copyFork(ctx, store, snapshot, layout.sessionID); err != nil {
 				return nil, closeExtensionFailure(err)
@@ -415,18 +451,37 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		if err := query.Restore(snapshot); err != nil {
 			return nil, closeExtensionFailure(err)
 		}
+		attachmentOwners, err = attachmentPromptOwners(snapshot.Events)
+		if err != nil {
+			return nil, closeExtensionFailure(err)
+		}
+		if _, err := attachmentStore.Collect(ctx, attachmentIDs(snapshot.Events)); err != nil {
+			return nil, closeExtensionFailure(errors.New("reconcile durable attachment storage"))
+		}
+	} else {
+		if _, err := attachmentStore.Collect(ctx, nil); err != nil {
+			return nil, closeExtensionFailure(errors.New("reconcile new attachment storage"))
+		}
 	}
 	services, err := buildRuntimeServices(options, runtimeExt, query, func() int { return len(tasks.List()) }, skillScope, memoryStore, sandboxRunner)
 	if err != nil {
 		return nil, closeExtensionFailure(err)
 	}
 	result := &runtimeSession{
-		engine: query, transcript: store, tasks: tasks, registry: registry,
+		engine: query, attachments: attachmentStore, inputMedia: inputMedia,
+		inputMediaEnabled: inputMediaEnabled, transcript: store, tasks: tasks, registry: registry,
 		skills: skills, config: runtimeConfig, workspace: options.Workspace,
 		sessionDir: layout.sessionDir, sessionOwner: layout.sessionOwner,
 		temporary: layout.temporary, lock: layout.lock, services: services,
 		permissionMode: string(mode), shutdown: signals.ProcessShutdownFromContext(ctx),
 		sanitize: sanitize, credentials: credentialSet, logger: logger,
+		uploadPrompts:      make(map[attachment.UploadID]string),
+		uploadReserved:     make(map[attachment.UploadID]int64),
+		attachmentPrompts:  attachmentOwners,
+		attachmentReserved: make(map[attachment.ID]int64),
+		promptCounts:       make(map[string]int),
+		promptBytes:        make(map[string]int64),
+		uploadTerminalSent: make(map[attachment.UploadID]bool),
 	}
 	if runtimeExt.runner != nil && len(runtimeExt.hooks.Hooks) > 0 {
 		source := "startup"
@@ -445,6 +500,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		zap.String("permission_mode", string(mode)),
 	)
 	retainLayout = true
+	retainAttachmentStore = true
 	return result, nil
 }
 
@@ -529,8 +585,27 @@ func (r *runtimeSession) close() error {
 	if r.services.extensions.mcp != nil {
 		registerCritical("MCP providers", r.services.extensions.mcp.Close)
 	}
-	if r.transcript != nil {
-		registerCritical("transcript", r.transcript.Close)
+	if r.transcript != nil || r.attachments != nil {
+		registerCritical("semantic storage", func() error {
+			var cleanupErr error
+			if r.attachments != nil && r.transcript != nil {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), platform.DefaultCriticalCleanupTimeout)
+				snapshot, loadErr := r.transcript.Load(cleanupCtx)
+				if loadErr == nil {
+					_, cleanupErr = r.attachments.Collect(cleanupCtx, attachmentIDs(snapshot.Events))
+				} else {
+					cleanupErr = errors.New("load attachment references for cleanup")
+				}
+				cancel()
+			}
+			if r.attachments != nil {
+				cleanupErr = errors.Join(cleanupErr, r.attachments.Close())
+			}
+			if r.transcript != nil {
+				cleanupErr = errors.Join(cleanupErr, r.transcript.Close())
+			}
+			return cleanupErr
+		})
 	}
 	if r.tasks != nil {
 		if _, err := shutdown.Register(platform.StageCritical, "task runtime", func(ctx context.Context, _ platform.ShutdownRequest) error {
@@ -1208,4 +1283,110 @@ func copyFork(ctx context.Context, store *transcript.Store, source transcript.Sn
 		events = append(events, event)
 	}
 	return store.AppendBatch(ctx, events)
+}
+
+func attachmentIDs(events []protocol.Event) []attachment.ID {
+	seen := make(map[attachment.ID]struct{})
+	var ids []attachment.ID
+	for _, event := range events {
+		if event.Kind != protocol.EventKindMessage || event.Message == nil {
+			continue
+		}
+		for _, block := range event.Message.Content {
+			if block.Type != protocol.ContentAttachment {
+				continue
+			}
+			if _, exists := seen[block.AttachmentID]; exists {
+				continue
+			}
+			seen[block.AttachmentID] = struct{}{}
+			ids = append(ids, block.AttachmentID)
+		}
+	}
+	return ids
+}
+
+func attachmentPromptOwners(events []protocol.Event) (map[attachment.ID]string, error) {
+	owners := make(map[attachment.ID]string)
+	for _, event := range events {
+		if event.Kind != protocol.EventKindMessage ||
+			event.Message == nil ||
+			event.Message.Role != protocol.RoleUser {
+			continue
+		}
+		hasAttachments := false
+		for _, block := range event.Message.Content {
+			if block.Type == protocol.ContentAttachment {
+				hasAttachments = true
+				break
+			}
+		}
+		if !hasAttachments {
+			continue
+		}
+		if err := surface.ValidateUUID(event.Message.PromptID); err != nil {
+			return nil, errors.New("durable attachment message has no canonical prompt UUID")
+		}
+		for _, block := range event.Message.Content {
+			if block.Type != protocol.ContentAttachment {
+				continue
+			}
+			promptID := event.Message.PromptID
+			if existing, found := owners[block.AttachmentID]; found && existing != promptID {
+				return nil, errors.New("durable attachment identity has conflicting prompt ownership")
+			}
+			owners[block.AttachmentID] = promptID
+		}
+	}
+	return owners, nil
+}
+
+func copyForkAttachments(
+	ctx context.Context,
+	layout sessionLayout,
+	source transcript.Snapshot,
+	destination *attachment.Store,
+) (resultErr error) {
+	ids := attachmentIDs(source.Events)
+	if len(ids) == 0 {
+		return nil
+	}
+	if destination == nil || layout.sourceOwner == nil || layout.sourceRevision == "" {
+		return errors.New("fork attachment storage identity is unavailable")
+	}
+	if err := layout.sourceOwner.Verify(); err != nil {
+		return errors.New("verify source attachment session")
+	}
+	sourceLock, err := sessionlock.Acquire(ctx, filepath.Join(layout.sourceOwner.Path(), ".session.lock"))
+	if err != nil {
+		return errors.New("acquire source session for attachment fork")
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, sourceLock.Close())
+	}()
+	if err := layout.sourceOwner.Verify(); err != nil {
+		return errors.New("verify source attachment session after locking")
+	}
+	state, err := layout.sessionManager.State(ctx, string(source.SessionID))
+	if err != nil {
+		return errors.New("inspect source session for attachment fork")
+	}
+	if err := validateSourceSessionGeneration(state, string(source.SessionID), layout.sourceRevision); err != nil {
+		return err
+	}
+	sourceAttachmentOwner, err := layout.sourceOwner.OpenPrivateChild("attachments")
+	if err != nil {
+		return errors.New("source session attachment store is unavailable")
+	}
+	sourceStore, err := attachment.OpenStore(sourceAttachmentOwner.Path(), attachment.Options{})
+	if err != nil {
+		return errors.New("open source session attachment store")
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, sourceStore.Close())
+	}()
+	if err := sourceStore.CopyTo(ctx, destination, ids); err != nil {
+		return errors.New("copy fork attachment content")
+	}
+	return nil
 }

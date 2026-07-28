@@ -223,16 +223,14 @@ func preserveSessionScopedEvent(event protocol.Event) bool {
 	if event.Kind != protocol.EventKindSessionMetadata || event.Metadata == nil {
 		return false
 	}
-	// Provider output and context-rewrite records are conversation-scoped and
-	// follow the selected branch. Other metadata (for example title, tags,
+	// Query projections, context rewrites, and media quarantine follow the
+	// selected conversation branch. Other metadata (for example title, tags,
 	// reasoning effort, mode, and worktree attribution) is session-scoped and
 	// retains append/last-wins ordering across branch projection.
-	switch event.Metadata.Key {
-	case "provider_response_output", "context_clear", "context_projection":
+	if protocol.IsConversationScopedMetadataKey(event.Metadata.Key) {
 		return false
-	default:
-		return true
 	}
+	return true
 }
 
 // ReconcileUnresolved returns an independent model-safe snapshot. A modern

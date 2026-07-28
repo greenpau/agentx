@@ -63,6 +63,10 @@ Ensure the Go installation directory is on `PATH`. By default it is `$(go env GO
 ```sh
 agentx
 agentx --print "inspect this repository"
+agentx --print --attachment screenshot.png "explain this screenshot"
+agentx --print --attachment before.jpg --attachment after.png \
+  "compare these images in argument order"
+agentx --print --attachment report.pdf
 agentx --print --output-format json "summarize the architecture"
 agentx --print --input-format stream-json --output-format stream-json
 agentx --mcp-server
@@ -84,7 +88,59 @@ troubleshooting output can be captured separately with `2>agentx-debug.log`.
 
 The default reasoning effort is `high`; accepted values for `gpt-5.6-sol` are `none`, `low`, `medium`, `high`, `xhigh`, and `max`. A `--model` override is rejected unless it matches the deployment-backed model in `auth.json`, preventing a logical model label from silently routing to a different Azure deployment.
 
-The bidirectional NDJSON adapter remains live for correlated controls and can queue `now`, `next`, and `later` user records while a turn is active. It does not splice a newly arrived prompt into the active recursive model/tool turn: `now` first cancels that turn, then the accepted record runs as the next serialized turn. MCP integration is stdio-only; image and audio result blocks are validated but become inert text/metadata placeholders rather than model attachments, and trusted project MCP configuration does not yet have a separate approval persisted against its exact configuration fingerprint. Resume, fork, and compaction are useful but similarly bounded; see the conformance profile for their explicit compatibility gaps.
+### Native input attachments
+
+Headless input accepts repeatable explicit `--attachment PATH` arguments with
+optional prompt text. Attachment-only turns and mixed ordered text/media are
+supported. The closed first matrix is PNG (`image/png`), JPEG (`image/jpeg`),
+and PDF (`application/pdf`): at most 8 files, 20 MiB per file, 40 MiB per
+message/model request, 8,192 pixels on either image dimension, 20,000,000
+image pixels, and 100 PDF pages. A session admits at most 100,000 durable
+committed attachment manifests and 512 MiB of unique blobs; its independent
+in-process terminal upload-attempt ledger is also capped at 100,000 accepted
+upload lifecycle IDs. Unsupported formats—including audio, SVG, GIF, WebP,
+URLs, and arbitrary binary—fail explicitly.
+
+AgentX snapshots only caller-selected regular single-link files, rejects
+symlinks and replacement/growth/truncation races, verifies media from bytes,
+normalizes images by decode/re-encode with metadata removal, and validates PDFs
+with a conservative decoded-name parser, a complete offset-verified classic
+xref table, and a consistent catalog/page tree. PDF encryption, active/action
+content, annotations, forms/XFA, embedded content, object/xref streams, and
+incremental updates are rejected; AgentX does not execute or decompress stream
+content, OCR, convert, or sanitize arbitrary PDF semantics. Blobs are
+immutable, content-addressed, owner-private session data capped at 512 MiB.
+Transcripts contain manifests only; they never contain bytes, base64, or
+original absolute paths. Resume reuses verified blobs, fork copies them into
+the destination, and native session deletion removes the local store but is
+not secure erasure of backups or remote copies.
+
+Stream-JSON clients must first observe the advertised version-1
+`input_capabilities`, then use correlated bounded
+`attachment_import` begin/chunk/commit/abort records and reference only the
+committed manifest from a typed user message. Capability absence means
+text-only. Capability source entries are scoped: `file_path` applies only to
+the initial CLI prompt and `stream_json_v1` to per-turn structured imports.
+The exact schema, 256 KiB decoded chunk limit, 120-second upload timeout, 8 MiB
+NDJSON record ceiling, acknowledgements, and queue semantics are in the
+[wire contract](.codex/skills/implementation-headless-sdk/references/sdk-wire-protocol.md#versioned-user-content-and-attachment-import)
+and [User Guide](USER_GUIDE.md#upload-attachments-over-stream-json).
+
+The current provider qualification is deliberately narrow: Azure/OpenAI
+Responses, logical model exactly `gpt-5.6-sol`, and API selector empty, `v1`,
+or `preview`. Loopback tests prove exact `input_image`/`input_file` request
+construction. One current-worktree profile passed representative live
+PNG/JPEG/conservative-PDF, mixed-order, stream, resume, fork, compaction, and
+privacy qualification; see the
+[sanitized evidence](.codex/skills/implementation-conformance-audit/references/native-attachment-production-qualification.md).
+That run is not a release-artifact or universal deployment/selector/platform
+attestation, so each claimed release profile still requires `MOD-A14B`.
+Media quarantine requires closed media-specific
+status/code/parameter evidence; unrelated provider failures retain valid media,
+and media-bearing provider diagnostics are replaced wholesale before they can
+reach output, logs, or durable history.
+
+The bidirectional NDJSON adapter remains live for correlated controls and can queue `now`, `next`, and `later` user records while a turn is active. It validates and reserves the whole typed message before a `now` record cancels the active turn; the accepted record then runs as the next serialized turn and is not spliced into the active recursive model/tool turn. MCP integration is stdio-only; image and audio result blocks are validated but become inert text/metadata placeholders rather than native user attachments, and trusted project MCP configuration does not yet have a separate approval persisted against its exact configuration fingerprint. Resume, fork, and compaction are useful but similarly bounded; see the conformance profile for their explicit compatibility gaps.
 
 ## Visual Studio Code extension
 
@@ -110,7 +166,7 @@ directory identities before and after permission evaluation, before a tool can
 execute. Once a rename, replacement, or supported-POSIX privacy change is
 detected, pending and future tool use is denied until AgentX is restarted.
 
-When session persistence is enabled, history is append-only JSONL below `<application-home>/sessions/<workspace-hash>/<session-id>/` with restrictive permissions. Standalone project memory is separate from session transcripts and keyed by the selected absolute workspace; linked worktrees therefore do not currently share it. User input and accepted tool calls are durable before the corresponding network request or side effect. Recovery never replays an uncertain call: a fully unresolved response-identified assistant/tool group leaves the live projection, while a missing member of a retained mixed group receives only an in-memory interrupted result. Forks copy durable raw evidence, never promote those derived results, and remain hidden behind a completion marker until the destination batch is durable. Forking is not a single transaction across the independent source and destination stores, but a crash-partial destination cannot be selected by `--continue` or explicit resume.
+When session persistence is enabled, history is append-only JSONL below `<application-home>/sessions/<workspace-hash>/<session-id>/` with restrictive permissions. Native attachment blobs are untrusted model input, not instruction or tool authority; their presence grants no filesystem or capability permission. Standalone project memory is separate from session transcripts and keyed by the selected absolute workspace; linked worktrees therefore do not currently share it. User input and accepted tool calls are durable before the corresponding network request or side effect. Recovery never replays an uncertain call: a fully unresolved response-identified assistant/tool group leaves the live projection, while a missing member of a retained mixed group receives only an in-memory interrupted result. Forks copy durable raw evidence, never promote those derived results, and remain hidden behind a completion marker until the destination batch is durable. Forking is not a single transaction across the independent source and destination stores, but a crash-partial destination cannot be selected by `--continue` or explicit resume.
 
 ## Architecture and verification
 
@@ -126,7 +182,9 @@ go test ./... -shuffle=on -count=3
 go vet ./...
 ```
 
-Network tests bind loopback-only `httptest` servers; they never call the production Azure endpoint.
+Network tests bind loopback-only `httptest` servers; they never call the
+production Azure endpoint. Image/PDF loopback fixtures prove request
+construction, not deployment eligibility.
 
 The repository-local Ruby architecture audits validate the implementation-skill hierarchy. They do not, by themselves, prove that every contract has an executable Go implementation; the conformance profile and Go tests are the implementation evidence.
 

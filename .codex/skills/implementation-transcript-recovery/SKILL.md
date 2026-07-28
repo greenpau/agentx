@@ -16,7 +16,10 @@ description: Implement the append-only session transcript and recovery protocol,
 4. Load defensively, repair legacy and parallel-tool topology, choose the intended live leaf, and restore associated snapshots and metadata.
 5. Use the authoritative native-session inventory for resume, continue, fork,
    creation, and provider-free deletion eligibility.
-6. Apply resume or fork ownership rules atomically before accepting a new turn,
+6. Verify every selected attachment manifest/blob before resume, and copy
+   immutable referenced media into a fork's destination store before
+   publishing it.
+7. Apply resume or fork ownership rules atomically before accepting a new turn,
    or detach and clean one deletion target through its recoverable state
    machine.
 
@@ -42,3 +45,6 @@ presentation caches to their owning products.
   incomplete fork, deletion intent, detached cleanup stage, or pending deletion
   receipt, while a completed receipt does not reserve a genuinely new
   generation.
+- Confirm legacy text resumes without migration loss; native transcripts expose
+  manifests only, retain referenced blobs, and fail attributably on missing or
+  tampered durable media.

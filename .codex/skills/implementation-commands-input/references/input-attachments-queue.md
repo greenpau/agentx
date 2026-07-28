@@ -28,9 +28,95 @@ Represent submitted input as a stable envelope rather than a bare string:
 
 Non-prompt modes require string input. Preserve the complete envelope while it is queued in the current process. The live queue is not a durable store and is not implemented on process restart; only inputs already committed to transcript/history or another owning durable subsystem can be resumed.
 
+### Native attachment-content profile
+
+`IQ-009` — The standalone native runtime accepts a closed provider-neutral
+user-content union. Version `1` contains ordered blocks of exactly one of:
+
+- `{type:"text"|"input_text", text:string}`, where both spellings select the
+  same text variant and canonical output uses `type:"text"`;
+- `{type:"attachment_ref", attachment_id, kind, name, mime_type, size_bytes,
+  sha256, storage_id}`.
+
+The attachment fields form one immutable manifest. `attachment_id` matches
+`att_[A-Za-z0-9][A-Za-z0-9_-]{0,62}`; `kind` is `image|document`;
+`sha256` is 64 lowercase hexadecimal characters; and `storage_id` is exactly
+`blob_sha256_<sha256>`. A display name is nonempty valid UTF-8, at most 255
+bytes, trimmed, contains neither slash nor backslash, and contains no control or
+bidirectional-control character. MIME strings are at most 64 bytes. Unknown or
+duplicate object members, mixed union variants, unknown versions, empty text
+blocks, duplicate attachment IDs, and incomplete manifests are rejected.
+
+`IQ-010` — Version `1` supports exactly `image/png`, `image/jpeg`, and
+`application/pdf`. The first two have kind `image`; PDF has kind `document`.
+The message may be attachment-only. Preserve content-block order. Legacy
+top-level strings, `{role:"user",content:"..."}`, and arrays of
+`text|input_text` blocks remain accepted without `content_version`; the same
+two text spellings are accepted in a version-1 array and normalize to the
+canonical `text` variant. Versioned attachment input requires
+`content_version:1`.
+
+`IQ-011` — Limits are 8 attachments per message, 20 MiB decoded bytes per
+item, 40 MiB decoded bytes per message/model request, 512 MiB of unique
+session-store blobs, 100,000 durable committed manifests, 8 concurrent uploads,
+255 display-name bytes, 64 MIME bytes, 8,192 pixels per image dimension,
+20,000,000 image pixels, and 100 validated PDF page-tree leaves. A stream
+upload expires after 120,000 ms. One chunk carries at most 262,144 decoded
+bytes and 349,528 padded-base64 characters. Independently of the durable
+manifest ceiling, retain at most 100,000 terminal accepted upload lifecycle
+IDs in the current in-process terminal upload-attempt ledger. Capability
+negotiation advertises these exact values as
+`max_uploads_per_session:100000` and advertises two scoped source objects:
+`{source:"file_path",scope:"initial_cli"}` and
+`{source:"stream_json_v1",scope:"per_turn"}`.
+
+`IQ-012` — File import accepts only a path explicitly selected through a
+repeatable `--attachment` option. Resolve it for the duration of import, require
+a nonempty direct regular file with exactly one hard link, reject a symlink,
+and compare the opened identity, direct path identity, size, modification time,
+and content hash over two bounded passes. Replacement, truncation, growth,
+identity churn, unreadability, or a directory fails the import. Discard the
+absolute path after snapshotting and never persist or emit it.
+
+`IQ-013` — Detect media from bytes, not extension or claim. Decode and re-encode
+PNG; decode and re-encode JPEG at quality 90; reject metadata-bearing
+noncanonical snapshots at provider revalidation. There is no resize path:
+dimensions/pixels above `IQ-011` fail. PDF remains byte-identical after a
+conservative decoded-name parser and structure check. Require one complete
+classic cross-reference table with exact in-use object offsets and
+generations, a real trailer root/catalog, a connected acyclic parented
+`Pages`/`Page` graph whose declared counts match, and direct bounded stream
+lengths. PDF comments and strings are inert and cannot supply structural or
+policy tokens; decode `#xx` name escapes before duplicate-name and unsupported
+feature checks. Reject malformed/incomplete xrefs or objects, dangling
+references, extra/unreachable page nodes, encryption and `Crypt`, JavaScript,
+actions/navigation/launch/URI/rendition/multimedia constructs, annotations,
+forms/XFA, embedded/file-spec/associated-file/collection content,
+catalog names/outlines/threads, object streams, xref streams, and incremental
+`/Prev` updates. AgentX does not execute or decompress stream content, render,
+OCR, convert, or sanitize arbitrary PDF semantics.
+
+`IQ-014` — A slash-prefixed text message carrying any attachment is rejected.
+It neither runs a local command nor leaves attachments pending for a later
+command. Validate and reserve the complete attachment set before enqueuing a
+`now` message; invalid, uncommitted, cross-prompt, missing, or tampered
+references cannot interrupt active work. The submitted attachment set is
+atomic.
+
+`IQ-015` — Preserve one prompt UUID from upload `begin` through committed
+reference, queue reservation, accepted transcript message, duplicate replay,
+and terminal result. A versioned upload requires a canonical RFC 4122 version
+1–5 UUID with a valid RFC variant. An attachment committed for one prompt UUID
+cannot be admitted under another.
+
 ## Base normalization
 
-For a content-block array, resize/downsample image blocks first. Treat the last block as the main prompt only when it is text; preserve earlier blocks in order. If the last block is non-text, keep all blocks as attachments/context and use no invented prompt string.
+For a legacy interactive content-block array, apply that profile's declared
+resize/downsample policy first. Treat the last block as the main prompt only
+when it is text; preserve earlier blocks in order. If the last block is
+non-text, keep all blocks as attachments/context and use no invented prompt
+string. The standalone native file/stream profile instead follows `IQ-013`:
+it never resizes and rejects an over-limit image.
 
 For ordinary prompt mode:
 
@@ -86,7 +172,18 @@ For ordinary prompts, extract references from raw prompt content. For a prompt c
 
 ## Images
 
-Filter empty image paste records. Persist accepted pasted images to a session/cache location, resize or downsample in parallel within bounded concurrency, then append supported image blocks after text. Preserve image ID and media type through history and same-process queueing, and through resume only after the owning history/transcript record is durable. Add hidden model-visible image metadata only deliberately. Failure of one image is attributed and does not reorder successful images.
+For a profile that implements legacy interactive pasted images, filter empty
+paste records, persist accepted images to a session/cache location, apply its
+declared bounded resize/downsample transform, and append supported blocks after
+text. Preserve image ID and media type through history and same-process
+queueing, and through resume only after the owning history/transcript record is
+durable. Add hidden model-visible image metadata only deliberately. Failure of
+one image is attributed and does not reorder successful images.
+
+For the standalone native file/import profile, the atomic message rule in
+`IQ-014` is stricter: failure of any selected file rejects the entire message.
+Previously committed but unsubmitted blobs become cleanup candidates rather
+than a partially admitted turn.
 
 ## Large pasted text
 
@@ -133,3 +230,18 @@ Queued `next` or `later` input cancels an interruptible `Sleep`. Local shell com
   block or panic in `Close`. Verify no host error method executes, no partial
   bytes are admitted, the fixed failure is stable across terminal/text/MCP
   adapters, and cancellation completes within the pump bound.
+- **IQ-A11:** Decode each legacy text form, text plus one image, ordered text
+  plus multiple images/PDFs, and an attachment-only message. Preserve block
+  order and reject unknown, duplicate, mixed, or incomplete members.
+- **IQ-A12:** Import empty, directory, symlink, multiply linked, unreadable,
+  replaced, growing, truncated, extension-mismatched, malformed, oversized,
+  over-dimension image, and active/encrypted/over-page PDF sources. Commit
+  none, expose no path, and leave no temporary artifact.
+- **IQ-A13:** Reach every exact count/byte/name/MIME/dimension/page boundary,
+  then exceed it by one. Only the in-bound case commits.
+- **IQ-A14:** Submit invalid `priority=now` attachment input during a healthy
+  turn. The healthy turn is not interrupted. Submit the repaired message under
+  its original UUID and run it once.
+- **IQ-A15:** Attempt a slash command with attachments. It fails locally with
+  zero command and provider calls and does not carry the media into a later
+  prompt.

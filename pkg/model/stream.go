@@ -50,6 +50,9 @@ type azureStream struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	payload []byte
+	// mediaRequest enables the closed media-specific status/code/parameter
+	// classifier and seals provider-owned diagnostics before public projection.
+	mediaRequest bool
 
 	mu            sync.Mutex
 	closed        bool
@@ -92,6 +95,7 @@ type azureStream struct {
 func (s *azureStream) Next() (Event, error) {
 	event, err := s.next()
 	if err != nil {
+		s.releasePayload()
 		return Event{}, err
 	}
 	if err := s.client.validatePublicEventEnvelope(event); err != nil {
@@ -99,6 +103,7 @@ func (s *azureStream) Next() (Event, error) {
 		s.pending = nil
 		s.deferredErr = nil
 		s.closeAttempt()
+		s.releasePayload()
 		return Event{}, err
 	}
 	return event, nil
@@ -245,6 +250,7 @@ func (s *azureStream) next() (Event, error) {
 			if terminal {
 				s.terminal = true
 				s.closeAttempt()
+				s.releasePayload()
 			}
 			if len(events) == 0 {
 				if s.terminal {
@@ -265,6 +271,8 @@ func (s *azureStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	clear(s.payload)
+	s.payload = nil
 	s.mu.Unlock()
 	s.cancel()
 	s.closeAttempt()
@@ -302,7 +310,12 @@ func (s *azureStream) openWithRetry(initialFailure error) error {
 			s.retriesUsed++
 		}
 
-		response, cancel, err := s.client.execute(s.ctx, s.payload)
+		payload, ok := s.payloadSnapshot()
+		if !ok {
+			return ErrClosed
+		}
+		response, cancel, err := s.client.execute(s.ctx, payload, s.mediaRequest)
+		clear(payload)
 		if err != nil {
 			failure = err
 			continue
@@ -399,6 +412,22 @@ func (s *azureStream) currentAttempt() (<-chan sseRead, <-chan struct{}, bool) {
 	return s.records, s.attemptDone, !s.closed && s.records != nil
 }
 
+func (s *azureStream) payloadSnapshot() ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || len(s.payload) == 0 {
+		return nil, false
+	}
+	return append([]byte(nil), s.payload...), true
+}
+
+func (s *azureStream) releasePayload() {
+	s.mu.Lock()
+	clear(s.payload)
+	s.payload = nil
+	s.mu.Unlock()
+}
+
 func (s *azureStream) closeAttempt() {
 	s.mu.Lock()
 	body := s.body
@@ -443,6 +472,7 @@ func (s *azureStream) popPending() Event {
 // replaced by literalStreamRedactor before entering pending output.
 func (s *azureStream) endWithError(err error) (Event, error) {
 	s.terminal = true
+	s.releasePayload()
 	flushed := s.flushBufferedDeltas()
 	if len(flushed) == 0 {
 		return Event{}, err
@@ -1308,9 +1338,15 @@ func (s *azureStream) eventError(nested *azureError, envelope azureEventEnvelope
 		fields.Message = "Azure Responses API stream failed"
 	}
 	fields, requestID := s.client.sanitizeProviderErrorFields(fields, s.requestID)
+	mediaRejected := s.mediaRequest &&
+		providerRejectedMedia(0, fields.Code, fields.Param)
+	if s.mediaRequest {
+		fields, requestID = sealedMediaRequestProviderError(mediaRejected)
+	}
 	return s.client.finalizeProviderError(&ProviderError{
 		Code: fields.Code, Type: fields.Type,
 		Param: fields.Param, Message: fields.Message, RequestID: requestID,
+		MediaRejected: mediaRejected,
 	})
 }
 

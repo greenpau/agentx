@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/redact"
 )
@@ -32,6 +34,8 @@ const (
 	defaultMaximumItems     = 4_096
 	defaultMaximumToolCalls = 256
 	defaultMaximumArguments = 4 << 20
+	defaultMaximumMedia     = 100
+	defaultMaximumRequest   = 64 << 20
 	defaultUserAgent        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
 	azureAPIKeyHeader       = "api-key"
 )
@@ -101,11 +105,24 @@ type AzureOptions struct {
 	MaximumResponseItems     int
 	MaximumToolCalls         int
 	MaximumCallArgumentBytes int
-	UserAgent                string
-	Now                      func() time.Time
-	Jitter                   func(maximum time.Duration) time.Duration
-	Sleep                    func(ctx context.Context, delay time.Duration) error
-	OnRetry                  func(RetryInfo)
+	// AttachmentLimits must match or tighten the session attachment store.
+	// The provider never accepts broader bounds than attachment.DefaultLimits.
+	AttachmentLimits attachment.Limits
+	// MaximumRequestMediaItems caps media across the complete provider request,
+	// including retained historical messages. Zero selects 100.
+	MaximumRequestMediaItems int
+	// MaximumEncodedMediaBytes caps the sum of data-URL bytes before allocating
+	// the provider request. Zero derives the exact upper bound from the decoded
+	// media-byte and item-count limits.
+	MaximumEncodedMediaBytes int64
+	// MaximumRequestBytes caps the final JSON request body whenever media is
+	// present. Zero selects 64 MiB.
+	MaximumRequestBytes int64
+	UserAgent           string
+	Now                 func() time.Time
+	Jitter              func(maximum time.Duration) time.Duration
+	Sleep               func(ctx context.Context, delay time.Duration) error
+	OnRetry             func(RetryInfo)
 }
 
 // AzureClient adapts the provider-neutral model boundary to Azure OpenAI's
@@ -139,6 +156,21 @@ type AzureClient struct {
 	jitter                   func(time.Duration) time.Duration
 	sleep                    func(context.Context, time.Duration) error
 	onRetry                  func(RetryInfo)
+
+	attachmentCapability     attachment.Capability
+	maximumRequestMediaItems int
+	maximumEncodedMediaBytes int64
+	maximumRequestBytes      int64
+}
+
+// InputMediaCapability is the exact provider-bound media contract advertised
+// for a qualified Azure model/API configuration. Import limits remain owned by
+// the attachment subsystem; the remaining limits apply to one model request.
+type InputMediaCapability struct {
+	Attachment      attachment.Capability `json:"attachment"`
+	MaxRequestItems int                   `json:"max_request_items"`
+	MaxEncodedBytes int64                 `json:"max_encoded_media_bytes"`
+	MaxRequestBytes int64                 `json:"max_request_bytes"`
 }
 
 // azureRequestCompositionError preserves protocol classification without
@@ -167,6 +199,41 @@ func (e *azureRequestCompositionError) Format(state fmt.State, verb rune) {
 func NewAzureClient(configuration config.Azure, options AzureOptions) (*AzureClient, error) {
 	if err := configuration.Validate(); err != nil {
 		return nil, fmt.Errorf("construct Azure model client: %w", err)
+	}
+	attachmentCapability, err := attachment.CapabilityFor(options.AttachmentLimits)
+	if err != nil {
+		return nil, fmt.Errorf("construct Azure model client: invalid attachment limits")
+	}
+	if err := validateAzureAttachmentLimits(attachmentCapability.Limits); err != nil {
+		return nil, fmt.Errorf("construct Azure model client: %w", err)
+	}
+	if options.MaximumRequestMediaItems == 0 {
+		options.MaximumRequestMediaItems = defaultMaximumMedia
+	}
+	if options.MaximumRequestMediaItems < 1 ||
+		options.MaximumRequestMediaItems > defaultMaximumMedia {
+		return nil, fmt.Errorf("construct Azure model client: maximum request media items must be between 1 and %d", defaultMaximumMedia)
+	}
+	derivedEncodedMaximum, err := maximumEncodedMediaBytes(
+		attachmentCapability.Limits.MaxModelRequestMediaBytes,
+		options.MaximumRequestMediaItems,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("construct Azure model client: invalid encoded media limit")
+	}
+	if options.MaximumEncodedMediaBytes == 0 {
+		options.MaximumEncodedMediaBytes = derivedEncodedMaximum
+	}
+	if options.MaximumEncodedMediaBytes < 1 ||
+		options.MaximumEncodedMediaBytes > derivedEncodedMaximum {
+		return nil, fmt.Errorf("construct Azure model client: maximum encoded media bytes exceeds the decoded-media bound")
+	}
+	if options.MaximumRequestBytes == 0 {
+		options.MaximumRequestBytes = defaultMaximumRequest
+	}
+	if options.MaximumRequestBytes < 1 ||
+		options.MaximumRequestBytes > defaultMaximumRequest {
+		return nil, fmt.Errorf("construct Azure model client: maximum request bytes must be between 1 and %d", defaultMaximumRequest)
 	}
 	credentialSet := redact.Union(redact.New(configuration.APIKey), options.CredentialSanitizer)
 	if credentialSet.LiteralCount() > 256 || credentialSet.TotalLiteralBytes() > 64<<10 {
@@ -252,6 +319,10 @@ func NewAzureClient(configuration config.Azure, options AzureOptions) (*AzureCli
 		jitter:                   options.Jitter,
 		sleep:                    options.Sleep,
 		onRetry:                  options.OnRetry,
+		attachmentCapability:     attachmentCapability,
+		maximumRequestMediaItems: options.MaximumRequestMediaItems,
+		maximumEncodedMediaBytes: options.MaximumEncodedMediaBytes,
+		maximumRequestBytes:      options.MaximumRequestBytes,
 	}
 	requestEndpoint := client.requestEndpoint()
 	if err := client.validateRequestMetadata(&requestEndpoint, client.requestHeaders(), "construct Azure model client"); err != nil {
@@ -281,6 +352,25 @@ func azureRedirectSafeClient(source *http.Client) *http.Client {
 // ModelName returns the logical model identity from configuration. Azure may
 // use a differently named deployment on the wire.
 func (c *AzureClient) ModelName() string { return c.logicalModel }
+
+// InputMediaCapability returns the exact media capability only for the
+// positively qualified native Azure profile. Capability absence means
+// text-only; deployment naming alone never enables media.
+func (c *AzureClient) InputMediaCapability() (InputMediaCapability, bool) {
+	if c == nil || !azureInputMediaQualified(c.logicalModel, c.apiVersion) {
+		return InputMediaCapability{}, false
+	}
+	attachmentCapability, err := attachment.CapabilityFor(c.attachmentCapability.Limits)
+	if err != nil {
+		return InputMediaCapability{}, false
+	}
+	return InputMediaCapability{
+		Attachment:      attachmentCapability,
+		MaxRequestItems: c.maximumRequestMediaItems,
+		MaxEncodedBytes: c.maximumEncodedMediaBytes,
+		MaxRequestBytes: c.maximumRequestBytes,
+	}, true
+}
 
 // String deliberately exposes no credential material.
 func (c *AzureClient) String() string {
@@ -320,13 +410,19 @@ func (c *AzureClient) Stream(ctx context.Context, request Request) (Stream, erro
 	if !validEffort(effort) {
 		return nil, fmt.Errorf("start Azure response: %w: unsupported reasoning effort %q", ErrProtocol, effort)
 	}
-	wireRequest, err := c.projectRequest(request, effort)
+	wireRequest, err := c.projectRequest(ctx, request, effort)
 	if err != nil {
 		return nil, fmt.Errorf("start Azure response: %w", err)
 	}
 	payload, err := json.Marshal(wireRequest)
 	if err != nil {
 		return nil, fmt.Errorf("encode Azure response request: %w", err)
+	}
+	if requestContainsMedia(request) && int64(len(payload)) > c.maximumRequestBytes {
+		return nil, fmt.Errorf(
+			"start Azure response: %w: provider request exceeds %d bytes",
+			ErrInputMediaUnavailable, c.maximumRequestBytes,
+		)
 	}
 	reflected, err := c.credentialSanitizer().JSONContains(payload)
 	if err != nil {
@@ -341,6 +437,7 @@ func (c *AzureClient) Stream(ctx context.Context, request Request) (Stream, erro
 		ctx:               streamContext,
 		cancel:            cancel,
 		payload:           payload,
+		mediaRequest:      requestContainsMedia(request),
 		retryStarted:      c.currentTime(),
 		calls:             make(map[string]*callAccumulator),
 		completedCalls:    make(map[string]Item),
@@ -348,6 +445,7 @@ func (c *AzureClient) Stream(ctx context.Context, request Request) (Stream, erro
 		streamedTextParts: make(map[streamedTextKey]*strings.Builder),
 	}
 	if err := stream.openWithRetry(nil); err != nil {
+		stream.releasePayload()
 		cancel()
 		return nil, err
 	}
@@ -381,10 +479,15 @@ type azureWireReasoning struct {
 	Effort string `json:"effort"`
 }
 
-func (c *AzureClient) projectRequest(request Request, effort string) (azureWireRequest, error) {
+func (c *AzureClient) projectRequest(ctx context.Context, request Request, effort string) (azureWireRequest, error) {
+	resolvedMedia, err := c.resolveRequestMedia(ctx, request)
+	if err != nil {
+		return azureWireRequest{}, err
+	}
+	defer clearResolvedMedia(resolvedMedia)
 	input := make([]map[string]any, 0, len(request.Input))
 	for _, item := range request.Input {
-		projected, err := projectItem(item)
+		projected, err := projectItemWithMedia(item, resolvedMedia)
 		if err != nil {
 			return azureWireRequest{}, err
 		}
@@ -419,6 +522,10 @@ func (c *AzureClient) projectRequest(request Request, effort string) (azureWireR
 }
 
 func projectItem(item Item) (map[string]any, error) {
+	return projectItemWithMedia(item, nil)
+}
+
+func projectItemWithMedia(item Item, resolvedMedia map[attachment.ID][]byte) (map[string]any, error) {
 	projected := map[string]any{"type": string(item.Type)}
 	if item.ID != "" {
 		projected["id"] = item.ID
@@ -434,10 +541,39 @@ func projectItem(item Item) (map[string]any, error) {
 		projected["role"] = string(item.Role)
 		content := make([]map[string]string, 0, len(item.Content))
 		for _, part := range item.Content {
-			wirePart := map[string]string{"type": string(part.Type)}
-			if part.Type == ContentRefusal {
+			var wirePart map[string]string
+			switch part.Type {
+			case ContentRefusal:
+				wirePart = map[string]string{"type": string(part.Type)}
 				wirePart["refusal"] = part.Text
-			} else {
+			case ContentInputImage:
+				if part.Manifest == nil {
+					return nil, fmt.Errorf("%w: input_image is missing its attachment manifest", ErrProtocol)
+				}
+				data, exists := resolvedMedia[part.Manifest.AttachmentID]
+				if !exists {
+					return nil, fmt.Errorf("%w: input_image attachment was not resolved", ErrInputMediaUnavailable)
+				}
+				wirePart = map[string]string{
+					"type":      string(ContentInputImage),
+					"image_url": attachmentDataURL(part.Manifest.MIMEType, data),
+					"detail":    "auto",
+				}
+			case ContentInputFile:
+				if part.Manifest == nil {
+					return nil, fmt.Errorf("%w: input_file is missing its attachment manifest", ErrProtocol)
+				}
+				data, exists := resolvedMedia[part.Manifest.AttachmentID]
+				if !exists {
+					return nil, fmt.Errorf("%w: input_file attachment was not resolved", ErrInputMediaUnavailable)
+				}
+				wirePart = map[string]string{
+					"type":      string(ContentInputFile),
+					"filename":  part.Manifest.Name,
+					"file_data": attachmentDataURL(part.Manifest.MIMEType, data),
+				}
+			default:
+				wirePart = map[string]string{"type": string(part.Type)}
 				wirePart["text"] = part.Text
 			}
 			content = append(content, wirePart)
@@ -467,6 +603,243 @@ func projectItem(item Item) (map[string]any, error) {
 		return nil, fmt.Errorf("%w: cannot project an unsupported item type", ErrProtocol)
 	}
 	return projected, nil
+}
+
+func (c *AzureClient) resolveRequestMedia(ctx context.Context, request Request) (map[attachment.ID][]byte, error) {
+	if !requestContainsMedia(request) {
+		return nil, nil
+	}
+	if !azureInputMediaQualified(c.logicalModel, c.apiVersion) {
+		return nil, fmt.Errorf(
+			"%w: configured provider profile is text-only",
+			ErrInputMediaUnavailable,
+		)
+	}
+	if request.AttachmentSource == nil {
+		return nil, fmt.Errorf(
+			"%w: attachment source is not configured",
+			ErrInputMediaUnavailable,
+		)
+	}
+
+	limits := c.attachmentCapability.Limits
+	manifests := make(map[attachment.ID]attachment.Manifest)
+	order := make([]attachment.ID, 0)
+	var requestMediaItems int
+	var requestDecodedBytes int64
+	var requestEncodedBytes int64
+	for _, item := range request.Input {
+		if item.Type != ItemMessage {
+			continue
+		}
+		var messageMediaItems int
+		var messageDecodedBytes int64
+		for _, part := range item.Content {
+			if part.Type != ContentInputImage && part.Type != ContentInputFile {
+				continue
+			}
+			if part.Manifest == nil {
+				return nil, fmt.Errorf("%w: media manifest is missing", ErrInputMediaUnavailable)
+			}
+			manifest := *part.Manifest
+			if err := manifest.Validate(limits); err != nil {
+				return nil, fmt.Errorf("%w: media manifest is invalid", ErrInputMediaUnavailable)
+			}
+			messageMediaItems++
+			requestMediaItems++
+			if messageMediaItems > limits.MaxAttachmentsPerMessage ||
+				requestMediaItems > c.maximumRequestMediaItems {
+				return nil, fmt.Errorf(
+					"%w: provider request exceeds its media item limit",
+					ErrInputMediaUnavailable,
+				)
+			}
+			if manifest.SizeBytes > limits.MaxAggregateBytes-messageDecodedBytes {
+				return nil, fmt.Errorf(
+					"%w: message exceeds its decoded media byte limit",
+					ErrInputMediaUnavailable,
+				)
+			}
+			messageDecodedBytes += manifest.SizeBytes
+			if manifest.SizeBytes > limits.MaxModelRequestMediaBytes-requestDecodedBytes {
+				return nil, fmt.Errorf(
+					"%w: provider request exceeds its decoded media byte limit",
+					ErrInputMediaUnavailable,
+				)
+			}
+			requestDecodedBytes += manifest.SizeBytes
+			encodedBytes, err := encodedAttachmentDataURLBytes(manifest)
+			if err != nil ||
+				encodedBytes > c.maximumEncodedMediaBytes-requestEncodedBytes {
+				return nil, fmt.Errorf(
+					"%w: provider request exceeds its encoded media byte limit",
+					ErrInputMediaUnavailable,
+				)
+			}
+			requestEncodedBytes += encodedBytes
+
+			if existing, found := manifests[manifest.AttachmentID]; found {
+				if existing != manifest {
+					return nil, fmt.Errorf(
+						"%w: one attachment identity has inconsistent metadata",
+						ErrInputMediaUnavailable,
+					)
+				}
+				continue
+			}
+			manifests[manifest.AttachmentID] = manifest
+			order = append(order, manifest.AttachmentID)
+		}
+	}
+
+	resolved := make(map[attachment.ID][]byte, len(manifests))
+	resolvedSuccessfully := false
+	defer func() {
+		if !resolvedSuccessfully {
+			clearResolvedMedia(resolved)
+		}
+	}()
+	for _, id := range order {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		expected := manifests[id]
+		actual, data, err := resolveAttachment(request.AttachmentSource, ctx, id)
+		if err != nil {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return nil, contextErr
+			}
+			return nil, fmt.Errorf(
+				"%w: attachment %s could not be resolved",
+				ErrInputMediaUnavailable, id,
+			)
+		}
+		if actual != expected ||
+			int64(len(data)) != expected.SizeBytes ||
+			int64(len(data)) > limits.MaxItemBytes {
+			clear(data)
+			return nil, fmt.Errorf(
+				"%w: attachment %s did not match its immutable manifest",
+				ErrInputMediaUnavailable, id,
+			)
+		}
+		snapshot := append([]byte(nil), data...)
+		clear(data)
+		if err := attachment.VerifyResolved(expected, snapshot, limits); err != nil {
+			clear(snapshot)
+			return nil, fmt.Errorf(
+				"%w: attachment %s failed provider-bound verification",
+				ErrInputMediaUnavailable, id,
+			)
+		}
+		if c.credentialSanitizer().Contains(string(snapshot)) {
+			clear(snapshot)
+			return nil, fmt.Errorf(
+				"%w: attachment content reflected configured credential material",
+				ErrProtocol,
+			)
+		}
+		resolved[id] = snapshot
+	}
+	resolvedSuccessfully = true
+	return resolved, nil
+}
+
+func clearResolvedMedia(resolved map[attachment.ID][]byte) {
+	for id, data := range resolved {
+		clear(data)
+		delete(resolved, id)
+	}
+}
+
+func resolveAttachment(
+	source AttachmentSource,
+	ctx context.Context,
+	id attachment.ID,
+) (manifest attachment.Manifest, data []byte, err error) {
+	defer func() {
+		if recover() != nil {
+			manifest = attachment.Manifest{}
+			data = nil
+			err = ErrInputMediaUnavailable
+		}
+	}()
+	return source.Resolve(ctx, id)
+}
+
+func requestContainsMedia(request Request) bool {
+	for _, item := range request.Input {
+		for _, content := range item.Content {
+			if content.Type == ContentInputImage || content.Type == ContentInputFile {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func azureInputMediaQualified(logicalModel, apiVersion string) bool {
+	if logicalModel != "gpt-5.6-sol" {
+		return false
+	}
+	switch apiVersion {
+	case "", "v1", "preview":
+		return true
+	default:
+		return false
+	}
+}
+
+func attachmentDataURL(mimeType string, data []byte) string {
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+func encodedAttachmentDataURLBytes(manifest attachment.Manifest) (int64, error) {
+	if manifest.SizeBytes < 0 || manifest.SizeBytes > int64(^uint(0)>>1) {
+		return 0, errors.New("attachment size cannot be encoded")
+	}
+	encoded := int64(base64.StdEncoding.EncodedLen(int(manifest.SizeBytes)))
+	prefix := int64(len("data:" + manifest.MIMEType + ";base64,"))
+	if encoded > int64(^uint64(0)>>1)-prefix {
+		return 0, errors.New("attachment encoding size overflows")
+	}
+	return prefix + encoded, nil
+}
+
+func maximumEncodedMediaBytes(decodedBytes int64, mediaItems int) (int64, error) {
+	if decodedBytes < 1 || mediaItems < 1 {
+		return 0, errors.New("media limits must be positive")
+	}
+	// Each independently padded base64 item can consume at most two additional
+	// input bytes before division into three-byte groups. PDF has the longest
+	// supported data-URL prefix and therefore supplies the exact safe upper
+	// bound for a mixed request.
+	padding := int64(mediaItems) * 2
+	prefixes := int64(mediaItems) * int64(len("data:application/pdf;base64,"))
+	if decodedBytes > int64(^uint64(0)>>1)-padding {
+		return 0, errors.New("media encoding size overflows")
+	}
+	groups := (decodedBytes + padding) / 3
+	if groups > (int64(^uint64(0)>>1)-prefixes)/4 {
+		return 0, errors.New("media encoding size overflows")
+	}
+	return groups*4 + prefixes, nil
+}
+
+func validateAzureAttachmentLimits(limits attachment.Limits) error {
+	defaults := attachment.DefaultLimits()
+	if limits.MaxAttachmentsPerMessage > defaults.MaxAttachmentsPerMessage ||
+		limits.MaxItemBytes > defaults.MaxItemBytes ||
+		limits.MaxAggregateBytes > defaults.MaxAggregateBytes ||
+		limits.MaxModelRequestMediaBytes > defaults.MaxModelRequestMediaBytes ||
+		limits.MaxDisplayNameBytes > defaults.MaxDisplayNameBytes ||
+		limits.MaxMIMETypeBytes > defaults.MaxMIMETypeBytes ||
+		limits.MaxImageDimension > defaults.MaxImageDimension ||
+		limits.MaxImagePixels > defaults.MaxImagePixels ||
+		limits.MaxPDFPages > defaults.MaxPDFPages {
+		return errors.New("attachment limits exceed the qualified Azure profile")
+	}
+	return nil
 }
 
 func cloneMetadata(source map[string]string) map[string]string {
@@ -643,7 +1016,7 @@ func (c *AzureClient) requestCompositionError(operation string) error {
 	return &azureRequestCompositionError{message: safe}
 }
 
-func (c *AzureClient) execute(ctx context.Context, payload []byte) (*http.Response, context.CancelFunc, error) {
+func (c *AzureClient) execute(ctx context.Context, payload []byte, mediaRequest bool) (*http.Response, context.CancelFunc, error) {
 	request, cancel, err := c.newRequest(ctx, payload)
 	if err != nil {
 		return nil, nil, err
@@ -692,7 +1065,7 @@ func (c *AzureClient) execute(ctx context.Context, payload []byte) (*http.Respon
 		}
 		return response, cancel, nil
 	}
-	providerError := c.decodeHTTPError(request.Context(), response)
+	providerError := c.decodeHTTPErrorForRequest(request.Context(), response, mediaRequest)
 	closeProviderBody(response.Body)
 	cancel()
 	if ctx.Err() != nil {
@@ -751,6 +1124,10 @@ type azureErrorBodyResult struct {
 // cancellation and concurrent Close; the attempt coordinator must still be
 // able to return its exact caller-cancel or provider-timeout classification.
 func (c *AzureClient) decodeHTTPError(ctx context.Context, response *http.Response) error {
+	return c.decodeHTTPErrorForRequest(ctx, response, false)
+}
+
+func (c *AzureClient) decodeHTTPErrorForRequest(ctx context.Context, response *http.Response, mediaRequest bool) error {
 	requestID := response.Header.Get("apim-request-id")
 	if requestID == "" {
 		requestID = response.Header.Get("x-request-id")
@@ -800,6 +1177,11 @@ func (c *AzureClient) decodeHTTPError(ctx context.Context, response *http.Respon
 		fields.Message = http.StatusText(response.StatusCode)
 	}
 	fields, requestID = c.sanitizeProviderErrorFields(fields, requestID)
+	mediaRejected := mediaRequest &&
+		providerRejectedMedia(response.StatusCode, fields.Code, fields.Param)
+	if mediaRequest {
+		fields, requestID = sealedMediaRequestProviderError(mediaRejected)
+	}
 	retryable := retryableStatus(response.StatusCode)
 	switch strings.ToLower(strings.TrimSpace(response.Header.Get("x-should-retry"))) {
 	case "true":
@@ -807,17 +1189,24 @@ func (c *AzureClient) decodeHTTPError(ctx context.Context, response *http.Respon
 	case "false":
 		retryable = false
 	}
+	// A media rejection is authoritative for the exact submitted request.
+	// Retrying would duplicate media egress before the engine can durably
+	// quarantine it, even if an intermediary supplied x-should-retry:true.
+	if mediaRejected {
+		retryable = false
+	}
 	now := c.currentTime()
 	retryDelay, hasRetryDelay := parseRetryAfter(response.Header.Get("Retry-After"), now)
 	return c.finalizeProviderError(&ProviderError{
-		StatusCode: response.StatusCode,
-		Code:       fields.Code,
-		Type:       fields.Type,
-		Param:      fields.Param,
-		Message:    fields.Message,
-		RequestID:  requestID,
-		Retryable:  retryable,
-		retryDelay: retryDelay, hasRetryDelay: hasRetryDelay,
+		StatusCode:    response.StatusCode,
+		Code:          fields.Code,
+		Type:          fields.Type,
+		Param:         fields.Param,
+		Message:       fields.Message,
+		RequestID:     requestID,
+		Retryable:     retryable,
+		MediaRejected: mediaRejected,
+		retryDelay:    retryDelay, hasRetryDelay: hasRetryDelay,
 	})
 }
 
@@ -862,14 +1251,15 @@ func (c *AzureClient) sanitizeError(err error) error {
 			Param: provider.Param, Message: provider.Message,
 		}, provider.RequestID)
 		return c.finalizeProviderError(&ProviderError{
-			StatusCode: provider.StatusCode,
-			Code:       fields.Code,
-			Type:       fields.Type,
-			Param:      fields.Param,
-			Message:    fields.Message,
-			RequestID:  requestID,
-			Retryable:  provider.Retryable,
-			retryDelay: provider.retryDelay, hasRetryDelay: provider.hasRetryDelay,
+			StatusCode:    provider.StatusCode,
+			Code:          fields.Code,
+			Type:          fields.Type,
+			Param:         fields.Param,
+			Message:       fields.Message,
+			RequestID:     requestID,
+			Retryable:     provider.Retryable,
+			MediaRejected: provider.MediaRejected,
+			retryDelay:    provider.retryDelay, hasRetryDelay: provider.hasRetryDelay,
 		})
 	}
 	// Never return a caller-owned error merely because its first Error call was
@@ -879,6 +1269,50 @@ func (c *AzureClient) sanitizeError(err error) error {
 
 func retryableStatus(status int) bool {
 	return status == http.StatusRequestTimeout || status == http.StatusConflict || status == http.StatusTooManyRequests || status >= 500
+}
+
+func providerRejectedMedia(status int, code, param string) bool {
+	if status == http.StatusRequestEntityTooLarge || status == http.StatusUnsupportedMediaType {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "media_rejected", "unsupported_media", "invalid_image",
+		"invalid_image_url", "invalid_file", "invalid_file_data",
+		"image_too_large", "file_too_large":
+		return true
+	}
+	param = strings.ToLower(strings.TrimSpace(param))
+	switch param {
+	case "input_image", "input_file", "image_url", "file_data":
+		return true
+	}
+	if len(param) == 0 || len(param) > maximumProviderDiagnosticBytes {
+		return false
+	}
+	for _, suffix := range []string{
+		".input_image", "[input_image]",
+		".input_file", "[input_file]",
+		".image_url", "[image_url]",
+		".file_data", "[file_data]",
+	} {
+		if strings.HasSuffix(param, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// sealedMediaRequestProviderError prevents any provider-owned diagnostic field
+// from carrying request media into public errors, retry observations, logs, or
+// durable results. Classification is computed first from the closed trusted
+// status/code/parameter vocabulary; the provider's prose and correlations are
+// then deliberately discarded for every media-bearing failure.
+func sealedMediaRequestProviderError(mediaRejected bool) (azureError, string) {
+	message := "provider request failed"
+	if mediaRejected {
+		message = "provider rejected attachment input"
+	}
+	return azureError{Message: message}, ""
 }
 
 func retryableTransport(err error) bool {

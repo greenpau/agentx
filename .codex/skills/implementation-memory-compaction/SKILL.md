@@ -9,7 +9,9 @@ description: Implement context-pressure management and derived memory, including
 
 1. Measure context with model-aware input and reserved-output limits.
 2. Select one eligible strategy using explicit gates, recursion guards, query ownership, thresholds, and failure circuit breakers.
-3. Preserve API invariants and authoritative history while producing a smaller active projection.
+3. Preserve API invariants, authoritative typed attachment manifests, and
+   durable history while producing a smaller active projection; apply media
+   tail limits and quarantine only to provider context.
 4. Restore current files, plan/mode state, invoked skills, agents, and capability deltas within fixed budgets.
 5. Implement file-memory identity, bounded relevance surfacing, shared-memory trust/sync, and consolidation as separate lifecycles.
 6. Record a compact boundary and clean up only caches owned by the compacting thread.
@@ -30,3 +32,6 @@ Own derived summaries, private and shared file memory, relevance selection, team
 - Preserve all `MC-*` contracts in the reference.
 - Test threshold boundaries, disabled modes, memory-path containment, relevance budgets, stale-memory warnings, team-sync conflict/partial-commit/crash behavior, secret filtering, auto-dream lock rollback, recursion guards, prompt-too-long retries, full and partial directions, session-memory fallback, tool-pair preservation, preserved-segment resume, time-based cache expiry, circuit breaking, and source-aware cleanup.
 - Confirm compaction can be retried or abandoned without corrupting the current conversation.
+- Confirm compaction/resume neither drops nor reauthorizes native media, and
+  missing/tampered referenced blobs fail rather than becoming authoritative
+  placeholders.

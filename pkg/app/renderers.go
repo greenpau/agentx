@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/engine"
 	"github.com/greenpau/agentx/pkg/protocol"
 	"github.com/greenpau/agentx/pkg/redact"
@@ -145,7 +146,11 @@ func (s *streamSink) Publish(_ context.Context, event protocol.Event) error {
 				return nil
 			}
 			base["type"] = "user"
-			base["message"] = map[string]any{"role": "user", "content": content}
+			message := map[string]any{"role": "user", "content": content}
+			if messageContentHasAttachments(event.Message.Content) {
+				message["content_version"] = attachment.ProtocolVersion
+			}
+			base["message"] = message
 			base["parent_tool_use_id"] = nil
 			base["isReplay"] = true
 			if event.Message.PromptID != "" {
@@ -256,11 +261,32 @@ func (s *streamSink) Publish(_ context.Context, event protocol.Event) error {
 func apiTextContent(blocks []protocol.ContentBlock) []map[string]any {
 	content := make([]map[string]any, 0, len(blocks))
 	for _, block := range blocks {
-		if block.Type == protocol.ContentText || block.Type == protocol.ContentReasoning {
+		switch block.Type {
+		case protocol.ContentText, protocol.ContentReasoning:
 			content = append(content, map[string]any{"type": "text", "text": block.Text})
+		case protocol.ContentAttachment:
+			content = append(content, map[string]any{
+				"type":          "attachment_ref",
+				"attachment_id": block.AttachmentID,
+				"kind":          block.Kind,
+				"name":          block.Name,
+				"mime_type":     block.MIMEType,
+				"size_bytes":    block.SizeBytes,
+				"sha256":        block.SHA256,
+				"storage_id":    block.StorageID,
+			})
 		}
 	}
 	return content
+}
+
+func messageContentHasAttachments(blocks []protocol.ContentBlock) bool {
+	for _, block := range blocks {
+		if block.Type == protocol.ContentAttachment {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSONResult(writer io.Writer, outcome engine.Outcome, runErr error, credentialSets ...*redact.Set) error {

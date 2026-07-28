@@ -64,6 +64,7 @@ type InputEnvelope struct {
 	Request              *ControlRequest      `json:"request,omitempty"`
 	Response             *ControlResponseBody `json:"response,omitempty"`
 	EnvironmentVariables map[string]string    `json:"variables,omitempty"`
+	AttachmentImport     *AttachmentImport    `json:"-"`
 
 	originalByteSize int
 }
@@ -132,6 +133,14 @@ func (e *InputEnvelope) UnmarshalJSON(data []byte) error {
 			variables = wire.EnvironmentVariables
 		}
 	}
+	var attachmentImport *AttachmentImport
+	if wire.Type == "attachment_import" {
+		decoded, err := DecodeAttachmentImport(data)
+		if err != nil {
+			return err
+		}
+		attachmentImport = &decoded
+	}
 	*e = InputEnvelope{
 		Type: wire.Type, UUID: wire.UUID, SessionID: wire.SessionID,
 		Message: wire.Message, ParentToolUseID: wire.ParentToolUseID,
@@ -139,6 +148,7 @@ func (e *InputEnvelope) UnmarshalJSON(data []byte) error {
 		ToolUseResult: wire.ToolUseResult, Priority: wire.Priority,
 		Timestamp: wire.Timestamp, RequestID: requestID, Request: wire.Request,
 		Response: wire.Response, EnvironmentVariables: variables,
+		AttachmentImport: attachmentImport,
 		originalByteSize: len(data),
 	}
 	return nil
@@ -149,6 +159,12 @@ func (e *InputEnvelope) UnmarshalJSON(data []byte) error {
 // the record types that own them. Unknown record types remain forward
 // compatible and are ignored by Decoder after their framing is validated.
 func validateInputEnvelopeFields(inputType string, fields map[string]json.RawMessage) error {
+	if inputType == "attachment_import" {
+		// Operation-specific validation is applied by DecodeAttachmentImport
+		// after duplicate-member rejection. Its schema is narrower than the
+		// union of all import members, so do not weaken it here.
+		return nil
+	}
 	for field := range fields {
 		if inputEnvelopeFieldAllowed(inputType, field) {
 			continue
@@ -505,7 +521,7 @@ func (d *Decoder) Next() (InputEnvelope, error) {
 			return InputEnvelope{}, fmt.Errorf("malformed NDJSON input: %w", err)
 		}
 		switch envelope.Type {
-		case "user", "assistant", "system", "control_request", "control_response", "control_cancel_request", "keep_alive", "update_environment_variables":
+		case "user", "assistant", "system", "attachment_import", "control_request", "control_response", "control_cancel_request", "keep_alive", "update_environment_variables":
 			return envelope, nil
 		default:
 			if d.warn != nil {
@@ -1033,55 +1049,15 @@ func (b *ControlBroker) removeOrderLocked(id identity.RequestID) {
 	}
 }
 
-// DecodeUserText accepts the API user message shape and a legacy bare string.
-// A role, when present, is authoritative and must be user.
+// DecodeUserText retains the legacy text-only projection. New callers should
+// use DecodeUserMessage so attachment metadata cannot be silently discarded.
 func DecodeUserText(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
-		return "", errors.New("user record is missing message")
+	message, err := DecodeUserMessage(raw)
+	if err != nil {
+		return "", err
 	}
-	var legacy string
-	if err := json.Unmarshal(raw, &legacy); err == nil {
-		if strings.TrimSpace(legacy) == "" {
-			return "", errors.New("user message is empty")
-		}
-		return legacy, nil
+	if message.HasAttachments() {
+		return "", errors.New("user message contains attachments and cannot be decoded as text")
 	}
-	var message struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-	}
-	if err := json.Unmarshal(raw, &message); err != nil {
-		return "", errors.New("user message must be an API message object")
-	}
-	if message.Role != "" && message.Role != "user" {
-		return "", fmt.Errorf("expected message role %q, got %q", "user", message.Role)
-	}
-	if len(message.Content) == 0 {
-		return "", errors.New("user API message is missing content")
-	}
-	var content string
-	if err := json.Unmarshal(message.Content, &content); err == nil {
-		if strings.TrimSpace(content) == "" {
-			return "", errors.New("user message is empty")
-		}
-		return content, nil
-	}
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(message.Content, &blocks); err != nil || len(blocks) == 0 {
-		return "", errors.New("user API message content must be text or a nonempty text-block array")
-	}
-	parts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		if block.Type != "text" && block.Type != "input_text" {
-			return "", fmt.Errorf("unsupported user content block type %q", block.Type)
-		}
-		if strings.TrimSpace(block.Text) == "" {
-			return "", errors.New("user content text is empty")
-		}
-		parts = append(parts, block.Text)
-	}
-	return strings.Join(parts, "\n"), nil
+	return message.Text(), nil
 }

@@ -48,7 +48,14 @@ VS Code command or webview input
 
 Commands, tools, and tasks remain distinct. A slash command is user-side routing, a tool is a model-callable capability, and a task is identity-bearing work that can outlive one call.
 
-The operational target in this tree is the local-agent core. It is not a declaration that every optional or enterprise subsystem has been built. Repository audits validate the skill hierarchy and contract coverage, while Go tests validate the implemented profile; neither substitutes for a per-contract conformance map. The precise partial and unavailable boundaries live in [runtime-conformance.md](runtime-conformance.md).
+The operational target in this tree is the local-agent core. It is not a
+declaration that every optional or enterprise subsystem has been built.
+Repository audits validate the skill hierarchy, reviewed source-to-contract
+hash bindings, and contract-to-scenario mappings, while Go tests validate the
+implemented profile. Those artifacts form the per-contract evidence map but do
+not by themselves prove that every normative scenario has been executed. The
+precise partial and unavailable boundaries live in
+[runtime-conformance.md](runtime-conformance.md).
 
 ## Component ownership
 
@@ -61,6 +68,7 @@ The operational target in this tree is the local-agent core. It is not a declara
 | `pkg/config` | Strict versioned `auth.json` parsing, Azure normalization, model/effort validation, and redaction. |
 | `pkg/childenv` | Credential-safe child-process environment projection and explicit per-provider environment scoping. |
 | `pkg/identity` | Typed identifier generation, canonical parsing, validation, and wire-safe conversion. |
+| `pkg/attachment` | Explicit path and correlated stream import, byte/magic validation and normalization, immutable private manifests/blobs, upload reservations, and orphan collection. |
 | `pkg/model` | Provider-neutral requests/events plus the Azure OpenAI Responses API adapter. |
 | `pkg/engine` | Serialized submissions, provider streaming, recursive tool continuation, accounting, and terminal outcomes. |
 | `pkg/protocol` | Versioned canonical events with explicit visibility and persistence classes. |
@@ -119,14 +127,21 @@ descriptor.
 
 The semantic model identity is `azure_openai.model`; Azure receives
 `azure_openai.deployment` in the `model` field. Requests use `api-key`,
-`stream:true`, and `store:false`. An empty string or symbolic `v1|preview`
-`azure_openai.api_version` value uses `/openai/v1/responses` without a query,
-matching Azure's documented v1 route. A dated Azure API version selects the
-legacy `/openai/responses` route.
+`stream:true`, and `store:false`. An empty `azure_openai.api_version` uses
+`/openai/v1/responses` without a query. The current compatibility
+implementation also places symbolic `v1` and `preview` on that v1 path but
+sends the configured value literally as the `api-version` query. A dated Azure
+API version uses `/openai/responses` with the same literal query. This source
+behavior is intentionally reported separately from the desired `NET-007`
+route-family contract in the conformance profile.
 
 The provider boundary retains stable Go items across recursive calls:
 
 - user, system, and assistant messages;
+- ordered provider-neutral user text, image, and document content whose native
+  manifest/blob identity may be verified internally during admission/recovery,
+  while only the qualified provider adapter materializes bytes from the session
+  attachment store into a request body;
 - function-call item ID, call ID, name, and raw arguments;
 - function-call outputs correlated by the exact call ID;
 - reasoning summaries and encrypted reasoning content needed for stateless replay;
@@ -134,7 +149,13 @@ The provider boundary retains stable Go items across recursive calls:
 
 When reasoning is enabled, requests include `reasoning.encrypted_content`. Hidden reasoning is never projected into user-visible events or plaintext transcript messages. The encrypted provider item is durable internal continuation state. A response stream is successful only after an explicit terminal event; an SSE `type:error` inside HTTP 200 is still failure.
 
-Retries are bounded, cancellation-aware, honor `Retry-After`, and apply only before any stream event makes execution uncertain. Credentials, headers, request bodies, and raw provider error bodies are excluded from diagnostics.
+Retries are bounded, cancellation-aware, honor `Retry-After`, and apply only
+before any stream event makes execution uncertain. A provider stream resolves,
+preflights, and marshals its media once, reuses the same byte-identical bounded
+payload across its transport attempts, and releases it at terminal settlement;
+a fresh request or context reconstruction re-preflights from typed history.
+Credentials, headers, request bodies, and raw provider error bodies are
+excluded from diagnostics.
 
 Provider-controlled structural metadata is validated before it can become a correlation key, transcript record, hook/permission payload, or capability identity. Response, item, and call identifiers; tool names; discriminators; phases; request identifiers; and opaque encrypted reasoning state fail closed on credential reflection, invalid UTF-8, terminal controls, or bidi/format controls. Model-visible text, summaries, arguments, and provider errors are sanitized across chunk, content-part, and structured-field boundaries, so splitting a credential between otherwise valid fields cannot bypass redaction. The provider-neutral engine repeats the gate before persistence and filters unsafe legacy metadata during restore.
 
@@ -142,7 +163,9 @@ Provider-controlled structural metadata is validated before it can become a corr
 
 For every submission, the engine:
 
-1. assigns a turn identity and persists accepted user input;
+1. assigns a stable prompt/turn identity, completes any explicit attachment
+   import, atomically validates the ordered typed message, and persists
+   accepted user input;
 2. snapshots model, effort, prompt, tools, and limits;
 3. streams canonical text, usage, function calls, errors, and completion;
 4. stores replayable provider output without exposing hidden state;
@@ -234,7 +257,7 @@ Provider-output metadata, semantic assistant messages, tool calls, and results a
 
 ## Surfaces and control plane
 
-Interactive, headless text, single-result JSON, and live NDJSON all use the same engine. Every surface classifies syntactically valid slash commands before model submission. Noninteractive registries advertise only descriptor-opted-in commands; recognized-but-unsupported and valid-unknown commands fail locally, while invalid slash grammar remains ordinary prompt text. Structured stdout contains JSON records only; warnings and session-scoped diagnostic logs use stderr. Routine turn start and successful-completion diagnostics are DEBUG, so the default INFO threshold keeps successful turns quiet while WARN and ERROR conditions remain eligible. `-d` or `--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata; retry warnings carry session and model identity. For persistent sessions, the accepted user event, provider-usage records, and terminal turn result remain authoritative in the append-only transcript regardless of logger level whenever their append and flush succeed. Diagnostics never admit prompts, model text, tool arguments or results, file contents, headers, bodies, or configured credential values. The decoder handles arbitrary chunks, blank lines, a final unterminated record, malformed-input failure, and unknown-type warnings. U+2028/U+2029 are escaped.
+Interactive, headless text, single-result JSON, and live NDJSON all use the same engine. Headless CLI accepts repeatable explicit `--attachment PATH` PNG/JPEG/PDF imports, while live NDJSON negotiates a version-1 capability and uses correlated bounded begin/chunk/commit/abort before a typed reference can be admitted. Capability sources are scoped objects: `file_path` is `initial_cli` and `stream_json_v1` is `per_turn`. The advertised `max_uploads_per_session` value binds two independent 100,000 ceilings: durable committed manifests in the session store and terminal accepted upload lifecycle IDs in the current in-process ledger. Capability absence and the interactive/VS Code input adapters remain text-only. Every surface classifies syntactically valid slash commands before model submission; an attachment-bearing message cannot become a local command. Noninteractive registries advertise only descriptor-opted-in commands; recognized-but-unsupported and valid-unknown commands fail locally, while invalid slash grammar remains ordinary prompt text. Structured stdout contains JSON records only; warnings and session-scoped diagnostic logs use stderr. Routine turn start and successful-completion diagnostics are DEBUG, so the default INFO threshold keeps successful turns quiet while WARN and ERROR conditions remain eligible. `-d` or `--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata; retry warnings carry session and model identity. For persistent sessions, the accepted user event, provider-usage records, and terminal turn result remain authoritative in the append-only transcript regardless of logger level whenever their append and flush succeed. Diagnostics never admit prompts, model text, tool arguments or results, attachment bytes/base64/source or storage paths, provider data URLs/bodies, headers, or configured credential values. The decoder handles arbitrary chunks, blank lines, a final unterminated record, malformed-input failure, and unknown-type warnings. U+2028/U+2029 are escaped.
 
 The additive `--list-sessions` and `--delete-session` modes are separate
 provider-free CLI adapters, not headless turns or duplex SDK controls. Their
@@ -245,7 +268,7 @@ revision tokens are opaque. The shared session manager, rather than the CLI
 renderer or VS Code presentation cache, owns filesystem enumeration and
 mutation.
 
-The live reader continues while a turn runs so permission/control responses cannot deadlock behind model execution. Control waiters register before emission. User messages enter a bounded stable-priority queue; a `now` record cancels the current turn and then runs as the next serialized workload, while `next` and `later` wait. This is queued-turn preemption, not injection of new context into an in-flight recursive model/tool turn. Duplicate UUIDs are silent unless replay acknowledgement is enabled, in which case a schema-valid replay user record is emitted without execution. Interrupt returns a correlated control response and cancels the active turn; accepted tool IDs still settle before idle. Public records use the closed SDK discriminator union rather than wrapping internal protocol events. Initialize-time hook/MCP/prompt/agent/schema injection, historical assistant replay, and live environment/model/permission-mode mutation are explicit unsupported control outcomes.
+The live reader continues while a turn runs so permission/control responses cannot deadlock behind model execution. Control waiters register before emission. User messages enter a bounded stable-priority queue; a typed record and all committed attachment references are completely validated and reserved before a `now` record cancels the current turn, then it runs as the next serialized workload, while `next` and `later` wait. This is queued-turn preemption, not injection of new context into an in-flight recursive model/tool turn. Duplicate UUIDs are silent unless replay acknowledgement is enabled, in which case a schema-valid replay user record with the complete bounded manifest—including opaque content-addressed storage identity but no bytes or paths—is emitted without execution. Interrupt returns a correlated control response and cancels the active turn; accepted tool IDs still settle before idle. Public records use the closed SDK discriminator union rather than wrapping internal protocol events. Initialize-time hook/MCP/prompt/agent/schema injection, historical assistant replay, and live environment/model/permission-mode mutation are explicit unsupported control outcomes.
 
 ### VS Code workspace adapter
 
@@ -300,26 +323,35 @@ Availability is represented across independent axes: compiled inclusion, runtime
 | Domain | Current profile |
 | --- | --- |
 | Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse its version-1 document as their sole model credential source. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
-| Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. |
-| Headless text and aggregate JSON | Operational over the shared engine; separate additive session list/delete flags use a provider-free text or one-object JSON management adapter. |
+| Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. Native PNG/JPEG/conservative-PDF request construction is configuration-qualified for empty/`v1`/`preview` selectors and loopback-tested. One current-worktree profile passed representative live positive-path checks; every release artifact and claimed deployment/selector/platform still requires its own complete `MOD-A14B` run. |
+| Headless text and aggregate JSON | Operational over the shared engine, including repeatable selected-path PNG/JPEG/PDF input and attachment-only turns; separate additive session list/delete flags use a provider-free text or one-object JSON management adapter. |
 | Local diagnostic logging | Operational: credential-filtered JSON records use stderr; routine turn start/success records are DEBUG, WARN/ERROR conditions remain eligible at the default INFO threshold, and `-d`/`--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata without payload content. Retry warnings carry session and model identity. With persistence enabled, durable lifecycle evidence remains in the transcript independently of logger level whenever append and flush succeed. |
-| Bidirectional NDJSON | Partial: correlated controls and bounded priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |
+| Bidirectional NDJSON | Partial: capability-negotiated version-1 bounded attachment import, typed messages, correlated controls, and atomic priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |
 | VS Code workspace extension | Partial: Activity Bar chat, streaming, tool/result projection, permissions/questions, workspace-scoped sessions, editor references, Restricted Mode gating, diagnostics, and target VSIX packaging are operational. The runtime CLI now owns authoritative inventory/deletion, but this change does not integrate it into or modify the extension's lossy presentation cache; attachments, authoritative inventory/history replay in the extension, live runtime mutation, remote AgentX transport, IDE MCP/LSP bridging, and native qualification of every packaged platform are unavailable. |
 | Interactive terminal | Partial: a terminal-safe line REPL is operational; retained rendering, rich editor state, and the full terminal engine are unavailable. |
 | Read/Write/Edit/Glob/Grep/Bash/question/task tools | Operational with permission enforcement; text-file profile. |
-| Durable transcripts, resume, continue, fork, inventory, deletion | Partial: append/recovery, response-group uncertainty handling, active-branch projection, completion-gated fork publication, bounded workspace inventory, and identity-bound crash-retry deletion are operational; legacy graph compatibility, rewind, tombstone/snip replay, and general sidechain editing are unavailable. |
+| Durable transcripts, resume, continue, fork, inventory, deletion | Partial: append/recovery, manifest-only native attachment persistence, verified session-owned blobs, safe fork copying, response-group uncertainty handling, active-branch projection, completion-gated fork publication, bounded workspace inventory, and identity-bound crash-retry deletion are operational; legacy graph compatibility, rewind, tombstone/snip replay, and general sidechain editing are unavailable. |
 | Local background shell and task/work-item state | Operational; restart marks uncertain local processes failed and never replays. |
 | Repository `.codex/skills`, plugin manifests, output styles, hooks | Operational as immutable, source-attributed session generations; project sources require explicit trust. |
 | MCP stdio client | Partial: lifecycle, tool discovery/calls, generation fencing, and result normalization are operational; media forwarding and fingerprint-bound project approval are unavailable. |
 | Standalone MCP stdio tool host | Operational for the local core catalog after the common application-home and `auth.json` existence gates; `--mcp-server` reuses capability/permission contracts without parsing credentials or constructing a model client. |
 | MCP HTTP/SSE/WebSocket/OAuth, server-initiated elicitation/channels, and LSP | Configuration or protocol rejection state is represented where applicable; no executable adapter is registered. |
 | Persistent project memory | Conditional for non-bare persistent sessions within the local bounded/heuristic profile: it uses an absolute-workspace hash outside the session tree, not canonical linked-worktree identity or configurable memory roots. Unix owner-only mode enforcement is operational; Windows model-backed startup is unavailable before memory construction. |
-| Automatic/manual compaction | Partial: durable deterministic excerpt projections are operational; complete specified semantic compaction and distributed memory/consolidation are unavailable. |
+| Automatic/manual compaction | Partial: durable deterministic excerpt projections and bounded newest-native-media projection/quarantine are operational; complete specified semantic compaction and distributed memory/consolidation are unavailable. |
 | Remote bridge/cloud transport | Contract-only: identity, epoch, replay, gate, ACK, and lifecycle primitives exist, but no transport is registered or fabricated. |
 | Delegated-agent/team backend, retained-mode TUI, HTTP/SSE MCP OAuth, LSP, remote bridge transport, voice, browser/computer use | Explicitly unavailable; state/transport contracts do not fabricate an executable backend. |
 
 ## Validation strategy
 
-Go tests cover malformed wire input, SSE chunking and terminal failures, retry/cancellation, credential redaction, transcript corruption and unresolved calls, scheduler barriers, exact-once results, permission precedence, symlinks and protected paths, shell compounds/redirections, edited approvals, task races, extension precedence/cycles, MCP correlation, distributed replay gates, shutdown idempotence, and stdout purity. Loopback mock servers validate HTTP without using the production deployment.
+Go tests cover malformed wire input, attachment import/media/path/store bounds,
+escaped-name/comment-spoof/classic-xref/page-tree PDF rejection, independent
+manifest/upload-ledger ceilings, typed queueing and replay, exact loopback image/PDF request JSON, SSE chunking
+and terminal failures, retry/cancellation, credential redaction, transcript
+corruption and unresolved calls, scheduler barriers, exact-once results,
+permission precedence, symlinks and protected paths, shell
+compounds/redirections, edited approvals, task races, extension
+precedence/cycles, MCP correlation, distributed replay gates, shutdown
+idempotence, and stdout purity. Loopback mock servers validate HTTP without
+using or qualifying the production deployment.
 
 Extension unit tests cover NDJSON chunking and bounds, protocol validation and correlation, child shutdown, presentation reduction, workspace cache bounds, editor-context bounds, diagnostic redaction, and webview injection defenses. The VS Code 1.95.3 Extension Host suite activates the built extension without a model turn, checks manifest-to-command registration, and verifies both trusted and Restricted Mode profiles; the Restricted Mode case uses a calibrated executable sentinel to prove that neither automatic nor explicit command paths spawn AgentX. A separate offline smoke test builds the actual Go binary and completes `system/init` plus correlated `initialize` using synthetic credentials and isolated state; it deliberately sends no user turn. Production bundling separates the CommonJS extension host from the browser-only webview bundle, while target packaging cross-builds one native binary, excludes source/tests/dependencies/maps/credential paths from the VSIX, checks archive integrity, and emits a SHA-256 sidecar. Cross-build success is not native runtime evidence.

@@ -30,6 +30,8 @@ Core state:
 - pending control and permission requests
 - held-back terminal result
 - pending prompt suggestion
+- active versioned attachment uploads, their byte/count reservations, prompt
+  correlation, and terminal acknowledgements
 - finite background tasks, long-lived teammates and task notifications
 - model/tool/MCP/plugin/session settings refreshed at turn boundaries
 - last retained ordinary result, which determines the eventual normal EOF exit status
@@ -78,6 +80,18 @@ User UUID handling:
 
 - **RUN-008 — Record ordering.** Prepended/internal user records are inserted before the next external record and rechecked between records from the same input chunk.
 - **RUN-009 — Replay boundary.** Replayed messages implement context but cannot silently execute their old tools or commands.
+- **RUN-026 — Typed user admission.** Decode and fully validate a user record
+  into its ordered typed content before inserting it into the queue. The queue
+  retains that typed message rather than re-collapsing it to text. Reserve one
+  prompt UUID while queued/active. Duplicate UUID admission, an uncommitted or
+  cross-prompt attachment, and aggregate media failure reject the complete
+  record.
+- **RUN-027 — Import lifecycle.** Dispatch `attachment_import` records in the
+  concurrent reader. `begin` reserves attachment identity, declared decoded
+  bytes, aggregate bytes, storage bytes, and an upload slot; exact-sequence
+  chunks append strict base64; `commit` validates raw size/digest and media,
+  then publishes an immutable manifest; `abort` removes temporary data. No user
+  record may reference an upload until committed.
 - **RUN-025 — Reader callback isolation.** A local duplex reader must either be a finite in-memory source or expose `Close` as its interruption contract. Run callback-owned `Read` and `Close` outside the decoder and protocol-pump join path. Do not format, unwrap, or classify a reader-owned error: exact EOF is the only distinguished callback result, and every other error or callback panic becomes one fixed input failure. Discard bytes returned alongside a non-EOF error so an already-observed source failure cannot race semantic admission. Cancellation closes the owned pipe, decoder queue, and pump even when a broken callback panics or ignores `Close`; such a callback may be abandoned without session references rather than keeping structured shutdown open.
 
 ## Serialized run loop
@@ -115,6 +129,12 @@ Priority is `now`, `next`, `later`, preserving FIFO order within a priority.
 
 - **RUN-013 — Main-thread filtering.** The headless main runner dequeues only commands owned by the main session; task/subagent queues use their own lifecycle.
 - **RUN-014 — Cancellation window.** `cancel_async_message` succeeds only while the target UUID is still queued. After dequeue it returns `cancelled=false` and does not interrupt unless a separate interrupt is requested.
+- **RUN-028 — Native queue bounds and interrupt ordering.** The standalone
+  stream-JSON queue admits at most 128 records and 16 MiB of aggregate
+  serialized queue accounting. It inserts a fully admitted message before a
+  valid `now` input interrupts active work. A malformed, missing, incomplete,
+  tampered, over-limit, or duplicate attachment record produces an input-error
+  result and leaves healthy active work running.
 
 ## Tasks, result holdback, and idle
 
@@ -150,11 +170,13 @@ On input EOF:
 
 1. Parse and dispatch a nonempty unterminated tail as one final record.
 2. Mark input closed and reject only control waiters still pending so new outbound requests fail immediately.
-3. Finish the current queued/running workload.
-4. If an active team remains, wait without a deadline. A team-lead path polls active task/roster state and the lead mailbox every 500 ms, injects the shutdown prompt at most once through its process-local latch, processes correlated approvals, and continues polling until no teammate remains. Before that path, waiting for already-working in-process teammates to become idle is callback-based and also has no deadline.
-5. Await a pending suggestion for at most 5,000 ms.
-6. Unsubscribe auth/rate-limit/settings/task listeners and finalize hooks.
-7. End the output adapter and run cleanup under the adapter-specific flush guarantees described below.
+3. Abort every uncommitted attachment upload, remove its temporary file and
+   reservation, and emit its one terminal `eof` acknowledgement.
+4. Finish the current queued/running workload.
+5. If an active team remains, wait without a deadline. A team-lead path polls active task/roster state and the lead mailbox every 500 ms, injects the shutdown prompt at most once through its process-local latch, processes correlated approvals, and continues polling until no teammate remains. Before that path, waiting for already-working in-process teammates to become idle is callback-based and also has no deadline.
+6. Await a pending suggestion for at most 5,000 ms.
+7. Unsubscribe auth/rate-limit/settings/task listeners and finalize hooks.
+8. End the output adapter and run cleanup under the adapter-specific flush guarantees described below.
 
 - **RUN-017 — EOF settlement.** Parse and dispatch any final unterminated input record first; then mark input closed and reject only control requests still pending with an input-stream-closed error.
 - **RUN-018 — Team close gate and unbounded compatibility wait.** Do not close while a team remains registered. The specified EOF path has no maximum wait, maximum poll count, response deadline, or automatic force-kill escalation: a silent, rejecting, non-idling, or stale registered teammate can keep stdout/output open indefinitely. The lead polls every 500 ms and uses one process-local `shutdownPromptInjected` latch to avoid duplicate prompt injection in the normal lead branch. A process signal or external shutdown may separately enter global cleanup, which best-effort kills owned pane workers before deleting team data; that is not a deadline escalation from this EOF loop. A port that adds a close deadline must expose it as an intentional behavioral divergence and define the resulting terminal status and cleanup evidence.
@@ -239,6 +261,14 @@ When a hard SDK interrupt races a pending host permission, synchronous abort lis
 17. Replay assistant, system and duplicate user records; verify all rebuild context as applicable, only the assistant/user acknowledgement is echoed under replay mode, no old tool executes, and ephemeral result/control/state events are not invented from transcript history.
 18. Return an uncomparable reader error whose `Error`, `Is`, and `Unwrap` methods panic, panic from `Read` and `Close`, and separately block cooperative and noncooperative reader callbacks. Verify the raw error methods are never invoked, an initialized stream emits exactly one fixed terminal input-error result, cancellation closes the decoder queue and protocol pump, and shutdown does not wait behind a broken callback.
 19. Run the same persistent successful model-backed turn at INFO and DEBUG through text, aggregate JSON, and stream JSON. Normalize IDs and timestamps; stdout remains semantically identical and protocol-clean, while diagnostics use stderr only. The transcript contains the accepted user message, completed provider usage, and exactly one model-hidden terminal `turn_result` at both levels. The visible final `result` remains an ephemeral projection rather than a duplicate transcript record.
+20. Begin two correlated uploads, reorder/repeat a chunk in one and close input
+before committing the other. The first upload terminalizes as failed, the
+second as aborted with reason `eof`, all files/reservations settle once, and
+neither attachment can enter a user message.
+21. During an active turn, submit invalid attachment-bearing `now`, then valid
+`later`, `next`, and `now` records. Invalid input does not interrupt; valid
+records preserve typed content, priority/FIFO ordering, and their original
+prompt UUID through results.
 
 ## Non-normative provenance
 

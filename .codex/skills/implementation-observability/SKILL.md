@@ -11,7 +11,7 @@ Observe the semantic runtime without becoming its authority. Read [observability
 
 1. Start from a canonical semantic event or explicit operational measurement.
 2. Classify fields by privacy, cardinality, source, and whether aggregation is sufficient.
-3. For local DEBUG diagnostics, prefer maximum safe evidence: stable stage and reason codes, bounded counts, booleans, classifications, correlation IDs, and durations. Never substitute payloads or exact secret-capable configuration merely because DEBUG was requested.
+3. For local DEBUG diagnostics, prefer maximum safe evidence: stable stage and reason codes, bounded counts, booleans, classifications, correlation IDs, and durations. Never substitute payloads or exact secret-capable configuration merely because DEBUG was requested; attachment bytes, base64, source/storage paths, decoded content, data URLs, and provider bodies remain prohibited.
 4. Apply opt-out, essential-traffic, managed-policy, build, and sink kill-switch decisions before routing.
 5. Update authoritative local usage/cost counters separately from best-effort exporters.
 6. Bound queues, batches, retries, disk persistence, open spans, and shutdown flush.
@@ -19,4 +19,7 @@ Observe the semantic runtime without becoming its authority. Read [observability
 
 ## Completion check
 
-Satisfy all `OBS-*` rules and scenarios. Test privacy filtering, high-cardinality rejection, duplicate exposure, offline disk fallback, process restart, queue overflow, stale spans, malformed sink response, and shutdown timeout.
+Satisfy all `OBS-*` rules and scenarios. Test privacy filtering including hostile
+attachment failures, high-cardinality rejection, duplicate exposure, offline
+disk fallback, process restart, queue overflow, stale spans, malformed sink
+response, and shutdown timeout.

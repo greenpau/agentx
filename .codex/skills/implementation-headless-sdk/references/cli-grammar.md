@@ -98,6 +98,7 @@ accepted as a boolean spelling.
 | `--include-hook-events` | flag |
 | `--include-partial-messages` | flag |
 | `--replay-user-messages` | flag |
+| `--attachment <path>` | one nonempty path; repeatable; initial headless user input |
 | `--enable-auth-status` | hidden flag, default false |
 | `--max-thinking-tokens <tokens>` | hidden/deprecated number |
 | `--max-turns <turns>` | hidden number |
@@ -167,6 +168,12 @@ accepted as a boolean spelling.
 | `--disable-slash-commands` | flag |
 | `--chrome` / `--no-chrome` | positive/negative pair |
 | `--file <specs...>` | variadic `file_id:relative_path` values |
+
+`--attachment` is distinct from the legacy/download-oriented `--file` family.
+It preserves one explicit path per occurrence, implies headless execution even
+without prompt text, and delegates all path/media validation to the native
+session attachment importer. It is not accepted by native session management
+or the standalone MCP tool host.
 
 The semantic conflict and validation matrix remains `CLI-010` through `CLI-020`; grammar recognition alone never authorizes dangerous permission mode, extra paths, plugins, files, or MCP servers.
 
@@ -355,6 +362,10 @@ SSH's help stub is `agentx ssh <host> [dir] [--permission-mode <mode>] [--danger
 9. Invoke XAA grammar with the gate off. Verify `xaa`/`--xaa` are absent or unknown; with the gate on, validate the setup/login forms exactly.
 10. Build without direct connect, bridge, classifier, and internal distribution support. Help and parser omit all corresponding commands; the default session remains usable.
 11. Invoke `-d` and `--debug` and verify both enable the same boolean diagnostic mode. In the standalone Go profile, reject `--debug=<filter>`, `-d2e`, `--debug-to-stderr`, `--debug-file`, and `--mcp-debug` before session construction.
+12. Invoke `--attachment A --attachment=B` with prompt text and with no text.
+Preserve `A,B` in occurrence order and infer headless mode for both. Reject a
+missing/empty path, session-management and standalone-MCP combinations, and a
+slash-prefixed prompt carrying attachments.
 
 ## Non-normative provenance
 

@@ -18,6 +18,7 @@ Use this map to load every owner involved in a cross-cutting feature. The first 
 | Exact SDK permission request/response wire | `implementation-headless-sdk` | permissions/sandbox, remote bridge, multi-agent |
 | Optional product experiences | `implementation-optional-experiences` | platform lifecycle, tool catalog, feature/profile gates |
 | User command and prompt routing | `implementation-commands-input` | interactive REPL, headless SDK, skills/output |
+| User attachment import and typed-message admission | `implementation-commands-input` | headless SDK, query/model, transcript recovery, memory compaction, auth/network, platform lifecycle, observability |
 | Runtime skills and output styles | `implementation-skills-output` | commands/input, state/context, plugins/hooks |
 | Plugin and hook lifecycle | `implementation-plugins-hooks` | tool protocol, startup settings, MCP/LSP |
 | MCP and LSP protocols | `implementation-mcp-lsp` | tool protocol, auth/network, headless SDK |

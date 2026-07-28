@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/distributed"
 	"github.com/greenpau/agentx/pkg/engine"
 	"github.com/greenpau/agentx/pkg/extensions"
@@ -19,7 +20,9 @@ import (
 	"github.com/greenpau/agentx/pkg/memory"
 	"github.com/greenpau/agentx/pkg/observability"
 	"github.com/greenpau/agentx/pkg/platform"
+	"github.com/greenpau/agentx/pkg/protocol"
 	"github.com/greenpau/agentx/pkg/sandbox"
+	"github.com/greenpau/agentx/pkg/surface"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -289,17 +292,38 @@ func sandboxHealth(runner *sandbox.Runner) string {
 }
 
 func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string) (engine.Outcome, error) {
+	return r.submitMessage(ctx, protocol.Message{
+		Role: protocol.RoleUser, Content: []protocol.ContentBlock{protocol.TextBlock(text)},
+	}, promptID)
+}
+
+func (r *runtimeSession) submitMessage(ctx context.Context, message protocol.Message, promptID string) (engine.Outcome, error) {
 	if promptID != "" && r.engine.HasPromptID(promptID) {
-		return r.engine.SubmitPrompt(ctx, text, promptID)
+		return r.engine.SubmitMessage(ctx, message, promptID)
 	}
 	if r.services.scope != nil {
 		r.services.scope.Reset()
 	}
-	text = r.sanitize(text)
+	message.Role = protocol.RoleUser
+	message.Content = append([]protocol.ContentBlock(nil), message.Content...)
+	attachmentCount := 0
+	var attachmentBytes int64
+	for index := range message.Content {
+		switch message.Content[index].Type {
+		case protocol.ContentText:
+			message.Content[index].Text = r.sanitize(message.Content[index].Text)
+		case protocol.ContentAttachment:
+			attachmentCount++
+			attachmentBytes += message.Content[index].SizeBytes
+		}
+	}
+	text := userMessageText(message)
 	hooks := r.services.extensions
 	observability.Log(r.logger, zapcore.DebugLevel, "turn admission started",
 		zap.String("session_id", string(r.engine.SessionID())),
 		zap.Int("input_bytes", len(text)),
+		zap.Int("attachment_count", attachmentCount),
+		zap.Int64("attachment_bytes", attachmentBytes),
 		zap.Bool("prompt_id_present", promptID != ""),
 		zap.Int("hook_count", len(hooks.hooks.Hooks)),
 	)
@@ -307,7 +331,7 @@ func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string
 		aggregate, err := hooks.runner.Dispatch(ctx, hooks.hooks, extensions.HookInput{
 			SessionID: string(r.engine.SessionID()), TranscriptPath: r.transcriptPath(), CWD: r.workspace,
 			PermissionMode: r.permissionMode, Event: extensions.HookUserPromptSubmit,
-			Fields: map[string]any{"prompt": text},
+			Fields: map[string]any{"prompt": text, "attachments": hookAttachmentMetadata(message)},
 		})
 		if err != nil {
 			observability.Log(r.logger, zapcore.DebugLevel, "turn admission failed",
@@ -327,7 +351,10 @@ func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string
 			return engine.Outcome{}, errors.New(fallback(aggregate.Reason, "user prompt hook stopped the turn"))
 		}
 		if len(aggregate.Contexts) > 0 {
-			text += "\n\n<hook_context>\n" + strings.Join(aggregate.Contexts, "\n") + "\n</hook_context>"
+			message.Content = append(message.Content, protocol.TextBlock(
+				"\n\n<hook_context>\n"+strings.Join(aggregate.Contexts, "\n")+"\n</hook_context>",
+			))
+			text = userMessageText(message)
 		}
 		observability.Log(r.logger, zapcore.DebugLevel, "turn hooks completed",
 			zap.String("session_id", string(r.engine.SessionID())),
@@ -339,7 +366,76 @@ func (r *runtimeSession) submitPrompt(ctx context.Context, text, promptID string
 		zap.String("session_id", string(r.engine.SessionID())),
 		zap.Int("effective_input_bytes", len(text)),
 	)
-	return r.engine.SubmitPrompt(ctx, r.sanitize(text), promptID)
+	return r.engine.SubmitMessage(ctx, message, promptID)
+}
+
+func userMessageText(message protocol.Message) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, block := range message.Content {
+		if block.Type == protocol.ContentText {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func (r *runtimeSession) importInitialAttachments(
+	ctx context.Context,
+	text string,
+	paths []string,
+	promptID string,
+) (protocol.Message, error) {
+	message := protocol.Message{Role: protocol.RoleUser}
+	if strings.TrimSpace(text) != "" {
+		message.Content = append(message.Content, protocol.TextBlock(text))
+	}
+	if len(paths) == 0 {
+		if err := message.Validate(); err != nil {
+			return protocol.Message{}, err
+		}
+		return message, nil
+	}
+	if !r.inputMediaEnabled || r.attachments == nil {
+		return protocol.Message{}, errors.New("the configured provider/model does not advertise attachment input")
+	}
+	if len(paths) > r.attachments.Limits().MaxAttachmentsPerMessage {
+		return protocol.Message{}, errors.New("initial attachment count exceeds the session limit")
+	}
+	if err := surface.ValidateUUID(promptID); err != nil {
+		return protocol.Message{}, errors.New("initial attachments require a stable prompt UUID")
+	}
+	for index, path := range paths {
+		manifest, err := r.attachments.ImportFile(ctx, attachment.FileImport{Path: path})
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("attachment %d import failed: %s", index+1, uploadErrorCode(err))
+		}
+		message.Content = append(message.Content, protocol.AttachmentBlock(manifest))
+		r.uploadMu.Lock()
+		r.attachmentPrompts[manifest.AttachmentID] = promptID
+		r.uploadMu.Unlock()
+	}
+	if err := message.Validate(); err != nil {
+		return protocol.Message{}, err
+	}
+	return message, nil
+}
+
+func hookAttachmentMetadata(message protocol.Message) []map[string]any {
+	result := make([]map[string]any, 0)
+	for _, block := range message.Content {
+		if block.Type != protocol.ContentAttachment {
+			continue
+		}
+		result = append(result, map[string]any{
+			"attachment_id": block.AttachmentID,
+			"kind":          block.Kind,
+			"name":          block.Name,
+			"mime_type":     block.MIMEType,
+			"size_bytes":    block.SizeBytes,
+			"sha256":        block.SHA256,
+		})
+	}
+	return result
 }
 
 func (r *runtimeSession) transcriptPath() string {

@@ -113,6 +113,7 @@ module SourceInventory
   }.freeze
 
   PACKAGE_OWNER = {
+    'pkg/attachment/' => 'implementation-commands-input',
     'pkg/childenv/' => 'implementation-auth-network',
     'pkg/cli/' => 'implementation-headless-sdk',
     'pkg/command/' => 'implementation-commands-input',

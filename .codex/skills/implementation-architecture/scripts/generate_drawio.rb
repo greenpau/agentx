@@ -10,7 +10,7 @@ SKILLS = File.join(ROOT, '.codex/skills')
 
 SPECS = {
   'implementation-architecture' => ['System boundary and dependency direction',
-    ['External event', 'Identity · trust · settings · policy', 'Session state + registries', 'Context + model loop', 'Capability boundary · bounded edited-input reauthorization', 'Transcript + tasks + usage', 'Surface adapters'],
+    ['External event', 'Identity · trust · settings · policy', 'Session state + registries', 'Typed input · immutable attachment store', 'Context + model loop', 'Capability · transcript · tasks · usage', 'Surface adapters'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,3],[3,6],[5,6]]],
   'implementation-runtime-core' => ['Semantic runtime core',
     ['Entrypoint event', 'Startup + settings', 'State + context', 'Query + model stream', 'Canonical events', 'Continuity', 'Surface adapter'],
@@ -19,14 +19,14 @@ SPECS = {
     ['Model tool_use', 'Canonical tool protocol', 'Permission + sandbox', 'Concrete tool family', 'Long-lived task', 'Normalized tool_result', 'Transcript continuation'],
     [[0,1],[1,2],[2,3],[3,5],[3,4],[4,5],[5,6]]],
   'implementation-user-surfaces' => ['Surface adapters over semantic events',
-    ['Semantic event stream', 'Terminal engine', 'Interactive REPL', 'Headless + SDK', 'Optional experience', 'Human / host', 'Normalized input'],
+    ['Semantic event stream', 'Terminal', 'Interactive text-only REPL', 'Headless CLI path + negotiated stream-JSON', 'Optional surface', 'User / host', 'Normalized typed input'],
     [[0,1],[1,2],[0,3],[0,4],[2,5],[3,5],[4,5],[5,6],[6,0]]],
   'implementation-extension-plane' => ['Extension discovery and registry merge',
     ['Built-in + filesystem + remote sources', 'Validate + attribute', 'Commands + input', 'Skills + output styles', 'Plugins + hooks', 'MCP + LSP', 'Session registries'],
     [[0,1],[1,2],[1,3],[1,4],[1,5],[2,6],[3,6],[4,6],[5,6]]],
   'implementation-continuity' => ['Durable history and derived projections',
-    ['Canonical event', 'Append-safe transcript', 'Message graph', 'Resume / fork / rewind', 'Memory selection', 'Compaction projection', 'Next model context'],
-    [[0,1],[1,2],[2,3],[2,4],[2,5],[4,6],[5,6],[3,6]]],
+    ['Typed user event + manifests', 'Append transcript + message DAG', 'Private immutable blob store', 'Verify durable references · resume/fork', 'Pressure select', 'Compact + quarantine', 'Coherent bounded context'],
+    [[0,1],[0,2],[1,3],[2,3],[3,4],[4,5],[5,6]]],
   'implementation-distributed-runtime' => ['Distributed placement with shared semantics',
     ['Parent session', 'Task identity', 'Agent / team', 'Bridge / remote transport', 'Permission relay', 'File output + append-backed mailbox · attempt ≠ ack · no dedup ID', 'Result synthesis'],
     [[0,1],[1,2],[1,3],[2,4],[3,4],[2,5],[3,5],[5,6],[6,0]]],
@@ -40,7 +40,7 @@ SPECS = {
     ['Process bootstrap', 'Session application state', 'Turn snapshot', 'Durable transcript', 'Ordered context sections', 'Cacheable / volatile boundary', 'Effective prompt'],
     [[0,1],[1,2],[3,1],[1,4],[2,4],[4,5],[5,6]]],
   'implementation-query-model' => ['Recursive query and stream recovery',
-    ['Accepted input persisted', 'Compose request', 'Stream model blocks', 'Execute paired tools', 'Drain queued context', 'Enforce limits / compact', 'Final or recurse'],
+    ['Accepted typed input persisted', 'Resolve / verify media + compose', 'Preflight + immutable payload', 'Stream model blocks', 'Execute tools + queued context', 'Context reduction / quarantine', 'Final or recurse'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,1]]],
   'implementation-tool-protocol' => ['Validated tool-use lifecycle',
     ['Resolve + structural validation', 'PreToolUse hooks', 'Permission + bounded edited-input rebuild', 'Postauthorization semantic validation', 'Execute + progress', 'Map terminal result', 'Post hooks + cleanup'],
@@ -61,14 +61,14 @@ SPECS = {
     ['Prompt editor + paste/history', 'Command / queue dispatch', 'Generation-aware query guard', 'Semantic session events', 'Message projection', 'Dialogs / overlays / scroll', 'Rendered interaction'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0]]],
   'implementation-headless-sdk' => ['Headless dual loop and correlated protocol',
-    ['NDJSON / text input', 'Input + control reader', 'Priority queue + mutex', 'Semantic query loop', 'FIFO SDK event writer', 'Finite work → result → suggestion → internal flush → idle', 'EOF after workload → unbounded team gate → adapter close / cleanup'],
-    [[0,1],[1,2],[2,3],[3,4],[4,5],[4,3],[5,6]]],
+    ['Legacy text · typed user · upload', 'Capability + strict reader', 'Commit manifests + atomic queue', 'Semantic query loop', 'FIFO event writer', 'Finite work → result → internal flush → idle', 'EOF / abort upload cleanup'],
+    [[0,1],[1,2],[2,3],[2,4],[3,4],[4,5],[2,6],[5,6]]],
   'implementation-optional-experiences' => ['Feature-profile optional experiences',
     ['Compile inclusion', 'Runtime gate', 'Identity / account', 'Policy + platform', 'Optional adapter', 'Owned resources', 'Disabled or degraded behavior'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[3,6]]],
   'implementation-commands-input' => ['User input and command routing',
-    ['Raw prompt / attachments', 'Normalize + expand refs', 'Slash / shell / text classify', 'Command registry resolution', 'Local result / UI · durability is command-specific', 'Process-local priority queue · crash-before-consume loses item', 'Consumption commit → transcript / history'],
-    [[0,1],[1,2],[2,3],[3,4],[3,5],[5,6]]],
+    ['Explicit paths / committed refs', 'Snapshot · magic · decode limits', 'Immutable store + typed union', 'Text-only slash classification', 'Atomic hooks + admission', 'Process-local priority queue', 'Consumption commit → transcript / history'],
+    [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[4,6]]],
   'implementation-skills-output' => ['Skill and output-style lifecycle',
     ['Project skills / multi-source output styles', 'Discover + realpath dedup', 'Parse frontmatter', 'Filter visibility / conditions', 'Substitute invocation context', 'Inject prompt / fork agent', 'Track + survive compaction'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]],
@@ -79,11 +79,11 @@ SPECS = {
     ['Scoped configuration', 'Policy + trust + auth', 'Connect provider', 'Discover tools/resources/language server', 'Adapt validated capability', 'Retry / reconnect / restart', 'Session registry + status'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,2],[3,6]]],
   'implementation-transcript-recovery' => ['Append-only message graph and resume',
-    ['Semantic message', 'Append queue + shared JSONL recovery', 'UUID parent graph / DAG', 'Metadata + snapshots', 'Tail-safe load + repair', 'Resume or fork identity', 'Coherent next turn'],
-    [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[2,4]]],
+    ['Committed typed user message', 'Append manifest-only event', 'Private blob store + message DAG', 'Tail-safe load + verify', 'Resume reuse · fork copy', 'Compaction + quarantine restore', 'Coherent next turn'],
+    [[0,1],[0,2],[1,3],[2,3],[2,4],[3,4],[4,5],[5,6]]],
   'implementation-memory-compaction' => ['Context pressure, file memory, and consolidation',
-    ['Transcript + file-memory roots', 'Pressure / recall select', 'Relevant recall + session extraction', 'Full / partial summary', 'Team sync · auto-dream · cache edits', 'Restore files · skills · hooks', 'Bounded model projection'],
-    [[0,1],[1,2],[1,3],[1,4],[2,5],[3,5],[4,5],[5,6]]],
+    ['Transcript + manifest / blob refs', 'Pressure / recall select', 'Keep newest bounded media', 'Text summary + derived markers', 'Quarantine + damage gate', 'Restore files · skills · hooks', 'Bounded model projection'],
+    [[0,1],[1,2],[1,3],[2,4],[3,4],[4,5],[5,6]]],
   'implementation-remote-bridge' => ['Remote session transport and replay',
     ['Authenticate + create/attach', 'Transport + connection generation', 'Observe / dispatch event', 'Adapter response + declared loss window', 'Reconnect from retained cursor', 'Permission/control relay · no local permission deadline', 'Complete / interrupt / close'],
     [[0,1],[1,2],[2,3],[3,4],[4,2],[2,5],[5,6]]],
@@ -91,13 +91,13 @@ SPECS = {
     ['Resolve definition + authority', 'Create agent/task identity', 'Select in-process / process / remote / worktree', 'Independent context + abort', 'Mailbox permission relay · 500/1000 ms polls · no deadline', 'File evidence + live status', 'Correlated shutdown · no auto timeout · explicit cleanup separate'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,0]]],
   'implementation-auth-network' => ['Credential and network boundary',
-    ['Provider/profile selection', 'Credential precedence', 'Secure cache + refresh lock', 'TLS / CA / proxy / client', 'Authenticated request', 'Retry / recreate client', 'Redacted result + cleanup'],
-    [[0,1],[1,2],[2,3],[3,4],[4,5],[5,4],[5,6]]],
+    ['Provider / profile capability', 'Resolve + verify media once', 'Bounded stream-owned payload', 'Authenticated transport', 'Byte-identical retries', 'Media rejection → quarantine', 'Redacted result + payload release'],
+    [[0,1],[1,2],[2,3],[3,4],[4,3],[3,5],[4,5],[5,6],[3,6]]],
   'implementation-platform-lifecycle' => ['Platform resource ownership',
     ['Capability probe', 'Portable adapter', 'Acquire file/process/terminal resource', 'Register cleanup owner', 'Operate with bounds', 'Signal / cancel / shutdown', 'Release idempotently'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6]]],
   'implementation-observability' => ['Non-authoritative operational evidence',
-    ['Canonical semantic event', 'Privacy + opt-out filter', 'Metrics / traces / logs / cost', 'Bounded batch + queue', 'Sink / disk fallback', 'Retry or drop policy', 'No effect on semantic outcome'],
+    ['Semantic · import · provider event', 'Privacy + opt-out filter', 'Bounded counts + aggregate bytes', 'Metrics / traces / logs / cost', 'Sink / disk fallback', 'Retry or drop policy', 'No effect on semantic outcome'],
     [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[0,6]]],
   'implementation-conformance-audit' => ['Traceability and conformance evidence',
     ['Generated artifact + hash', 'Reviewed hash + primary owner', 'Stable contract ID', 'Draw.io topology', 'Acceptance scenario suite', 'Conformance trace', 'verified AgentX change'],
@@ -172,7 +172,7 @@ DOMAIN_META = {
   },
   'implementation-user-surfaces' => {
     focus: [5],
-    guarantee: 'Owns terminal, interactive, headless, SDK, and optional presentation adapters over shared semantic events.',
+    guarantee: 'Owns terminal, interactive, headless structured-stdio, and optional presentation adapters over shared semantic events.',
     boundary: 'Does not own permission truth, transcript truth, task truth, or the meaning of a model turn.',
     crosscut: false
   },
@@ -211,7 +211,7 @@ DOMAIN_META = {
 ROUTER_PURPOSES = {
   'implementation-runtime-core' => 'startup · state · query',
   'implementation-capability-runtime' => 'tools · permission · tasks',
-  'implementation-user-surfaces' => 'terminal · REPL · SDK',
+  'implementation-user-surfaces' => 'terminal · REPL · headless',
   'implementation-extension-plane' => 'commands · skills · plugins · MCP',
   'implementation-continuity' => 'transcript · memory · compaction',
   'implementation-distributed-runtime' => 'remote · agents · teams',
@@ -788,7 +788,17 @@ def flow_page_xml(skill, title, nodes, edges, anchors)
       # extend beyond, the page boundary even though the connector itself is
       # valid. Shift the label inward by half its box plus a small gutter while
       # leaving the rail and its node-avoidance geometry unchanged.
-      label_offset_x = kind == :feedback ? label_width / 2.0 + 12.0 : 0.0
+      label_offset_x = if kind == :feedback
+                         label_width / 2.0 + 12.0
+                       elsif %w[implementation-headless-sdk implementation-user-surfaces].include?(skill) &&
+                             rail_x < [node_center_x(source_position), node_center_x(target_position)].min
+                         rail_x - label_width - 12.0 >= 55.0 ? -(label_width / 2.0 + 12.0) : label_width / 2.0 + 12.0
+                       elsif %w[implementation-headless-sdk implementation-user-surfaces].include?(skill) &&
+                             rail_x > [node_center_x(source_position), node_center_x(target_position)].max
+                         rail_x + label_width + 12.0 <= 1510.0 ? label_width / 2.0 + 12.0 : -(label_width / 2.0 + 12.0)
+                       else
+                         0.0
+                       end
       style = "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=#{exit_x};exitY=#{format('%.3f', exit_y)};entryX=#{format('%.3f', entry_x)};entryY=#{format('%.3f', entry_y)};endArrow=block;endFill=1;strokeColor=#{stroke};strokeWidth=2;#{dash}fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;"
       geometry = <<~XML.chomp
         <mxGeometry x="#{format('%.2f', label_x)}" y="0" width="#{format('%.1f', label_width)}" height="#{format('%.1f', label_height)}" relative="1" as="geometry">

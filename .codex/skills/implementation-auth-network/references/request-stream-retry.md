@@ -38,6 +38,15 @@ client-app identifier, and client request ID.
 
 `NET-007` — Resolve provider route family before sending. For Azure, the empty API-version selector uses `route_family=azure_v1` without a version query; a nonempty configured selector uses `route_family=azure_versioned` and is sent literally after local validation. Values such as `preview` are literal configuration, not latest-version aliases. DEBUG may record that closed route-family enum, `version_source=default|configured`, and a one-based attempt number together with request correlation. It never records the exact configured API version, endpoint, deployment, URL/query, headers, body, or credential. Route selection is deterministic for the attempt and is not silently rewritten after a provider rejection.
 
+`NET-008` — Native media is admitted only after provider/model/API-selector
+qualification and complete request preflight. Admission and recovery may ask
+the store to verify its own identities and digests, but only the provider
+adapter materializes immutable bytes into the provider body. Resolve,
+digest-verify, project, and marshal one stream-owned snapshot before opening
+transport. Enforce 100 media content items, 41,943,040 decoded media bytes,
+55,927,120 encoded media bytes, and 67,108,864 final JSON bytes. Never log,
+persist, diagnose, or return the generated data URL or request body.
+
 ## Streaming lifecycle
 
 `NET-010` — A streamed request emits typed protocol events and accumulates one assistant message: message start, content-block start/delta/stop, message delta/usage/stop, thinking/text/tool-use data, request metadata, and stop reason. Unknown future events are retained/ignored according to forward-compatible protocol rules, not treated as text.
@@ -142,6 +151,28 @@ Cooldown duration is max(server wait or default 30 minutes, minimum 10 minutes).
 
 `NET-033` — Retry/fallback does not duplicate accepted tool side effects. If streamed tool execution has started and cannot be proven unexecuted, disable automatic non-stream fallback or reconcile tool-use identifiers before continuation.
 
+`NET-033A` — Retry/fallback does not duplicate or re-admit native media.
+Bounded transport retries for one provider stream reuse the byte-identical
+preflighted request payload and do not reopen or re-resolve blobs. Release that
+payload at terminal settlement. A fresh provider request, non-stream fallback,
+model fallback, or rebuilt context starts from the same typed manifests,
+reverifies immutable blobs, and reapplies every limit before transport. A
+provider media rejection is nonretryable for the complete projected attachment
+set, produces one authoritative failed turn, and records every unique
+attachment identity/digest in that set as quarantined so later automatic
+projections do not resend the rejected bytes. Classification requires a
+media-bearing request plus status 413/415, an exact closed
+media-specific error code (`media_rejected`, `unsupported_media`,
+`invalid_image`, `invalid_image_url`, `invalid_file`, `invalid_file_data`,
+`image_too_large`, or `file_too_large`), or an exact/suffix-qualified
+`input_image`, `input_file`, `image_url`, or `file_data` parameter. Status 400,
+a terminal SSE failure, or provider prose alone is not media evidence and
+cannot quarantine valid content. After classification, discard every
+provider-owned diagnostic and correlation field for a media-bearing failure
+and expose only a fixed runtime message; arbitrary wrapping or punctuation
+must not reflect request bytes through error, retry, logging, transcript, or
+presentation paths.
+
 `NET-034` — Classify an Azure status 400 as `error_class=provider_configuration` only when its already-sanitized provider message is at most 2 KiB and, after removing leading/trailing ASCII space, tab, CR, and LF, matches this complete ASCII-case-insensitive template with one optional final period: `Azure OpenAI Responses API is enabled only for api-version <minimum> and later`. Do not match a substring or a wording variant. This specialized classification sets `retry_decision=do_not_retry` and wins over `x-should-retry:true`; every other 400 retains ordinary provider-error classification. Preserve only the bounded provider status, code, safe message classification, request ID, and operator remediation. The captured `<minimum>` is retained only when it is at most 32 ASCII bytes, matches exactly `YYYY-MM-DD` or `YYYY-MM-DD-preview`, and contains a valid calendar date; otherwise use generic remediation without the token. The minimum is distinct from and does not reveal the configured value. Do not retry, refresh credentials, rebuild solely for this error, change route families, fall back models, or modify credential configuration. The remediation directs the operator to update the application-home credential configuration with a provider-supported dated value without echoing its exact current version or secret-bearing fields; the empty default-v1 selector is mentioned only as a separate explicit choice when supported.
 
 ## Acceptance scenarios
@@ -164,6 +195,23 @@ Cooldown duration is max(server wait or default 30 minutes, minimum 10 minutes).
 client without a test-only user-agent override and issue one request. Its
 `User-Agent` header is exactly the reduced Chrome 150 desktop value from
 `NET-002`; it contains no AgentX, agent-instance, session, or turn identifier.
+
+**NET-A09 — Native media request boundary.** Use a loopback Azure Responses
+server to observe ordered PNG, JPEG, and conservative-PDF request blocks, then
+exercise each decoded, encoded, media-item-count, final-JSON,
+unsupported-profile, missing-blob, and digest-mismatch boundary. Valid
+construction matches the query/model contract exactly; every locally known
+failure makes zero requests. Cause one retryable transport response and verify
+the store resolves once, every attempt body is byte-identical, and terminal
+settlement releases the retained payload. A remote media rejection makes one
+request and no automatic retry, quarantines every unique native attachment in
+the rejected projected request, and lets no data URL, body, bytes, base64, or
+storage/source path enter diagnostics. Repeat with an unrelated HTTP 400 and
+unrelated terminal SSE failure on media-bearing requests; neither quarantines
+the valid attachment set. Reflect the request data URL through mixed-case
+framing and short base64 fragments separated by whitespace and punctuation in
+every provider error field; the fixed runtime diagnostic exposes no field,
+fragment, request ID, or body byte.
 
 ## Non-normative provenance
 

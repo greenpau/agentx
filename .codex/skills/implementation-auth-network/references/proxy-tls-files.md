@@ -84,6 +84,12 @@ Setting explicit CA replaces runtime defaults, so always include an appropriate 
 
 `FILEAPI-003` — Shared Files API retry performs at most three total attempts, starting at 500 ms and doubling between attempts (500, 1,000 ms waits). It is separate from the model API retry policy.
 
+`FILEAPI-004` — The public remote Files API is not the native user-attachment
+import subsystem. Native CLI and stream-JSON image/PDF inputs use the
+session-owned immutable attachment store and the query/model provider boundary;
+they do not upload through `/v1/files`, inherit the 500 MiB Files API limit,
+or gain arbitrary filesystem/remote-file authority from a `fileId` descriptor.
+
 ## Download
 
 `FILEAPI-010` — Download `GET /v1/files/<encoded-id>/content`, response bytes, 60-second timeout. Status behavior:

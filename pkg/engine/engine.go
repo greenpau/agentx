@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/compact"
 	"github.com/greenpau/agentx/pkg/identity"
 	"github.com/greenpau/agentx/pkg/model"
@@ -43,15 +44,19 @@ const (
 	maximumModelToolCalls     = 256
 	maximumModelCallArguments = 1 << 20
 	maximumModelResponseBytes = 4 << 20
-	providerOutputKey         = "provider_response_output"
-	contextClearKey           = "context_clear"
-	contextProjectionKey      = "context_projection"
+	providerOutputKey         = protocol.MetadataProviderResponseOutput
+	contextClearKey           = protocol.MetadataContextClear
+	contextProjectionKey      = protocol.MetadataContextProjection
 	reasoningEffortKey        = "reasoning_effort"
 	contextProjectionVersion  = 1
 	maximumProjectionBytes    = 4 << 20
 	projectionSummaryBytes    = 24 << 10
 	projectionTargetTokens    = 40_000
 	minimumPreservedItems     = 8
+	maximumRequestMediaItems  = 100
+	estimatedMediaTokens      = 2_000
+	attachmentQuarantineKey   = protocol.MetadataAttachmentQuarantine
+	attachmentQuarantineV1    = 1
 )
 
 var (
@@ -160,8 +165,11 @@ type Config struct {
 	// session. It is always applied after Sanitize and owns semantic inspection
 	// of model-produced JSON before any durable acceptance.
 	CredentialSanitizer *redact.Set
-	Now                 func() time.Time
-	Logger              *zap.Logger
+	// Attachments resolves immutable runtime-owned media only at validation and
+	// provider request boundaries. It never exposes caller-selected paths.
+	Attachments model.AttachmentSource
+	Now         func() time.Time
+	Logger      *zap.Logger
 }
 
 type Engine struct {
@@ -175,11 +183,13 @@ type Engine struct {
 	status            Status
 	active            bool
 	promptIDs         map[string]struct{}
+	promptMessages    map[string]protocol.Message
 	history           []model.Item
 	lastEvent         *protocol.EventID
 	sequence          uint64
 	usage             protocol.Usage
 	permissionDenials []PermissionDenial
+	quarantined       map[attachment.ID]string
 	thresholds        compact.Thresholds
 	compactor         compact.Controller
 }
@@ -193,9 +203,20 @@ type contextProjection struct {
 	Items           []model.Item `json:"items"`
 }
 
+type attachmentQuarantine struct {
+	Version int                         `json:"version"`
+	Items   []attachmentQuarantineEntry `json:"items"`
+}
+
+type attachmentQuarantineEntry struct {
+	AttachmentID attachment.ID `json:"attachment_id"`
+	SHA256       string        `json:"sha256"`
+}
+
 type Outcome struct {
 	SessionID         protocol.SessionID
 	TurnID            protocol.TurnID
+	PromptID          string
 	Status            protocol.TurnResultStatus
 	Text              string
 	StopReason        string
@@ -264,11 +285,13 @@ func New(config Config) (*Engine, error) {
 	}
 	usage := protocol.Usage{Model: config.Model}
 	return &Engine{
-		config:     config,
-		promptIDs:  make(map[string]struct{}),
-		usage:      usage,
-		status:     Status{SessionID: config.SessionID, Model: config.Model, ReasoningEffort: config.ReasoningEffort, Usage: usage},
-		thresholds: thresholds,
+		config:         config,
+		promptIDs:      make(map[string]struct{}),
+		promptMessages: make(map[string]protocol.Message),
+		quarantined:    make(map[attachment.ID]string),
+		usage:          usage,
+		status:         Status{SessionID: config.SessionID, Model: config.Model, ReasoningEffort: config.ReasoningEffort, Usage: usage},
+		thresholds:     thresholds,
 	}, nil
 }
 
@@ -293,6 +316,23 @@ func (e *Engine) HasPromptID(promptID string) bool {
 	_, exists := e.promptIDs[promptID]
 	e.promptMu.RUnlock()
 	return exists
+}
+
+// AcceptedPrompt returns the authoritative metadata-only user message bound to
+// a prompt identifier. It is used for replay acknowledgements so untrusted
+// duplicate input cannot replace durable attachment metadata.
+func (e *Engine) AcceptedPrompt(promptID string) (protocol.Message, bool) {
+	if promptID == "" {
+		return protocol.Message{}, false
+	}
+	e.promptMu.RLock()
+	message, exists := e.promptMessages[promptID]
+	e.promptMu.RUnlock()
+	if !exists {
+		return protocol.Message{}, false
+	}
+	message.Content = append([]protocol.ContentBlock(nil), message.Content...)
+	return message, true
 }
 
 func (e *Engine) lockTurn() error {
@@ -445,12 +485,14 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 	}
 	e.history = nil
 	e.permissionDenials = nil
+	e.quarantined = make(map[attachment.ID]string)
 	e.compactor.Reset()
 	e.lastEvent = nil
 	e.sequence = snapshot.MaxSequence
 	restoredUsage := protocol.Usage{Model: e.config.Model}
 	restoredEffort := e.config.ReasoningEffort
 	promptIDs := make(map[string]struct{})
+	promptMessages := make(map[string]protocol.Message)
 	// Provider response metadata is written before capability acceptance. Build
 	// the accepted-call index first so replay can preserve provider item order
 	// while filtering every raw call that never crossed the durable boundary.
@@ -474,6 +516,9 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 	for _, event := range snapshot.Events {
 		if event.Kind == protocol.EventKindMessage && event.Message != nil && event.Message.Role == protocol.RoleUser && event.Message.PromptID != "" {
 			promptIDs[event.Message.PromptID] = struct{}{}
+			message := *event.Message
+			message.Content = append([]protocol.ContentBlock(nil), event.Message.Content...)
+			promptMessages[event.Message.PromptID] = message
 		}
 		// A small set of internal durable metadata intentionally controls the
 		// provider projection. Every semantic message/call/result must carry
@@ -492,6 +537,23 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 		}
 		switch event.Kind {
 		case protocol.EventKindSessionMetadata:
+			if event.Metadata.Key == attachmentQuarantineKey {
+				var quarantine attachmentQuarantine
+				if err := json.Unmarshal(event.Metadata.Value, &quarantine); err != nil ||
+					quarantine.Version != attachmentQuarantineV1 ||
+					len(quarantine.Items) == 0 ||
+					len(quarantine.Items) > maximumRequestMediaItems {
+					return errors.New("restore attachment quarantine metadata is invalid")
+				}
+				for _, item := range quarantine.Items {
+					if err := attachment.ValidateAttachmentID(item.AttachmentID); err != nil ||
+						len(item.SHA256) != 64 {
+						return errors.New("restore attachment quarantine metadata is invalid")
+					}
+					e.quarantined[item.AttachmentID] = item.SHA256
+				}
+				continue
+			}
 			if event.Metadata.Key == contextClearKey {
 				e.history = nil
 				creditedCalls = make(map[protocol.ToolUseID]struct{})
@@ -503,6 +565,9 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 				var projection contextProjection
 				if err := json.Unmarshal(event.Metadata.Value, &projection); err != nil || validateContextProjection(projection, e.thresholds) != nil || e.validateProviderItemsMetadata(projection.Items) != nil {
 					continue
+				}
+				if err := e.verifyModelAttachments(context.Background(), projection.Items); err != nil {
+					return fmt.Errorf("restore durable attachment projection: %w", err)
 				}
 				e.history = e.filterCredentialSafeReplayItems(projection.Items, credentialUnsafeCalls)
 				creditedCalls = make(map[protocol.ToolUseID]struct{})
@@ -565,7 +630,17 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 			text := e.sanitizeText(blockText(event.Message.Content))
 			switch event.Message.Role {
 			case protocol.RoleUser:
-				e.history = append(e.history, model.TextMessage(model.RoleUser, text))
+				if err := e.verifyMessageAttachments(context.Background(), *event.Message); err != nil {
+					return fmt.Errorf("restore user attachment: %w", err)
+				}
+				message := *event.Message
+				message.Content = append([]protocol.ContentBlock(nil), event.Message.Content...)
+				for index := range message.Content {
+					if message.Content[index].Type == protocol.ContentText {
+						message.Content[index].Text = e.sanitizeText(message.Content[index].Text)
+					}
+				}
+				e.history = append(e.history, modelUserMessage(message))
 			case protocol.RoleAssistant:
 				metadataSafe := e.validateRestoredMessageMetadata(event.Message) == nil
 				if metadataSafe && event.Message.APIMessageID != "" && creditedMessageIDs[event.Message.APIMessageID] > 0 {
@@ -613,9 +688,13 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 	}
 	e.promptMu.Lock()
 	e.promptIDs = promptIDs
+	e.promptMessages = promptMessages
 	e.promptMu.Unlock()
 	e.usage = restoredUsage
 	e.config.ReasoningEffort = restoredEffort
+	if err := e.validateQuarantineEvents(snapshot.Events); err != nil {
+		return err
+	}
 	e.publishStatus()
 	return nil
 }
@@ -638,11 +717,41 @@ func (e *Engine) Submit(ctx context.Context, text string) (Outcome, error) {
 // the accepted user event before any provider or capability side effect. A
 // restored or in-process duplicate is rejected without invoking the provider.
 func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outcome, error) {
-	text = e.sanitizeText(text)
-	if strings.TrimSpace(text) == "" {
+	return e.SubmitMessage(ctx, protocol.Message{
+		Role: protocol.RoleUser, Content: []protocol.ContentBlock{protocol.TextBlock(text)},
+	}, promptID)
+}
+
+// SubmitMessage admits one ordered provider-neutral user message. Attachment
+// manifests are verified before the durable user event and no caller path or
+// binary content is retained in engine history.
+func (e *Engine) SubmitMessage(ctx context.Context, message protocol.Message, promptID string) (Outcome, error) {
+	message.Role = protocol.RoleUser
+	message.PromptID = ""
+	message.APIMessageID = ""
+	message.APIResponseID = ""
+	message.Phase = ""
+	message.Synthetic = false
+	message.Content = append([]protocol.ContentBlock(nil), message.Content...)
+	hasInput := false
+	for index := range message.Content {
+		if message.Content[index].Type == protocol.ContentText {
+			message.Content[index].Text = e.sanitizeText(message.Content[index].Text)
+			hasInput = hasInput || strings.TrimSpace(message.Content[index].Text) != ""
+		} else if message.Content[index].Type == protocol.ContentAttachment {
+			hasInput = true
+		}
+	}
+	if !hasInput {
 		return Outcome{}, errors.New("empty user input")
 	}
+	if err := message.Validate(); err != nil {
+		return Outcome{}, err
+	}
 	if err := protocol.ValidatePromptID(promptID); err != nil {
+		return Outcome{}, err
+	}
+	if err := e.verifyMessageAttachments(ctx, message); err != nil {
 		return Outcome{}, err
 	}
 	if err := e.lockTurn(); err != nil {
@@ -650,7 +759,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 	}
 	defer e.turnMu.Unlock()
 	if e.HasPromptID(promptID) {
-		return Outcome{SessionID: e.config.SessionID}, e.publicError(ErrDuplicatePrompt)
+		return Outcome{SessionID: e.config.SessionID, PromptID: promptID}, e.publicError(ErrDuplicatePrompt)
 	}
 	e.mu.Lock()
 	if e.active {
@@ -673,9 +782,12 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 	}
 	turnID := protocol.TurnID(turnValue)
 	started := e.currentTimeOutsideTurnLock()
-	outcome := Outcome{SessionID: e.config.SessionID, TurnID: turnID, Status: protocol.TurnResultError}
+	outcome := Outcome{
+		SessionID: e.config.SessionID, TurnID: turnID, PromptID: promptID,
+		Status: protocol.TurnResultError,
+	}
 
-	userEvent, err := protocol.NewMessageEvent(e.config.SessionID, turnID, protocol.RoleUser, protocol.TextBlock(text))
+	userEvent, err := protocol.NewMessageEvent(e.config.SessionID, turnID, protocol.RoleUser, message.Content...)
 	if err != nil {
 		return outcome, err
 	}
@@ -684,14 +796,16 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 	if _, err := e.record(ctx, userEvent); err != nil {
 		if isEventDeliveryError(err) {
 			e.rememberPromptID(promptID)
-			e.history = append(e.history, model.TextMessage(model.RoleUser, text))
+			e.rememberPromptMessage(promptID, message)
+			e.history = append(e.history, modelUserMessage(message))
 			e.publishStatus()
 			return e.finish(ctx, outcome, protocol.TurnResultError, "presentation_error", err, started)
 		}
 		return e.finish(ctx, outcome, protocol.TurnResultError, "transcript_error", fmt.Errorf("persist accepted input: %w", err), started)
 	}
 	e.rememberPromptID(promptID)
-	e.history = append(e.history, model.TextMessage(model.RoleUser, text))
+	e.rememberPromptMessage(promptID, message)
+	e.history = append(e.history, modelUserMessage(message))
 	e.publishStatus()
 
 	for modelTurn := 1; modelTurn <= e.config.MaxTurns; modelTurn++ {
@@ -711,7 +825,7 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 			}
 			return e.finish(ctx, outcome, protocol.TurnResultError, stop, err, started)
 		}
-		request := model.Request{Model: e.config.Model, Instructions: e.config.Instructions, Input: projected, Tools: schemas, Reasoning: model.Reasoning{Effort: e.config.ReasoningEffort}, MaxOutputTokens: e.config.MaxOutputTokens, Metadata: map[string]string{"session_id": string(e.config.SessionID), "turn_id": string(turnID)}}
+		request := model.Request{Model: e.config.Model, Instructions: e.config.Instructions, Input: projected, Tools: schemas, Reasoning: model.Reasoning{Effort: e.config.ReasoningEffort}, MaxOutputTokens: e.config.MaxOutputTokens, Metadata: map[string]string{"session_id": string(e.config.SessionID), "turn_id": string(turnID)}, AttachmentSource: e.config.Attachments}
 		parallel := true
 		request.ParallelToolCalls = &parallel
 		e.logModelIterationStarted(outcome, modelTurn)
@@ -732,6 +846,11 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 			stop := "provider_error"
 			if status == protocol.TurnResultCancelled {
 				stop = "cancelled"
+			}
+			if inspectEngineError(err).mediaRejected {
+				if quarantineErr := e.quarantineMedia(ctx, turnID, projected); quarantineErr != nil {
+					return e.finish(ctx, outcome, protocol.TurnResultError, recordFailureStop(quarantineErr), errors.Join(err, quarantineErr), started)
+				}
 			}
 			return e.finish(ctx, outcome, status, stop, err, started)
 		}
@@ -808,6 +927,17 @@ func (e *Engine) rememberPromptID(promptID string) {
 	e.promptMu.Unlock()
 }
 
+func (e *Engine) rememberPromptMessage(promptID string, message protocol.Message) {
+	if promptID == "" {
+		return
+	}
+	message.PromptID = promptID
+	message.Content = append([]protocol.ContentBlock(nil), message.Content...)
+	e.promptMu.Lock()
+	e.promptMessages[promptID] = message
+	e.promptMu.Unlock()
+}
+
 func (e *Engine) prepareRequestContext(ctx context.Context, turnID protocol.TurnID, tools []model.Tool) ([]model.Item, error) {
 	estimated := estimateRequestTokens(e.config.Instructions, e.history, tools)
 	level := e.thresholds.Level(estimated)
@@ -825,7 +955,7 @@ func (e *Engine) prepareRequestContext(ctx context.Context, turnID protocol.Turn
 	if estimated >= e.thresholds.Hard {
 		return nil, fmt.Errorf("%w: estimated input %d tokens reaches the %d-token hard request ceiling (configured model window %d)", ErrContextLimit, estimated, e.thresholds.Hard, e.config.InputContextTokens)
 	}
-	return cloneItems(e.history), nil
+	return e.boundRequestMedia(cloneItems(e.history)), nil
 }
 
 var errNothingToProject = errors.New("no safe context prefix is available for projection")
@@ -859,8 +989,12 @@ func (e *Engine) projectContextWithPolicy(ctx context.Context, turnID protocol.T
 	var projected []model.Item
 	var dropped int
 	lastCut := -1
+	newestMedia := e.newestRelevantMediaIndex()
 	for attempt := 0; attempt < 4; attempt++ {
 		cut := chooseProjectionCutWithMinimum(e.history, tailTarget, preserveMinimum)
+		if newestMedia >= 0 && cut > newestMedia {
+			cut = newestMedia
+		}
 		if cut <= 0 || cut == lastCut {
 			break
 		}
@@ -942,6 +1076,27 @@ func (e *Engine) projectContextWithPolicy(ctx context.Context, turnID protocol.T
 	compaction.Compaction = &protocol.CompactionEvent{Trigger: trigger, State: "completed", PreTokens: estimatedBefore, SummaryID: &recorded.ID}
 	_, err = e.record(ctx, compaction)
 	return err
+}
+
+// newestRelevantMediaIndex identifies the newest history item whose media may
+// still be sent to the provider. Prefix-only context projection must retain
+// that item; silently summarizing it would convert authoritative media into a
+// text excerpt and make resume behavior diverge from the live turn.
+func (e *Engine) newestRelevantMediaIndex() int {
+	for itemIndex := len(e.history) - 1; itemIndex >= 0; itemIndex-- {
+		for _, part := range e.history[itemIndex].Content {
+			if part.Type != model.ContentInputImage &&
+				part.Type != model.ContentInputFile ||
+				part.Manifest == nil {
+				continue
+			}
+			digest, quarantined := e.quarantined[part.Manifest.AttachmentID]
+			if !quarantined || digest != part.Manifest.SHA256 {
+				return itemIndex
+			}
+		}
+	}
+	return -1
 }
 
 type projectionSummarizer struct{ maximumBytes int }
@@ -1105,7 +1260,18 @@ func projectionRole(item model.Item) string {
 func projectionContent(item model.Item) string {
 	switch item.Type {
 	case model.ItemMessage:
-		return itemText(item)
+		var builder strings.Builder
+		for _, part := range item.Content {
+			switch part.Type {
+			case model.ContentInputText, model.ContentOutputText, model.ContentRefusal:
+				builder.WriteString(part.Text)
+			case model.ContentInputImage:
+				builder.WriteString("[image]")
+			case model.ContentInputFile:
+				builder.WriteString("[document]")
+			}
+		}
+		return builder.String()
 	case model.ItemFunctionCall:
 		return fmt.Sprintf("%s(%s): %s", item.Name, item.CallID, item.Arguments)
 	case model.ItemFunctionCallOutput:
@@ -1145,7 +1311,11 @@ func estimateItemTokens(item model.Item) int {
 		tokens = saturatingAdd(tokens, compact.EstimateTokens(value))
 	}
 	for _, content := range item.Content {
-		tokens = saturatingAdd(tokens, compact.EstimateTokens(content.Text))
+		if content.Type == model.ContentInputImage || content.Type == model.ContentInputFile {
+			tokens = saturatingAdd(tokens, estimatedMediaTokens)
+		} else {
+			tokens = saturatingAdd(tokens, compact.EstimateTokens(content.Text))
+		}
 	}
 	for _, content := range item.Summary {
 		tokens = saturatingAdd(tokens, compact.EstimateTokens(content.Text))
@@ -1173,6 +1343,12 @@ func cloneItems(items []model.Item) []model.Item {
 	for index, item := range items {
 		cloned[index] = item
 		cloned[index].Content = append([]model.Content(nil), item.Content...)
+		for contentIndex := range cloned[index].Content {
+			if item.Content[contentIndex].Manifest != nil {
+				manifest := *item.Content[contentIndex].Manifest
+				cloned[index].Content[contentIndex].Manifest = &manifest
+			}
+		}
 		cloned[index].Summary = append([]model.Content(nil), item.Summary...)
 	}
 	return cloned
@@ -1294,25 +1470,50 @@ func (e *Engine) sanitizeItem(item model.Item) model.Item {
 }
 
 func (e *Engine) sanitizeContentParts(parts []model.Content) []model.Content {
-	result := append([]model.Content(nil), parts...)
-	if len(result) == 0 {
-		return result
+	result := make([]model.Content, 0, len(parts))
+	for start := 0; start < len(parts); {
+		if !textLikeContent(parts[start].Type) {
+			part := parts[start]
+			if part.Manifest != nil {
+				manifest := *part.Manifest
+				part.Manifest = &manifest
+			}
+			result = append(result, part)
+			start++
+			continue
+		}
+		end := start
+		var original, independentlySanitized strings.Builder
+		run := make([]model.Content, 0, len(parts)-start)
+		for end < len(parts) && textLikeContent(parts[end].Type) {
+			part := parts[end]
+			original.WriteString(part.Text)
+			part.Text = e.sanitizeText(part.Text)
+			independentlySanitized.WriteString(part.Text)
+			run = append(run, part)
+			end++
+		}
+		combined := e.sanitizeText(original.String())
+		if combined == independentlySanitized.String() {
+			result = append(result, run...)
+		} else {
+			// A match crossed adjacent provider-controlled text parts. Collapse
+			// only that text run; media on either side retains exact position.
+			run[0].Text = combined
+			result = append(result, run[0])
+		}
+		start = end
 	}
-	var original, independentlySanitized strings.Builder
-	for index := range result {
-		original.WriteString(parts[index].Text)
-		result[index].Text = e.sanitizeText(parts[index].Text)
-		independentlySanitized.WriteString(result[index].Text)
+	return result
+}
+
+func textLikeContent(contentType model.ContentType) bool {
+	switch contentType {
+	case model.ContentInputText, model.ContentOutputText, model.ContentRefusal, model.ContentSummaryText:
+		return true
+	default:
+		return false
 	}
-	combined := e.sanitizeText(original.String())
-	if combined == independentlySanitized.String() {
-		return result
-	}
-	// A sanitizer match crossed a provider-controlled part boundary. Collapse
-	// the semantic text into one part so the exact safe concatenation is retained
-	// without inventing a correlation-preserving rewrite of opaque metadata.
-	result[0].Text = combined
-	return result[:1]
 }
 
 func (e *Engine) sanitizeItems(items []model.Item) []model.Item {
@@ -1426,13 +1627,17 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 	var response *model.Response
 	var usage *model.Usage
 	eventCount := 0
+	mediaDigests := requestMediaDigests(request)
+	var mediaGuard *providerAttachmentReflectionGuard
+	if len(mediaDigests) > 0 {
+		mediaGuard = &providerAttachmentReflectionGuard{}
+	}
 	var textRedactor *redact.SetStream
 	if e.config.CredentialSanitizer != nil && !e.config.CredentialSanitizer.Empty() {
 		textRedactor = redact.NewSetStream(e.config.CredentialSanitizer)
 	}
 	textFlushed := false
-	appendText := func(raw string) error {
-		delta := raw
+	projectText := func(delta string) error {
 		if textRedactor != nil {
 			delta = textRedactor.Write(delta)
 		}
@@ -1448,14 +1653,36 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 		}
 		return nil
 	}
+	appendText := func(raw string) error {
+		if mediaGuard == nil {
+			return projectText(raw)
+		}
+		safe, err := mediaGuard.Write(raw)
+		if err != nil {
+			return err
+		}
+		return projectText(safe)
+	}
 	flushText := func() error {
-		if textRedactor == nil || textFlushed {
+		if textFlushed {
 			return nil
 		}
 		textFlushed = true
+		if mediaGuard != nil {
+			safe, err := mediaGuard.Flush()
+			if err != nil {
+				return err
+			}
+			if err := projectText(safe); err != nil {
+				return err
+			}
+		}
+		if textRedactor == nil {
+			return nil
+		}
 		safe := textRedactor.Flush()
 		textRedactor = nil
-		return appendText(safe)
+		return projectText(safe)
 	}
 	for {
 		event, nextErr := nextModelStream(stream)
@@ -1464,6 +1691,12 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 		}
 		if nextErr != nil {
 			return response, text.String(), completedCalls, usage, e.validateProviderErrorCause(nextErr)
+		}
+		if providerEventReflectsRequestMedia(event, mediaDigests) {
+			return response, text.String(), completedCalls, usage, fmt.Errorf(
+				"%w: provider output reflected attachment data",
+				model.ErrProtocol,
+			)
 		}
 		if err := e.validateProviderEventMetadata(event); err != nil {
 			return response, text.String(), completedCalls, usage, err
@@ -1495,6 +1728,13 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 			}
 		case model.EventResponseCompleted:
 			if event.Response != nil {
+				if mediaGuard != nil &&
+					providerItemsContainAttachmentData(event.Response.Output) {
+					return nil, text.String(), completedCalls, usage, fmt.Errorf(
+						"%w: provider output reflected attachment data",
+						model.ErrProtocol,
+					)
+				}
 				responseCopy := *event.Response
 				responseCopy.Output = e.sanitizeItems(event.Response.Output)
 				if err := validateModelResponse(&responseCopy); err != nil {
@@ -1532,6 +1772,90 @@ func (e *Engine) runModel(ctx context.Context, turnID protocol.TurnID, request m
 		return response, text.String(), calls, usage, err
 	}
 	return response, text.String(), calls, usage, nil
+}
+
+func modelRequestContainsMedia(request model.Request) bool {
+	for _, item := range request.Input {
+		for _, part := range item.Content {
+			if part.Type == model.ContentInputImage ||
+				part.Type == model.ContentInputFile {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type providerAttachmentReflectionGuard struct {
+	pending string
+}
+
+func (guard *providerAttachmentReflectionGuard) Write(value string) (string, error) {
+	data := guard.pending + value
+	guard.pending = ""
+	var output strings.Builder
+	for offset := 0; offset < len(data); {
+		remainder := data[offset:]
+		completePrefix, partialPrefix := providerAttachmentPrefixState(remainder)
+		if completePrefix {
+			return "", fmt.Errorf("%w: provider output reflected attachment data", model.ErrProtocol)
+		}
+		if partialPrefix {
+			guard.pending = remainder
+			break
+		}
+		if providerBase64Byte(data[offset]) {
+			end := offset + 1
+			for end < len(data) && providerBase64Byte(data[end]) {
+				end++
+			}
+			if end-offset >= 64 {
+				return "", fmt.Errorf("%w: provider output reflected attachment data", model.ErrProtocol)
+			}
+			if end == len(data) {
+				guard.pending = data[offset:end]
+				break
+			}
+			output.WriteString(data[offset:end])
+			offset = end
+			continue
+		}
+		output.WriteByte(data[offset])
+		offset++
+	}
+	return output.String(), nil
+}
+
+func (guard *providerAttachmentReflectionGuard) Flush() (string, error) {
+	pending := guard.pending
+	guard.pending = ""
+	if model.ContainsAttachmentData(pending) {
+		return "", fmt.Errorf("%w: provider output reflected attachment data", model.ErrProtocol)
+	}
+	return pending, nil
+}
+
+func providerAttachmentPrefixState(value string) (complete, partial bool) {
+	for _, prefix := range [...]string{
+		"data:image/png;base64,",
+		"data:image/jpeg;base64,",
+		"data:application/pdf;base64,",
+	} {
+		if strings.HasPrefix(value, prefix) {
+			return true, false
+		}
+		if len(value) < len(prefix) && strings.HasPrefix(prefix, value) {
+			partial = true
+		}
+	}
+	return false, partial
+}
+
+func providerBase64Byte(value byte) bool {
+	return value >= 'A' && value <= 'Z' ||
+		value >= 'a' && value <= 'z' ||
+		value >= '0' && value <= '9' ||
+		value == '+' || value == '/' || value == '='
 }
 
 func validateModelResponse(response *model.Response) error {
@@ -2529,6 +2853,179 @@ func blockText(blocks []protocol.ContentBlock) string {
 		}
 	}
 	return b.String()
+}
+
+func modelUserMessage(message protocol.Message) model.Item {
+	item := model.Item{Type: model.ItemMessage, Role: model.RoleUser}
+	item.Content = make([]model.Content, 0, len(message.Content))
+	for _, block := range message.Content {
+		switch block.Type {
+		case protocol.ContentText:
+			item.Content = append(item.Content, model.Content{Type: model.ContentInputText, Text: block.Text})
+		case protocol.ContentAttachment:
+			manifest := block.AttachmentManifest()
+			contentType := model.ContentInputImage
+			if manifest.Kind == attachment.KindDocument {
+				contentType = model.ContentInputFile
+			}
+			item.Content = append(item.Content, model.Content{Type: contentType, Manifest: &manifest})
+		}
+	}
+	return item
+}
+
+func (e *Engine) verifyMessageAttachments(ctx context.Context, message protocol.Message) error {
+	for _, block := range message.Content {
+		if block.Type != protocol.ContentAttachment {
+			continue
+		}
+		manifest := block.AttachmentManifest()
+		if e.config.Attachments == nil {
+			return fmt.Errorf("attachment %s is unavailable for this session", manifest.AttachmentID)
+		}
+		if verifier, ok := e.config.Attachments.(interface {
+			Verify(context.Context, attachment.Manifest) error
+		}); ok {
+			if err := verifier.Verify(ctx, manifest); err != nil {
+				return fmt.Errorf("attachment %s is missing or tampered", manifest.AttachmentID)
+			}
+			continue
+		}
+		resolved, data, err := e.config.Attachments.Resolve(ctx, manifest.AttachmentID)
+		clear(data)
+		if err != nil || resolved != manifest {
+			return fmt.Errorf("attachment %s is missing or tampered", manifest.AttachmentID)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) verifyModelAttachments(ctx context.Context, items []model.Item) error {
+	for _, item := range items {
+		for _, content := range item.Content {
+			if content.Type != model.ContentInputImage && content.Type != model.ContentInputFile {
+				continue
+			}
+			if content.Manifest == nil {
+				return errors.New("model attachment manifest is missing")
+			}
+			block := protocol.AttachmentBlock(*content.Manifest)
+			if err := e.verifyMessageAttachments(ctx, protocol.Message{
+				Role: protocol.RoleUser, Content: []protocol.ContentBlock{block},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// boundRequestMedia derives a provider projection without mutating durable
+// history. Newest non-quarantined media wins; older or rejected content becomes
+// an explicit kind-only placeholder and therefore cannot enter a resend loop.
+func (e *Engine) boundRequestMedia(items []model.Item) []model.Item {
+	limits := attachment.DefaultLimits()
+	keep := make(map[*attachment.Manifest]bool)
+	count := 0
+	var total int64
+	for itemIndex := len(items) - 1; itemIndex >= 0; itemIndex-- {
+		for partIndex := len(items[itemIndex].Content) - 1; partIndex >= 0; partIndex-- {
+			part := &items[itemIndex].Content[partIndex]
+			if part.Type != model.ContentInputImage && part.Type != model.ContentInputFile || part.Manifest == nil {
+				continue
+			}
+			quarantinedDigest, quarantined := e.quarantined[part.Manifest.AttachmentID]
+			quarantined = quarantined && quarantinedDigest == part.Manifest.SHA256
+			if !quarantined &&
+				count < maximumRequestMediaItems &&
+				part.Manifest.SizeBytes <= limits.MaxModelRequestMediaBytes-total {
+				keep[part.Manifest] = true
+				count++
+				total += part.Manifest.SizeBytes
+			}
+		}
+	}
+	for itemIndex := range items {
+		for partIndex := range items[itemIndex].Content {
+			part := &items[itemIndex].Content[partIndex]
+			if part.Type != model.ContentInputImage && part.Type != model.ContentInputFile || part.Manifest == nil || keep[part.Manifest] {
+				continue
+			}
+			placeholder := "[image]"
+			if part.Type == model.ContentInputFile {
+				placeholder = "[document]"
+			}
+			*part = model.Content{Type: model.ContentInputText, Text: placeholder}
+		}
+	}
+	return items
+}
+
+func (e *Engine) quarantineMedia(ctx context.Context, turnID protocol.TurnID, items []model.Item) error {
+	seen := make(map[attachment.ID]struct{})
+	quarantine := attachmentQuarantine{Version: attachmentQuarantineV1}
+	for _, item := range items {
+		for _, part := range item.Content {
+			if part.Type != model.ContentInputImage && part.Type != model.ContentInputFile || part.Manifest == nil {
+				continue
+			}
+			if _, duplicate := seen[part.Manifest.AttachmentID]; duplicate {
+				continue
+			}
+			seen[part.Manifest.AttachmentID] = struct{}{}
+			quarantine.Items = append(quarantine.Items, attachmentQuarantineEntry{
+				AttachmentID: part.Manifest.AttachmentID,
+				SHA256:       part.Manifest.SHA256,
+			})
+		}
+	}
+	if len(quarantine.Items) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(quarantine)
+	if err != nil {
+		return errors.New("encode attachment quarantine")
+	}
+	event, err := protocol.NewBaseEvent(e.config.SessionID, turnID, protocol.EventKindSessionMetadata)
+	if err != nil {
+		return err
+	}
+	event.Visibility = protocol.VisibilityInternal
+	event.Origin = protocol.OriginRuntime
+	event.Metadata = &protocol.MetadataEvent{Key: attachmentQuarantineKey, Value: data}
+	// Install the fail-closed live projection before durable append and sink
+	// delivery. If append is uncertain or presentation fails after persistence,
+	// this process must not resend provider-rejected bytes on a later turn.
+	for _, item := range quarantine.Items {
+		e.quarantined[item.AttachmentID] = item.SHA256
+	}
+	if _, err := e.record(ctx, event); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *Engine) validateQuarantineEvents(events []protocol.Event) error {
+	if len(e.quarantined) == 0 {
+		return nil
+	}
+	available := make(map[attachment.ID]string)
+	for _, event := range events {
+		if event.Kind != protocol.EventKindMessage || event.Message == nil {
+			continue
+		}
+		for _, block := range event.Message.Content {
+			if block.Type == protocol.ContentAttachment {
+				available[block.AttachmentID] = block.SHA256
+			}
+		}
+	}
+	for id, digest := range e.quarantined {
+		if available[id] != digest {
+			return errors.New("restore attachment quarantine does not match durable media")
+		}
+	}
+	return nil
 }
 func consumeTextCredit(credits *[]string, text string) bool {
 	for i, credit := range *credits {

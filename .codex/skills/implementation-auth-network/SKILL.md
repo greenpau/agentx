@@ -16,7 +16,12 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 1. Select exactly one API provider from startup configuration and validate its mandatory environment and account inputs.
 2. Determine the credential source without executing untrusted helpers; after workspace trust, resolve or refresh the selected credential through its provider adapter. In the standalone Go Azure OpenAI profile, use only the versioned application-home `auth.json` contract in `AUTH-045`; workspace trust and bare mode do not select a different model credential source.
 3. Construct a fresh client when credentials or connection health require it. Attach only headers supported by the selected provider and destination.
-4. Build the request from normalized messages, prompt sections, tools, model, limits, and provider-compatible beta fields.
+4. Build the request from normalized messages, prompt sections, tools, model,
+   limits, and provider-compatible beta fields. For qualified native media,
+   perform the only provider-egress materialization of immutable
+   session-store bytes and complete decoded/encoded/final-request preflight
+   before opening transport. Admission and recovery may independently ask the
+   store to verify its own identities and digests without exposing bytes.
 5. Consume the response stream into explicit message and usage events while watchdogs, cancellation, and incomplete-stream detection remain active.
 6. Classify failures. In DEBUG, retain the safe provider status/code, request ID, route family, version-source class, attempt, and retry decision without emitting the endpoint, deployment, exact configured API version, URL/query, headers, body, or credential. Refresh credentials or disable a stale connection pool when appropriate, then retry with bounded backoff or persistent heartbeats according to source and policy.
 7. If a recoverable stream fails before a coherent terminal message, optionally issue a bounded non-streaming fallback without duplicating already-started side effects.
@@ -40,6 +45,11 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect credential
 - A background auxiliary request does not amplify a 529 capacity incident; foreground and safety-critical requests follow the documented retry policy.
 - Proxy, mTLS, and custom CA behavior applies consistently to supported HTTP stacks, but an AgentX-only Unix relay must never capture MCP or arbitrary web traffic.
 - Downloads and uploads validate paths, sizes, status classes, concurrency, and cancellation before changing workspace state.
+- Native user attachments are not public Files API uploads. Their provider
+  request body and data URLs are provider-stream-owned, never observable
+  payloads, copied byte-identically across bounded transport attempts, and
+  cleared at terminal settlement. A known unsupported/tampered/over-limit set
+  makes zero network calls.
 
 ## Verification checks
 

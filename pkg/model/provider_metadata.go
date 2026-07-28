@@ -289,6 +289,12 @@ func (c *AzureClient) sanitizeProviderErrorFields(fields azureError, requestID s
 	if c.providerValuesReflectCredential(values) {
 		return azureError{Message: c.sanitizeProviderDiagnostic("provider returned unsafe error metadata")}, ""
 	}
+	for index := range values {
+		values[index] = redactProviderAttachmentData(values[index])
+	}
+	if c.providerValuesReflectCredential(values) {
+		return azureError{Message: c.sanitizeProviderDiagnostic("provider returned unsafe error metadata")}, ""
+	}
 	return azureError{
 		Code: values[0], Type: values[1],
 		Param: values[2], Message: values[3],
@@ -324,7 +330,89 @@ func (c *AzureClient) sanitizeProviderDiagnostic(value string) string {
 	// formatting characters cannot turn an exact credential into an uncovered
 	// alias. Redact again after normalization, then bound; bounding first can
 	// retain a credential prefix whose final bytes fell just past the cutoff.
-	return boundProviderDiagnostic(c.redact(normalizeProviderDiagnostic(c.redact(value))))
+	return boundProviderDiagnostic(redactProviderAttachmentData(
+		c.redact(normalizeProviderDiagnostic(c.redact(value))),
+	))
+}
+
+// redactProviderAttachmentData prevents a provider or hostile transport from
+// reflecting request media into public errors, logs, retry observations, or
+// terminal results. Supported data-URL prefixes are matched case-insensitively,
+// and their payload consumes ordinary line wrapping as well as base64 bytes.
+// Long standalone base64-like runs are removed conservatively because they can
+// be a prefix-stripped request reflection. Media-bearing request failures are
+// additionally sealed at the adapter boundary, where arbitrary punctuation
+// cannot be distinguished safely from provider prose.
+func redactProviderAttachmentData(value string) string {
+	const marker = "[attachment data redacted]"
+	prefixes := [...]string{
+		"data:image/png;base64,",
+		"data:image/jpeg;base64,",
+		"data:application/pdf;base64,",
+	}
+	var output strings.Builder
+	output.Grow(len(value))
+	for offset := 0; offset < len(value); {
+		matchedPrefix := ""
+		for _, prefix := range prefixes {
+			if len(value)-offset >= len(prefix) &&
+				strings.EqualFold(value[offset:offset+len(prefix)], prefix) {
+				matchedPrefix = prefix
+				break
+			}
+		}
+		if matchedPrefix != "" {
+			end := offset + len(matchedPrefix)
+			for end < len(value) &&
+				(base64DiagnosticByte(value[end]) || base64DiagnosticWhitespace(value[end])) {
+				end++
+			}
+			output.WriteString(marker)
+			offset = end
+			continue
+		}
+		if base64DiagnosticByte(value[offset]) {
+			end := offset + 1
+			for end < len(value) && base64DiagnosticByte(value[end]) {
+				end++
+			}
+			if end-offset >= 64 {
+				output.WriteString(marker)
+			} else {
+				output.WriteString(value[offset:end])
+			}
+			offset = end
+			continue
+		}
+		output.WriteByte(value[offset])
+		offset++
+	}
+	return output.String()
+}
+
+// ContainsAttachmentData reports whether provider-controlled text contains an
+// exact supported attachment data-URL prefix or a conservatively long
+// standalone base64-like run. It is intentionally stricter than proving an
+// exact byte-for-byte reflection so public output fails closed before request
+// media can enter logs, transcripts, tool arguments, or presentation streams.
+func ContainsAttachmentData(value string) bool {
+	return redactProviderAttachmentData(value) != value
+}
+
+func base64DiagnosticByte(value byte) bool {
+	return value >= 'A' && value <= 'Z' ||
+		value >= 'a' && value <= 'z' ||
+		value >= '0' && value <= '9' ||
+		value == '+' || value == '/' || value == '='
+}
+
+func base64DiagnosticWhitespace(value byte) bool {
+	switch value {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *AzureClient) providerValuesReflectCredential(values []string) bool {

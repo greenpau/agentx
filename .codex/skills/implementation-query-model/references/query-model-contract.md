@@ -155,7 +155,12 @@ Use a fresh state value for every transition; do not infer recovery state solely
 
 **QM-040 — Pure API projection.** Build a fresh provider-bound sequence for every attempt. Do not mutate stored content merely to repair provider constraints, add request-local tags, remove unsupported fields, or suppress historical media.
 
-**QM-041 — Attachment movement.** Before conversion, scan history from newest to oldest and bubble attachments earlier until they encounter an assistant message or a user tool-result message. Preserve attachment order. Then translate attachments into model-visible user content.
+**QM-041 — Legacy attachment movement.** For legacy/meta attachment records
+only, scan history from newest to oldest and bubble attachments earlier until
+they encounter an assistant message or a user tool-result message. Preserve
+their order, then translate them into model-visible user content. Native
+version-1 attachments are already ordered blocks inside one typed user message;
+this compatibility pass must never move them within or across messages.
 
 **QM-042 — Display-only filtering.** Remove virtual user/assistant records, progress, ordinary system records, and synthetic API-error records from the provider request. Translate eligible local-command output into user content so later turns can reference it.
 
@@ -163,7 +168,12 @@ Use a fresh state value for every transition; do not infer recovery state solely
 
 **QM-044 — Consecutive users.** Merge adjacent user messages because some providers reject consecutive user roles. Insert one newline at a text-to-text seam so separate prompts never concatenate lexically. Preserve the non-meta user's stable identity. A merged message is meta only if every operand is meta when history-snip semantics are active.
 
-**QM-045 — Tool-result position.** Within a merged user message, place all tool-result blocks before other blocks. When a user attachment/reminder follows a tool result, fold compatible content into the tool result where the active compatibility behavior requires it; never mix tool references with content types the provider forbids.
+**QM-045 — Tool-result position.** Within a merged user message, place all
+tool-result blocks before other blocks. When a legacy/meta user
+attachment/reminder follows a tool result, fold compatible content into the
+tool result where the active compatibility behavior requires it; never mix
+tool references with content types the provider forbids. This compatibility
+rule does not authorize reordering or folding native version-1 user content.
 
 **QM-046 — Error tool-result media.** A tool result marked as an error must contain text only. Strip non-text children from old/resumed error results and combine surviving text with a blank-line separator. If none survives, retain a valid empty textual form permitted by the provider contract.
 
@@ -172,6 +182,17 @@ Use a fresh state value for every transition; do not infer recovery state solely
 **QM-048 — Tool input projection.** Canonicalize each tool name and apply its API-specific input normalizer to the copied block. If tool search is unavailable, remove tool-search-only caller metadata and remove tool-reference blocks from results. If tool search is available, retain references only for currently available tools, replacing an emptied reference result with explanatory text.
 
 **QM-049 — Media failure quarantine.** When a synthetic size/format error follows a meta user attachment, identify the nearest eligible preceding meta message and strip only the rejected document/image types from that message on later requests. Do not repeatedly resend known-invalid media.
+
+**QM-049A — Native attachment quarantine.** A provider media rejection records
+one durable quarantine decision for every unique native attachment identity
+and digest in the rejected projected request. Later projections replace only
+that quarantined media with non-authoritative `[image]` or `[document]` text
+markers; they do not mutate the durable typed user message or automatically
+resend the bytes. Only the network contract's closed, media-specific evidence
+may create this decision; an unrelated provider failure leaves valid media
+eligible. Install the live fail-closed decision before transcript append and
+presentation delivery so an uncertain append or post-append sink failure
+cannot reopen media egress in the same process.
 
 ### Final normalization passes
 
@@ -183,7 +204,19 @@ Use a fresh state value for every transition; do not infer recovery state solely
 
 **QM-053 — Historical message tags.** If history-snipping is compiled, runtime-enabled, and not in fixture/test mode, append a deterministic short message tag to the final text block of each non-meta user message after merging. Never persist the tag or emit it when the corresponding snip capability is unavailable.
 
-**QM-054 — Image validation.** Validate all surviving images against provider limits immediately before request construction. Independently cap total request media at 100 by silently removing the oldest excess items, retaining the newest relevant media.
+**QM-054 — Legacy image validation.** Validate surviving legacy images against
+provider limits immediately before request construction. The legacy
+compatibility profile may cap its total request media at 100 by silently
+removing the oldest excess items and retaining the newest relevant media.
+Native content follows `QM-054A` and never silently loses a durable manifest.
+
+**QM-054A — Native media projection bound.** Native images and documents are
+eligible only while the newest-first projection remains within 100 media items
+and 41,943,040 decoded bytes. Replace older excess media with the same bounded
+derived markers as `QM-049A`; never delete, rewrite, or silently drop their
+durable manifests. A missing, unreadable, or digest-mismatched runtime blob is
+an attributable projection failure, not a placeholder submitted as
+authoritative content.
 
 ### Pairing repair
 
@@ -225,6 +258,34 @@ Synthetic missing-result content must state that the result is unavailable, not 
 **QM-066 — Thinking policy.** An explicit disable switch wins. For models supporting adaptive thinking, use adaptive unless adaptive is disabled. Otherwise use the explicit/default budget and keep it below maximum output by at least one token. Send temperature only when thinking is disabled.
 
 **QM-067 — Previous request chaining.** Derive the previous-request identifier from the request's own message array. Removing messages through rollback naturally changes the chain; concurrent query chains remain isolated.
+
+**QM-068 — Provider-neutral native media.** Preserve each version-1 user
+content block in caller order as text, image, or document content. Image and
+document blocks carry immutable attachment metadata and a runtime storage
+identity; they never overload text with a source path, data URL, or embedded
+JSON. Admission and recovery may ask the attachment store to verify identity,
+size, and digest internally. Only a qualified provider adapter may materialize
+verified bytes into a provider body or data URL; bytes never enter the engine,
+history, transcript, or surface representation.
+
+**QM-069 — Azure Responses projection.** For a qualified Azure/OpenAI
+Responses request, project a PNG or JPEG as
+`{"type":"input_image","image_url":"data:<mime>;base64,<payload>","detail":"auto"}`
+and a PDF as
+`{"type":"input_file","filename":"<safe-name>","file_data":"data:application/pdf;base64,<payload>"}`.
+The provider request is an ephemeral boundary value: never persist or expose
+the data URL or request body.
+
+**QM-069A — Native media preflight.** Before network I/O, validate provider,
+logical-model, and API-selector capability; media kind and MIME; blob
+identity/digest; decoded count and byte bounds; encoded-media ceiling
+55,927,120 bytes; at most 100 media content items; and final request JSON
+ceiling 67,108,864 bytes. An unsupported or over-limit request makes zero
+provider calls. Resolve, verify, project, and marshal one immutable media
+snapshot once for a provider stream; bounded transport retries reuse that
+byte-identical payload. A fresh provider request, non-stream fallback, model
+fallback, or context reconstruction re-preflights from the same typed history.
+No path may duplicate media or bypass these limits.
 
 ## Streaming protocol and assembly
 
@@ -354,7 +415,13 @@ Derived assistance is optional, non-authoritative work. It may improve progress 
 
 **QM-110 — Prompt-too-long order.** Withhold prompt-too-long from consumers. Attempt one drain of already staged context collapse first. If the retry still fails, attempt reactive full compaction once. If neither succeeds, publish the withheld error, invoke failure hooks, and stop without ordinary stop hooks.
 
-**QM-111 — Media-size recovery.** A media-size rejection may attempt reactive compaction/stripping once but skips context-collapse drain because collapse does not remove media. If the preserved tail still contains invalid media, the one-attempt guard surfaces the next error instead of looping.
+**QM-111 — Media-size recovery.** A legacy synthetic/meta media-size rejection
+may attempt reactive compaction/stripping once but skips context-collapse drain
+because collapse does not remove media. If the preserved tail still contains
+invalid legacy media, the one-attempt guard surfaces the next error instead of
+looping. A native provider media rejection is nonretryable for the complete
+projected attachment set and follows `QM-049A`; it does not enter this reactive
+resend path.
 
 **QM-112 — Maximum-output escalation.** When the model used a deliberately capped default, the escalation gate is enabled, no explicit output override exists, and no environment maximum was set, retry the same request once with 64,000 output tokens and no injected user message.
 
@@ -408,7 +475,8 @@ Derived assistance is optional, non-authoritative work. It may improve progress 
 | Maximum-output continuation | 3 | fixed recovery ceiling | surface withheld error |
 | Token-budget completion threshold | 90% | token-budget feature and positive budget | no automatic nudge |
 | Diminishing gain | 500 tokens twice after 3 continuations | token-budget feature | continue until threshold |
-| Request media cap | 100 | provider contract | remove oldest excess media |
+| Legacy request media cap | 100 | legacy provider contract | remove oldest excess legacy media |
+| Native request media cap | 100 items / 41,943,040 decoded bytes | qualified provider contract | replace older projected media with derived markers; retain manifests |
 | Persistent backoff cap | 5 min | persistent unattended mode | ordinary bounded retry |
 | Persistent reset cap | 6 h | reset header | cap pathological waits |
 | Retry heartbeat | 30 s | persistent unattended mode | no long-wait status heartbeat |
@@ -465,7 +533,28 @@ Derived assistance is optional, non-authoritative work. It may improve progress 
 
 **QM-A08 — Credential switch.** Restore history containing signed thinking from another credential, switch authentication identity, and verify signed blocks are excluded while ordinary text/tool content survives.
 
-**QM-A09 — Media rejection.** After a synthetic oversized-image error, verify only the implicated preceding meta image is omitted from later requests. Given 103 remaining media items, verify the oldest three are omitted.
+**QM-A09 — Legacy media rejection.** After a synthetic oversized-image error,
+verify only the implicated preceding legacy/meta image is omitted from later
+requests. Given 103 remaining legacy media items, verify the oldest three are
+omitted. Native media follows `QM-A09A/B` and uses explicit derived markers
+rather than this silent compatibility omission.
+
+**QM-A09A — Ordered native media request.** Submit text, two ordered images,
+and one PDF through committed native manifests. A loopback provider observes
+the exact `input_text`, `input_image`, `input_image`, `input_file` order and
+the exact Azure Responses members from `QM-069`; durable history and emitted
+events contain manifests but no bytes, base64, paths, or provider body.
+
+**QM-A09B — Native media fail-closed and quarantine.** Exercise an unsupported
+provider/model/API-selector/MIME, tampered or missing blob, every request-media
+boundary, and a provider media rejection. Every locally known failure occurs
+with zero provider calls. The remote rejection produces one failed turn and
+durably quarantines every unique attachment in the rejected projected request;
+an automatic retry or later projection never resends any of them. An unrelated
+media-bearing HTTP/SSE failure does not quarantine and a later projection
+retains the valid attachments. Fail presentation after the durable quarantine
+append and verify the same live process still replaces each quarantined
+attachment with its kind marker on the next turn.
 
 ### Streaming and retry
 

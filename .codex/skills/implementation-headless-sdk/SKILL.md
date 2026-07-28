@@ -13,10 +13,10 @@ See the [headless and SDK architecture diagram](assets/architecture.drawio) for 
 
 ## Load references by task
 
-- Read [cli-contract.md](references/cli-contract.md) to implement entry-mode inference, prompt acquisition, output modes, option conflicts, validation, initialization ordering, errors, and exit behavior.
+- Read [cli-contract.md](references/cli-contract.md) to implement entry-mode inference, prompt and repeatable attachment acquisition, output modes, option conflicts, validation, initialization ordering, errors, and exit behavior.
 - Read [cli-grammar.md](references/cli-grammar.md) to implement exact root option spellings and arity, parser boundaries, early position-sensitive rewrites, public subcommand grammar, gates, aliases, and supported absence.
 - Read [headless-runner.md](references/headless-runner.md) to implement the concurrent input reader, serialized run loop, initialization, priorities, replay, result holdback, tasks, EOF, cancellation, and shutdown.
-- Read [sdk-wire-protocol.md](references/sdk-wire-protocol.md) to implement NDJSON framing, SDK event schemas, control correlation, environment updates, permission races, duplicate suppression, and wire-level acceptance cases.
+- Read [sdk-wire-protocol.md](references/sdk-wire-protocol.md) to implement NDJSON framing, attachment capability negotiation and imports, typed user content, SDK event schemas, control correlation, environment updates, permission races, duplicate suppression, and wire-level acceptance cases.
 - Read [sdk-permission-wire.md](references/sdk-permission-wire.md) to implement the exact `can_use_tool` request, permission-update and response unions, absent/null behavior, request-ID compatibility, waiter-specific validation, cancellation, and orphan-response semantics.
 - Read [remote-io-transports.md](references/remote-io-transports.md) to implement the SDK URL adapter, WebSocket, Hybrid, SSE, and CCR worker transports, ordered uploaders, retry and cursor semantics, close loss windows, and stdout protection.
 - Read [public-sdk-contract.md](references/public-sdk-contract.md) to implement the public SDK facade, session inspection and mutation helpers, scheduler and remote-control handles, sandbox configuration, and schema-compatibility boundary.
@@ -31,7 +31,7 @@ See the [headless and SDK architecture diagram](assets/architecture.drawio) for 
 - **SDK-004 — Correlated controls.** Match every control request and response by request identifier. EOF, cancellation, malformed responses, or shutdown settle all pending requests explicitly.
 - **SDK-005 — FIFO output.** Session events and control requests share one ordered outbound queue. A later permission request cannot overtake prior assistant or task output.
 - **SDK-006 — Terminal result ordering.** Emit finite background task progress and notifications before the result, prompt suggestion after the result, and authoritative idle only after result enqueue and the adapter's remote internal/resume-event flush. This is not a visible-client delivery acknowledgement.
-- **SDK-007 — Idempotent input.** Treat user UUIDs and resolved tool-use identifiers as replay/deduplication keys; acknowledge duplicates without rerunning them.
+- **SDK-007 — Idempotent input.** Treat the stable prompt/user UUID, committed attachment correlations, and resolved tool-use identifiers as replay/deduplication keys; acknowledge duplicates without rerunning them or reimporting media.
 
 ## Implementation workflow
 

@@ -9,6 +9,12 @@ Prove that the engineering-guidance graph is navigable, every source artifact ha
 
 Open [architecture.drawio](assets/architecture.drawio) for the evidence chain. Apply [the architecture diagram contract](../implementation-architecture/references/diagram-contract.md) when reviewing any Draw.io asset. Read [coverage-model.md](references/coverage-model.md) before interpreting the generated [artifact ledger](references/source-coverage.tsv) and independently reviewed [source-to-contract trace](references/source-contract-trace.tsv), and read [conformance-matrix.md](references/conformance-matrix.md) with the generated [contract-to-scenario manifest](references/contract-scenario-coverage.tsv) when evaluating project conformance.
 
+For the current worktree's sanitized, environment-scoped live Azure attachment
+run, read [native-attachment-production-qualification.md](references/native-attachment-production-qualification.md).
+It is non-normative execution evidence for one tested profile, not a source
+mapping, universal provider claim, release-artifact attestation, or replacement
+for `MOD-A14B` on another deployment.
+
 ## Audit workflow
 
 1. When application source changes, run `ruby .codex/skills/implementation-conformance-audit/scripts/build_source_coverage.rb` to refresh [source-coverage.tsv](references/source-coverage.tsv).

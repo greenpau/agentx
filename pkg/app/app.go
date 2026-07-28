@@ -159,8 +159,32 @@ func runHeadless(ctx context.Context, opts cli.Options, workspace string, stdin 
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(promptText) == "" {
+	if strings.TrimSpace(promptText) == "" && len(opts.Attachments) == 0 {
 		return &cli.UsageError{Message: "a prompt is required in headless mode"}
+	}
+	if len(opts.Attachments) > 0 {
+		if strings.HasPrefix(strings.TrimSpace(promptText), "/") {
+			return &cli.UsageError{Message: "attachments cannot accompany a slash or local command"}
+		}
+		promptID, err := surface.NewUUID()
+		if err != nil {
+			return err
+		}
+		message, err := session.importInitialAttachments(ctx, promptText, opts.Attachments, promptID)
+		if err != nil {
+			return err
+		}
+		outcome, runErr := session.submitMessage(ctx, message, promptID)
+		if opts.OutputFormat == cli.OutputJSON {
+			if err := writeJSONResult(stdout, outcome, runErr, session.credentials); err != nil {
+				return err
+			}
+		} else if outcome.Text != "" {
+			if err := writeTerminalRecord(stdout, session.credentials, outcome.Text+"\n"); err != nil {
+				return err
+			}
+		}
+		return runErr
 	}
 	commandStarted := time.Now()
 	commandResult, isCommand, commandErr := session.dispatchUserCommand(ctx, promptText, true)

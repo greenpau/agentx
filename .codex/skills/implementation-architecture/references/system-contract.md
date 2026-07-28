@@ -25,6 +25,7 @@ The semantic core accepts normalized external events and emits canonical session
 | Model | effective prompt, messages, tools, model options, abort | streamed blocks, usage, stop metadata, request identity | current request or bounded retry chain |
 | Capability | canonical name, validated input, call identity, context | progress and exactly one live-turn terminal result; explicit unresolved-call recovery after crash | one call unless policy declares sibling cancellation |
 | Persistence | append records, flush, load, branch, mutation | durable evidence or explicit failure | session continuity, never silent success |
+| Attachment storage | explicit file import or correlated upload, stable attachment identity, bounded resolve/copy/collect | immutable verified media plus safe manifest | one import/message/session; never filesystem authority |
 | Presentation | canonical events and UI commands | user/external events | adapter only; core remains coherent |
 | Extensions | manifests, registrations, hooks, remote resources | attributed registry entries and lifecycle events | extension entry or provider, not entire session by default |
 | Platform | files, processes, terminal, notifications, credentials | bounded results and capability status | integration-specific degradation |
@@ -43,6 +44,7 @@ The semantic core accepts normalized external events and emits canonical session
 | Capability call | validated and observable input, decision provenance, progress, result | unrelated sibling state |
 | Background task | lifecycle, owner, output location/offset, cancellation, notification | anonymous fire-and-forget work |
 | Durable transcript | ordered/linked semantic records and significant metadata | transient rendering or progress-only events |
+| Session attachment store | owner-private manifests, content-addressed immutable blobs, upload reservations and temporary files | source paths, inline transcript bytes, permission authority |
 | Presentation | focus, scroll, overlays, animation, viewport, ephemeral notifications | permission or transcript authority |
 
 `ARCH-STATE-003` — A durable record is immutable after append unless the format explicitly defines a separately recorded tombstone, replacement, relink, or snapshot event. Recovery replays those events; it does not rewrite history invisibly.
@@ -75,7 +77,7 @@ Preserve this dependency order:
 2. Load syntactically valid configuration, perform compatible migrations, establish identity, trust, policy, authentication, and initial permission state.
 3. Discover registries, then filter each entry by build, gate, identity, platform, policy, configuration, and health.
 4. Create or restore session, transcript cursor, file and attribution snapshots, task registry, background ownership, and presentation adapter. Repair interrupted call pairs before accepting another turn.
-5. Normalize input, expand supported references and attachments, route local commands, run input hooks, and persist accepted model-bound input.
+5. Normalize input, commit supported caller-selected attachments into session-owned storage, atomically validate the ordered typed message, expand other supported references, route local commands, run input hooks, and persist accepted model-bound input.
 6. Compose stable and volatile context in declared order, invoke the model, and publish streamed semantic events.
 7. Resolve every tool use, validate it, decide permission, select isolation, execute safely, normalize output, and append paired results.
 8. Continue the model loop until successful completion, cancellation, non-recoverable error, policy/turn/cost/token limit, or another explicit terminal condition.
@@ -86,6 +88,13 @@ Preserve this dependency order:
 `ARCH-LIFE-002` — Recovery runs before new user work and converts every accepted but incomplete operation into explicitly authorized resumed work, an interruption/error projection, omission of an incomplete specified branch under the documented compatibility rule, or a documented irrecoverable error. Recovery never infers success from a later filesystem state.
 
 `ARCH-LIFE-003` — A provider-free session-management mode branches before semantic session initialization. It derives the workspace partition only from the frozen application-home capability and normalized absolute workspace, shares one continuity authority with resume, continue, fork, and explicit creation, and exposes only bounded versioned inventory or deletion outcomes. A caller cannot supply an application-home path, workspace key, session path, or transcript path.
+
+`ARCH-LIFE-004` — Attachment admission is a transaction over references, not
+over provider transport. Import may commit immutable session-owned blobs before
+the user message is admitted, but every reference in one message must resolve
+and match its manifest before queue insertion or active-turn interruption.
+Failed/unsubmitted imports are collected as orphans; an accepted message is
+durable before provider access.
 
 ## Concurrency and ordering
 
@@ -131,6 +140,12 @@ All retries define eligible errors, maximum attempts or bounded persistent mode,
 
 `ARCH-SEC-005` — Native session inventory and deletion accept only a normalized workspace, a grammar-valid opaque session identifier, and runtime-issued opaque continuation or revision tokens. Enumeration fails closed on a safe-looking unsafe identity. Deletion revalidates workspace parent, target, transcript, lock, and token identity at the mutation boundary; it holds the existing nonblocking session lock through a same-parent atomic detach into a reserved non-session name, then releases the lock before descriptor-rooted recursive cleanup.
 
+`ARCH-SEC-006` — Attachment content is untrusted model input, never a tool,
+filesystem, command, or instruction grant. Reject unsupported media and unsafe
+source identity before commit. Neither public events nor diagnostics may expose
+attachment bytes, base64, provider request bodies, original paths, or
+runtime-owned paths.
+
 ## Portability rules
 
 - Represent schemas using language-neutral tagged records and validation predicates.
@@ -169,3 +184,22 @@ Disconnect at each remote delivery milestone: observed frame identifier, parsed 
 ### `ARCH-A07` — Crash-safe native session deletion
 
 List two workspaces that contain the same session ID and obtain distinct runtime-issued revisions. Deletion of one revision acquires that workspace's existing session lock, persists matching intent, revalidates the workspace parent, target, transcript, lock, and revision, and atomically detaches only that target to a reserved invalid-session staging name. Resume, continue, fork, ordinary inventory, and explicit recreation cannot select either live intent or detached staging. A crash or cleanup failure returns `delete_incomplete`; retry by the original session ID and revision validates the bounded staging record and completes descriptor-rooted removal. `deleted` is returned only after the detached owned directory is absent. The other workspace, fork descendants, project memory, worktrees, configuration, authentication, backups, remote copies, and presentation caches are unchanged.
+
+### `ARCH-A08` — Native attachment end-to-end continuity
+
+Negotiate one qualified surface, import ordered PNG, JPEG, and conservative PDF
+content through explicit paths and correlated stream uploads, and bind every
+committed reference to one stable prompt UUID. Fully validate and reserve the
+typed set before a priority-`now` interruption, append the manifest-only user
+event before provider access, and materialize bytes only in the qualified
+provider adapter. Verify exact provider order, one byte-identical bounded
+payload across transport retries, and one terminal turn outcome. Compact,
+resume after removing the source paths, and fork while the source is locked;
+the transcript retains every manifest and each destination owns independently
+verified immutable blobs. Induce missing/tampered durable media and a closed
+provider media rejection: local damage fails before transport, while the
+rejected projected attachment set is durably quarantined and never
+automatically resent. Throughout import, queueing, provider failure,
+observation, replay, shutdown, orphan collection, and native session deletion,
+emit no bytes, base64, source/runtime paths, or provider body, and never treat
+attachment content as permission or instruction authority.

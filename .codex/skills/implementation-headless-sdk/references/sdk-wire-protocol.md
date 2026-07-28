@@ -37,12 +37,117 @@ The incremental reader:
 | Type | Required fields | Optional/conditional fields |
 | --- | --- | --- |
 | `user` | API user message, `parent_tool_use_id` nullable | UUID, session ID, synthetic flag, tool-use result, priority `now/next/later`, originating timestamp; replay requires UUID, session ID and `isReplay=true` |
+| `attachment_import` | version, operation, upload ID, then operation-specific fields in `WIRE-018` | none outside the selected operation schema |
 | `control_request` | `request_id`, request object containing `subtype` | subtype-specific fields |
 | `control_response` | response object with `request_id` and subtype `success` or `error` | success payload; or error string and pending-permission recovery detail |
 | `keep_alive` | none beyond type | ignored semantically |
 | `update_environment_variables` | environment variable map | values follow the environment-update validation contract |
 
 Inbound user role must be user. Replayed assistant/system records accepted by compatible transports implement prior context; they never execute historical tool calls.
+
+### Versioned user content and attachment import
+
+**WIRE-017 — Native user-content union.** Legacy user `message` values remain
+compatible when they are a JSON string, an object whose `content` is a string,
+or an object whose `content` is a nonempty array of `text`/`input_text` blocks.
+The attachment form is:
+
+```json
+{
+  "type": "user",
+  "uuid": "3f1e7948-5c1f-4c1f-8e2c-88bc9839ec27",
+  "priority": "next",
+  "message": {
+    "role": "user",
+    "content_version": 1,
+    "content": [
+      {"type": "text", "text": "Compare these in order."},
+      {
+        "type": "attachment_ref",
+        "attachment_id": "att_image1",
+        "kind": "image",
+        "name": "screen.png",
+        "mime_type": "image/png",
+        "size_bytes": 12345,
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "storage_id": "blob_sha256_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    ]
+  }
+}
+```
+
+`content_version:1` is mandatory when any `attachment_ref` appears.
+`role`, when present, is exactly `user`; version 1 accepts `text` and the
+compatibility spelling `input_text` as the same closed text variant and emits
+canonical `text` on replay. Text and attachments may appear in any order; the
+array may contain attachments only. The manifest fields shown above are all
+required and no other block member is accepted. A successful
+`attachment_import` commit is the only stream operation that supplies a
+committed manifest. Attachment-bearing replay preserves `content_version:1`,
+block order, and this complete bounded manifest including opaque
+content-addressed `storage_id`, so it round-trips through typed decoding.
+Replay still does not create a new upload or bypass duplicate/prompt-correlation
+rules.
+
+**WIRE-018 — Import operation schema.** Every import record is one complete
+physical line no larger than 8,388,608 bytes. The four closed request forms are:
+
+```json
+{"type":"attachment_import","version":1,"operation":"begin","prompt_uuid":"3f1e7948-5c1f-4c1f-8e2c-88bc9839ec27","upload_id":"upl_image1","attachment_id":"att_image1","name":"screen.png","size_bytes":12345,"mime_type":"image/png","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"type":"attachment_import","version":1,"operation":"chunk","upload_id":"upl_image1","sequence":0,"data":"<strict-padded-base64>"}
+{"type":"attachment_import","version":1,"operation":"commit","upload_id":"upl_image1"}
+{"type":"attachment_import","version":1,"operation":"abort","upload_id":"upl_image1"}
+```
+
+Every shown member is required. No other member is accepted.
+`upload_id` matches `upl_[A-Za-z0-9][A-Za-z0-9_-]{0,62}`;
+`attachment_id` uses the corresponding `att_` grammar; `prompt_uuid` is a
+canonical RFC 4122 version 1–5 UUID with a valid variant. `begin` declares the
+raw positive decoded size, supported MIME claim, and raw SHA-256 before any
+bytes are admitted. Chunk sequence begins at zero and increases by exactly one;
+each chunk is nonempty canonical padded standard base64, decodes to at most
+262,144 bytes, and has at most 349,528 encoded characters. A complete payload
+is never placed in a `user` record. No more than 8 upload lifecycles are active
+at once. The session store accepts at most 100,000 durable committed manifests;
+independently, the current in-process terminal upload-attempt ledger retains
+at most 100,000 accepted upload lifecycle IDs. These ceilings are distinct from
+the 512 MiB unique-blob storage bound.
+
+**WIRE-019 — Import acknowledgements.** Accepted `begin` emits:
+
+```json
+{"type":"attachment_import_result","version":1,"upload_id":"upl_image1","attachment_id":"att_image1","status":"accepted","terminal":false,"prompt_uuid":"3f1e7948-5c1f-4c1f-8e2c-88bc9839ec27"}
+```
+
+A valid chunk emits no record. Successful commit emits exactly one terminal
+record with `status:"committed"`, `terminal:true`, the same correlations, and
+an `attachment` object containing the complete normalized manifest from
+`WIRE-017`. Image normalization may change `size_bytes` and `sha256` from the
+raw `begin` declaration; clients must reference the committed manifest.
+Explicit abort, cancellation, timeout, EOF, process failure, validation
+failure, and commit failure emit one terminal result with status
+`aborted|expired|failed` and a bounded reason code. Operation-level records
+that cannot join an accepted lifecycle use
+`type:"attachment_import_rejected"`, `status:"rejected"`,
+`terminal:false`, and a bounded reason. A later duplicate operation cannot
+create a second terminal acknowledgement.
+
+**WIRE-020 — Atomic prompt correlation.** A user record cannot refer to an
+attachment until commit succeeds, cannot mix attachments committed for
+different prompt UUIDs, and cannot submit one committed attachment under a
+different prompt UUID. It must reference every successfully committed
+attachment correlated to its prompt UUID; omitting any one rejects the complete
+user record instead of silently dropping part of the imported set. Validate
+every referenced manifest and queue reservation before a priority-`now` record
+interrupts active work. Queue capacity is 128 records and 16 MiB of aggregate
+admission accounting.
+
+**WIRE-021 — Closed decoding.** Reject duplicate member names at every depth,
+including escape-equivalent names. User messages, content blocks, and import
+operations reject unknown members; malformed framing/import schema is a fatal
+input-stream error, while a semantically invalid user record emits an
+input-error result and leaves other accepted work usable.
 
 ## Core output records
 
@@ -67,6 +172,67 @@ Every ordinary session record carries a session identifier and UUID unless speci
 - `type=system`, `subtype=init`.
 - API key source, product version, cwd, tool names, MCP server name/status pairs, model, permission mode, slash-command names, output style, skill names, plugin descriptors, UUID and session ID.
 - Optional agent names, API betas and fast-mode state.
+- Optional `input_capabilities`. Its absence means text-only and clients must
+  not attempt attachment import or references.
+
+For the native qualified attachment profile, both `system/init` and the
+successful `initialize` response contain this exact capability shape (object
+member order is not semantic):
+
+```json
+{
+  "input_capabilities": {
+    "attachments": {
+      "protocol_version": 1,
+      "sources": [
+        {"source":"file_path","scope":"initial_cli"},
+        {"source":"stream_json_v1","scope":"per_turn"}
+      ],
+      "media_types": [
+        {"kind":"image","mime_type":"image/png","max_bytes":20971520,"max_dimension":8192,"max_pixels":20000000,"transform_policy":"decode_reencode_strip_metadata_reject_oversize_no_resize"},
+        {"kind":"image","mime_type":"image/jpeg","max_bytes":20971520,"max_dimension":8192,"max_pixels":20000000,"transform_policy":"decode_reencode_strip_metadata_reject_oversize_no_resize"},
+        {"kind":"document","mime_type":"application/pdf","max_bytes":20971520,"max_pages":100,"transform_policy":"validate_structure_no_execute_no_ocr_no_conversion"}
+      ],
+      "limits": {
+        "max_attachments_per_message": 8,
+        "max_concurrent_uploads": 8,
+        "max_uploads_per_session": 100000,
+        "max_item_bytes": 20971520,
+        "max_aggregate_bytes": 41943040,
+        "max_storage_bytes": 536870912,
+        "max_model_request_media_bytes": 41943040,
+        "max_chunk_decoded_bytes": 262144,
+        "max_chunk_encoded_bytes": 349528,
+        "max_display_name_bytes": 255,
+        "max_mime_type_bytes": 64,
+        "max_image_dimension": 8192,
+        "max_image_pixels": 20000000,
+        "max_pdf_pages": 100,
+        "upload_timeout_ms": 120000
+      },
+      "provider_limits": {
+        "max_request_items": 100,
+        "max_encoded_media_bytes": 55927120,
+        "max_request_bytes": 67108864,
+        "max_ndjson_record_bytes": 8388608
+      }
+    }
+  }
+}
+```
+
+This capability describes local admission and projection support, not remote
+deployment introspection. Apply `MOD-083` through `MOD-085`; installed-runtime
+qualification is the separately scoped `MOD-A14B` evidence gate.
+
+Each source entry is a closed `{source,scope}` object. `file_path` is available
+only while constructing the initial CLI prompt (`initial_cli`);
+`stream_json_v1` is the per-turn structured import route (`per_turn`). The
+advertised `max_uploads_per_session` numeric value aligns the two independent
+version-1 ceilings described by `WIRE-018`: 100,000 durable committed
+manifests, including file and stream imports, and 100,000 terminal accepted
+stream-upload lifecycle IDs in the current in-process ledger. Reaching one
+ceiling does not consume or extend the other.
 
 **Success result**
 
@@ -93,6 +259,14 @@ Each permission denial records tool name, tool-use ID and effective tool input.
   emits `user` in both the `system/init` record and the `initialize` response's
   `account` object. Never emit the credential path, field name, or value as
   source metadata.
+- **WIRE-022 — Attachment output privacy.** User replay and ordinary SDK events
+  expose only the versioned typed content and complete bounded manifest:
+  `type`, stable attachment ID, kind, bounded name, MIME, decoded size, digest,
+  and opaque content-addressed storage ID. They never expose binary bytes,
+  base64, source paths, temporary paths, runtime storage paths, provider
+  request bodies, or complete data URLs.
+  Terminal results for attachment-bearing CLI/SDK turns also carry the stable
+  `prompt_uuid`; the result record's own `uuid` remains a distinct event ID.
 
 ## System and lifecycle events
 
@@ -273,6 +447,20 @@ Finite background work may hold the ordinary result after the acknowledgement. L
 21. Initialize a standalone application-home `auth.json` session; verify both
     SDK initialization forms emit `apiKeySource=user` and never expose the
     credential path, field name, or value.
+22. Negotiate `input_capabilities`, complete two correlated uploads through
+    begin/chunk/commit, then submit a text-plus-two-attachment user message.
+    Verify ordered typed content, one terminal acknowledgement per upload, one
+    stable prompt UUID through terminal result, and replay that retains
+    `content_version:1`, order, and each complete manifest/storage ID while
+    exposing no bytes, base64, or paths.
+23. Exercise missing, repeated, reordered, oversized, noncanonical-base64, and
+    post-terminal chunks plus digest, size, MIME, and magic mismatches. Verify
+    reservations and temporary artifacts settle exactly once, the prompt is
+    not admitted, and a priority-`now` failure does not interrupt active work.
+24. Omit `input_capabilities` and send only legacy string and text-block user
+    records; verify text compatibility remains unchanged. Attempt import or an
+    attachment reference without the advertised capability and verify an
+    explicit rejection before provider transport.
 
 ## Non-normative provenance
 

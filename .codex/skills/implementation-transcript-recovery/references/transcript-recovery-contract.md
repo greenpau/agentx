@@ -21,7 +21,15 @@ This document defines the authoritative append-only session history and how a co
 
 **TX-002 — Stable identities.** Every transcript message has a globally unique message UUID, timestamp, session ID, and zero or one parent UUID. Session IDs are stable opaque identifiers, native directory IDs obey `TX-068`, and an active conversation changes identity only through the atomic session-switch contract.
 
-**TX-003 — Transcript-message types.** Only semantic user, assistant, attachment, and system records participate as transcript messages. For a model-backed turn, the accepted durable user message carrying its turn identity and timestamp is the authoritative start marker. Progress is ephemeral presentation state and neither persists in new transcripts nor advances the parent cursor.
+**TX-003 — Transcript-message types.** Only semantic user, assistant, and
+system records participate as transcript messages. A version-2 user record may
+contain ordered native attachment blocks inside its typed message; there is no
+separate native attachment transcript-message type. Legacy/meta attachment
+records retain their compatibility meaning where explicitly supported. For a
+model-backed turn, the accepted durable user message carrying its turn identity
+and timestamp is the authoritative start marker. Progress is ephemeral
+presentation state and neither persists in new transcripts nor advances the
+parent cursor.
 
 **TX-004 — Transcript record.** A message record can contain:
 
@@ -40,6 +48,8 @@ Session-stamp fields are assigned by the destination session after copied messag
 - file-history and attribution snapshots;
 - queued-message lifecycle operations;
 - speculation acceptance;
+- native attachment provider-rejection quarantine, keyed by stable ID and
+  digest;
 - tool-result content-replacement decisions;
 - ordered context-collapse commits and last-wins context-collapse snapshot;
 - completed provider-usage records and, when terminal append and flush succeed,
@@ -56,6 +66,14 @@ not silently described as durable completion.
 **TX-007 — Sidechains.** A sidechain belongs to an agent or fork and may be stored in a dedicated transcript. It retains agent identity and can inherit parent context. The main session's UUID set and a local sidechain's UUID set have different deduplication rules.
 
 **TX-008 — Worktree state.** Persist worktree state as a tri-state value: event never written/unknown, explicit `null` meaning exited, or an active worktree descriptor. This distinguishes a clean exit from a crash while inside a worktree.
+
+**TX-009 — Native attachment event version.** Version-2 user events may carry
+the closed version-1 typed user-content union and attachment manifests. Persist
+stable ID, kind, bounded display name, verified MIME, normalized decoded size,
+SHA-256 digest, and immutable storage ID only—never bytes, base64, source path,
+runtime path, or provider request data. Version-1 legacy text events remain
+loadable; a version-1 event that attempts attachment content is invalid rather
+than being interpreted as text.
 
 ## Write protocol and durability
 
@@ -95,7 +113,12 @@ directory ownership and file permissions.
 
 **TX-018 — Incremental record filtering.** Before recording a growing message slice, remove already-recorded UUIDs. Already-recorded chain participants advance the starting parent only while they form a prefix before the first new message. Once a new message appears, later recorded messages do not move the cursor. This lets compact boundary/summary records precede deduplicated preserved messages without making future messages chain back into precompact history.
 
-**TX-019 — Parent cursor.** Start with an explicit parent hint or null. For each new chain participant, use the cursor as parent and then advance the cursor to that message UUID. Attachments/system messages participate; progress never does.
+**TX-019 — Parent cursor.** Start with an explicit parent hint or null. For
+each new chain participant, use the cursor as parent and then advance the cursor
+to that message UUID. A typed user message advances once regardless of how many
+native attachment blocks it contains; supported legacy/meta attachment records
+and chain-participating system messages advance independently. Progress never
+does.
 
 **TX-020 — Tool-result parent.** A user-role tool-result record with source assistant UUID uses that assistant as its effective parent rather than the sequential cursor. This preserves association when parallel streamed assistant blocks exist.
 
@@ -115,11 +138,27 @@ directory ownership and file permissions.
 
 **TX-028 — Clock callback boundary.** Invoke a configured transcript clock before acquiring the append ownership gate, contain panic and zero-time results with the host wall clock, and guard recursive clock entry without calling the callback again. Batch stamping works on a detached event slice. No clock callback may observe partially mutated append indexes or deadlock by reentering `Append`; preparation under the gate has only a callback-free host-clock fallback.
 
+**TX-029 — Session-owned attachment store.** Keep attachment state below the
+native session directory in owner-private `attachments/blobs`,
+`attachments/manifests`, and `attachments/uploads` children. Blobs are
+immutable and content-addressed by normalized SHA-256; manifests bind stable
+attachment IDs to verified blobs. Cap unique committed blob storage at
+536,870,912 bytes. Opening a store removes abandoned temporary uploads; after
+the transcript snapshot is available, the runtime invokes collection with its
+durable attachment-reference set. Collection removes only unreferenced
+committed artifacts, and a referenced blob is never evicted merely to admit a
+new import.
+
 ## Graph construction and branching
 
 **TX-030 — Append topology.** Parents normally appear earlier in the file, but the live transcript can be a DAG because parallel assistant content blocks and tool results form sibling branches. Rewind and retry leave older branches physically present.
 
-**TX-031 — Leaf candidates.** Compute graph leaves from parent references. Only the nearest eligible user or assistant at a terminal path may anchor a resumable conversation; attachments/system metadata alone do not become conversation leaves.
+**TX-031 — Leaf candidates.** Compute graph leaves from parent references.
+Only the nearest eligible user or assistant at a terminal path may anchor a
+resumable conversation. An attachment-only typed user message is an eligible
+user leaf. Detached manifests, blobs, uploads, legacy/meta attachments without
+an eligible conversation message, and session-scoped system metadata do not
+become conversation leaves by themselves.
 
 **TX-032 — Active leaf.** For ordinary resume, choose the most recent valid main-chain leaf by timestamp. Analytics/history views that explicitly request every branch may retain all leaves and choose by their own documented policy.
 
@@ -180,15 +219,18 @@ For a stale segment followed by a plain boundary, prune before the absolute last
 2. select the conversation leaf/chain;
 3. decide fork versus adoption;
 4. switch session identity and owner directory atomically when adopting;
-5. restore cost and metadata;
-6. restore cwd/worktree and invalidate cwd-sensitive caches;
-7. restore file history, attribution, collapse state, todo compatibility, and agent selection;
-8. reconcile unresolved tool use and replacement state;
-9. adopt or materialize the correct destination file.
+5. open the owning attachment store and verify every selected manifest/blob
+   identity, digest, and size;
+6. restore cost and metadata;
+7. restore cwd/worktree and invalidate cwd-sensitive caches;
+8. restore file history, attribution, collapse state, attachment quarantine,
+   todo compatibility, and agent selection;
+9. reconcile unresolved tool use and replacement state;
+10. adopt or materialize the correct destination file.
 
-**TX-061 — Non-fork resume.** Reuse the loaded session ID unless an explicit override is supplied. Use the transcript file's directory as the owning project directory for cross-project/worktree resume. Reset any stale fresh-session file pointer, restore cost, and adopt the existing file.
+**TX-061 — Non-fork resume.** Reuse the loaded session ID unless an explicit override is supplied. Use the transcript file's directory as the owning project directory for cross-project/worktree resume. Reset any stale fresh-session file pointer, restore cost, adopt the existing file, and reuse its verified immutable attachment store without consulting an original import path.
 
-**TX-062 — Fork resume.** Keep the new startup session ID. Copy selected source messages into a new transcript, restamping destination session fields. Do not take ownership of the source session's worktree. Seed loaded content-replacement records under the new session because they are separate metadata events and will not be recreated by copying messages.
+**TX-062 — Fork resume.** Keep the new startup session ID. Copy selected source messages into a new transcript, restamping destination session fields. Do not take ownership of the source session's worktree. Seed loaded content-replacement records under the new session because they are separate metadata events and will not be recreated by copying messages. Under the source session lock, verify and copy each referenced immutable blob and manifest into the destination store while preserving attachment/storage identities; the fork does not share a mutable path with the source. Publish neither a usable destination transcript nor success until this copy is complete.
 
 **TX-063 — Agent restoration.** An explicit command-line agent wins. Otherwise restore the saved agent when it remains available, update main-thread agent identity, and apply its model only when the user did not supply another override. If unavailable, clear stale agent bootstrap state and continue with default behavior.
 
@@ -522,6 +564,27 @@ the durable receipt transition is revalidated. Verify the operation leaves
 descendant forks, worktrees, project memory, auth/configuration, remote or
 backup copies, and all AgentX VS Code extension data and presentation metadata
 unchanged.
+
+**TX-A20 — Attachment round-trip and privacy.** Persist legacy text, an
+attachment-only turn, and an ordered text/image/PDF turn. Reopen and verify the
+typed manifests, order, stable prompt UUID, and blob identities. Inspect every
+transcript and replay record and verify no binary bytes, base64, source path,
+runtime path, or provider body appears. Legacy version-1 text resumes
+unchanged.
+
+**TX-A21 — Missing and tampered durable media.** Remove one referenced blob,
+then separately mutate bytes while preserving its filename. Resume, compaction,
+and provider projection each fail with the owning prompt/attachment identity
+before transport; none substitutes a placeholder as authoritative content,
+rewrites history, or resends uncertain media.
+
+**TX-A22 — Attachment fork and collection.** Fork a session containing
+deduplicated shared blobs and verify the destination owns verified immutable
+copies with the same identities and no dependency on original source paths or
+the source store. Delete or collect an unreferenced blob without affecting a
+referenced sibling, then delete the native session and verify its attachment
+store is removed under the recoverable session-deletion protocol. Backup and
+remote copies remain outside that guarantee.
 
 ## Non-normative provenance
 

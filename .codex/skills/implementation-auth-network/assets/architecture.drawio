@@ -64,9 +64,9 @@
       <mxCell id="ctx-crosscut" value="&lt;b&gt;Cross-cutting operations and evidence — YOU ARE HERE: implementation-auth-network&lt;/b&gt; · authentication · networking · platform ownership · cleanup · observability · implementation audit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=3;dashed=1;fontSize=12;" vertex="1" parent="1"><mxGeometry x="70" y="370" width="1655" height="46" as="geometry"/></mxCell>
       <mxCell id="ctx-owner-boundary" value="CURRENT OWNERSHIP BOUNDARY" style="swimlane;html=1;horizontal=1;startSize=34;rounded=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="60" y="450" width="1120" height="430" as="geometry"/></mxCell>
       <mxCell id="ctx-question" value="&lt;b&gt;Question&lt;/b&gt;&lt;br&gt;Where does implementation-auth-network sit, what does it own, and how does it hand off its result?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8ab4f8;fontSize=13;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="505" width="1060" height="70" as="geometry"/></mxCell>
-      <mxCell id="ctx-starts" value="&lt;b&gt;Starts with&lt;/b&gt;&lt;br&gt;Provider/profile selection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="605" width="300" height="150" as="geometry"/></mxCell>
-      <mxCell id="ctx-owns" value="&lt;b&gt;Owns&lt;/b&gt;&lt;br&gt;Credential and network boundary&lt;br&gt;&lt;br&gt;Owns credential and network boundary: accepts Provider/profile selection, governs the responsibilities and branches shown on the flow page, and produces Redacted result + cleanup." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="430" y="605" width="380" height="150" as="geometry"/></mxCell>
-      <mxCell id="ctx-ends" value="&lt;b&gt;Ends with&lt;/b&gt;&lt;br&gt;Redacted result + cleanup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="850" y="605" width="300" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-starts" value="&lt;b&gt;Starts with&lt;/b&gt;&lt;br&gt;Provider / profile capability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="605" width="300" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-owns" value="&lt;b&gt;Owns&lt;/b&gt;&lt;br&gt;Credential and network boundary&lt;br&gt;&lt;br&gt;Owns credential and network boundary: accepts Provider / profile capability, governs the responsibilities and branches shown on the flow page, and produces Redacted result + payload release." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="430" y="605" width="380" height="150" as="geometry"/></mxCell>
+      <mxCell id="ctx-ends" value="&lt;b&gt;Ends with&lt;/b&gt;&lt;br&gt;Redacted result + payload release" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="850" y="605" width="300" height="150" as="geometry"/></mxCell>
       <mxCell id="ctx-defers" value="&lt;b&gt;Defers to / collaborates with&lt;/b&gt;&lt;br&gt;implementation-operations&lt;br&gt;implementation-platform-lifecycle&lt;br&gt;implementation-observability&lt;br&gt;&lt;br&gt;&lt;b&gt;Boundary&lt;/b&gt;&lt;br&gt;Operational services may degrade without becoming semantic authority or corrupting session correctness." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#9aa0a6;dashed=1;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1210" y="450" width="515" height="305" as="geometry"/></mxCell>
       <mxCell id="ctx-contracts" value="&lt;b&gt;Contracts&lt;/b&gt;&lt;br&gt;AUTH-001 · AUTH-002 · AUTH-003 · AUTH-010 · AUTH-011&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Read SKILL.md and references for the complete numbered contract set.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e0;strokeColor=#f9ab00;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="90" y="790" width="520" height="70" as="geometry"/></mxCell>
       <mxCell id="ctx-authority" value="&lt;b&gt;Authority&lt;/b&gt;&lt;br&gt;This page is authoritative for product position and the highlighted ownership boundary. Numbered prose owns exact fields, values, timing, ordering, errors, and compatibility behavior." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="640" y="790" width="510" height="70" as="geometry"/></mxCell>
@@ -84,57 +84,75 @@
       <mxCell id="flow-breadcrumb" value="&lt;b&gt;Context:&lt;/b&gt; implementation-architecture → implementation-operations → implementation-auth-network&lt;br&gt;&lt;b&gt;Lifecycle focus:&lt;/b&gt; cross-cutting operations / evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#bdc1c6;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="55" y="78" width="2080" height="64" as="geometry"/></mxCell>
       <mxCell id="flow-owned-boundary" value="CURRENT SKILL — RESPONSIBILITY TOPOLOGY (INTERFACES + OWNED WORK)" style="swimlane;html=1;horizontal=1;startSize=34;rounded=1;fillColor=#ffffff;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="45" y="175" width="1510" height="1170" as="geometry"/></mxCell>
       <mxCell id="flow-reading-direction" value="Read top → bottom by dependency depth. CONSUMED and PRODUCED mark the skill boundary; INTERFACE marks an external actor; IN SCOPE does not transfer that actor's authority." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#9aa0a6;fontSize=10;" vertex="1" parent="1"><mxGeometry x="245" y="220" width="1120" height="48" as="geometry"/></mxCell>
-      <mxCell id="flow-edge-0" value="handoff · Credential precedence" semanticLabel="handoff · Credential precedence" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-0" target="flow-node-1">
-  <mxGeometry x="0.00" y="0" width="197.8" height="24.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
-</mxCell>
-<mxCell id="flow-edge-1" value="handoff · Secure cache +&lt;br&gt;refresh lock" semanticLabel="handoff · Secure cache + refresh lock" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-1" target="flow-node-2">
-  <mxGeometry x="0.00" y="0" width="157.2" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
-</mxCell>
-<mxCell id="flow-edge-2" value="handoff · TLS / CA / proxy /&lt;br&gt;client" semanticLabel="handoff · TLS / CA / proxy / client" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-2" target="flow-node-3">
-  <mxGeometry x="0.00" y="0" width="180.4" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
-</mxCell>
-<mxCell id="flow-edge-3" value="handoff · Authenticated request" semanticLabel="handoff · Authenticated request" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.333;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-3" target="flow-node-4">
-  <mxGeometry x="0.00" y="0" width="197.8" height="24.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
-</mxCell>
-<mxCell id="flow-edge-4" value="handoff · Retry / recreate&lt;br&gt;client" semanticLabel="handoff · Retry / recreate client" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-4" target="flow-node-5">
+      <mxCell id="flow-edge-0" value="handoff · Resolve + verify&lt;br&gt;media once" semanticLabel="handoff · Resolve + verify media once" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-0" target="flow-node-1">
   <mxGeometry x="0.00" y="0" width="168.8" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
 </mxCell>
-<mxCell id="flow-edge-5" value="handoff · Authenticated request" semanticLabel="handoff · Authenticated request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=0;exitY=0.333;entryX=0.000;entryY=0.667;endArrow=block;endFill=1;strokeColor=#7e57c2;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-5" target="flow-node-4">
-  <mxGeometry x="0.00" y="0" width="197.8" height="24.0" relative="1" as="geometry">
-  <mxPoint x="110.9" y="12" as="offset"/>
+<mxCell id="flow-edge-1" value="handoff · Bounded stream-owned&lt;br&gt;payload" semanticLabel="handoff · Bounded stream-owned payload" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-1" target="flow-node-2">
+  <mxGeometry x="0.00" y="0" width="192.0" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-2" value="handoff · Authenticated&lt;br&gt;transport" semanticLabel="handoff · Authenticated transport" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.333;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-2" target="flow-node-3">
+  <mxGeometry x="0.00" y="0" width="151.4" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-3" value="handoff · Byte-identical&lt;br&gt;retries" semanticLabel="handoff · Byte-identical retries" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.250;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-3" target="flow-node-4">
+  <mxGeometry x="0.48" y="0" width="157.2" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-4" value="handoff · Authenticated&lt;br&gt;transport" semanticLabel="handoff · Authenticated transport" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=0;exitY=0.333;entryX=0.000;entryY=0.667;endArrow=block;endFill=1;strokeColor=#7e57c2;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-4" target="flow-node-3">
+  <mxGeometry x="0.00" y="0" width="151.4" height="32.0" relative="1" as="geometry">
+  <mxPoint x="87.7" y="-12" as="offset"/>
   <Array as="points">
-    <mxPoint x="90.0" y="1046.0"/>
-            <mxPoint x="90.0" y="930.0"/>
+    <mxPoint x="90.0" y="904.0"/>
+            <mxPoint x="90.0" y="788.0"/>
   </Array>
 </mxGeometry>
 </mxCell>
-<mxCell id="flow-edge-6" value="handoff · Redacted result +&lt;br&gt;cleanup" semanticLabel="handoff · Redacted result + cleanup" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.667;exitY=1;entryX=0.500;entryY=0;endArrow=block;endFill=1;strokeColor=#1a73e8;strokeWidth=2;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-5" target="flow-node-6">
-  <mxGeometry x="0.00" y="0" width="174.6" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="0" as="offset"/></mxGeometry>
+<mxCell id="flow-edge-5" value="handoff · Media rejection →&lt;br&gt;quarantine" semanticLabel="handoff · Media rejection → quarantine" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=1;exitY=0.500;entryX=1.000;entryY=0.333;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-3" target="flow-node-5">
+  <mxGeometry x="0.00" y="0" width="174.6" height="32.0" relative="1" as="geometry">
+  <mxPoint x="0.0" y="12" as="offset"/>
+  <Array as="points">
+    <mxPoint x="992.0" y="775.0"/>
+            <mxPoint x="992.0" y="1046.0"/>
+  </Array>
+</mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-6" value="handoff · Media rejection →&lt;br&gt;quarantine" semanticLabel="handoff · Media rejection → quarantine" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.667;exitY=1;entryX=0.667;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-4" target="flow-node-5">
+  <mxGeometry x="-0.48" y="0" width="174.6" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-7" value="handoff · Redacted result +&lt;br&gt;payload release" semanticLabel="handoff · Redacted result + payload release" style="edgeStyle=none;html=1;whiteSpace=wrap;exitX=0.500;exitY=1;entryX=0.333;entryY=0;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-5" target="flow-node-6">
+  <mxGeometry x="-0.48" y="0" width="174.6" height="32.0" relative="1" as="geometry"><mxPoint x="0" y="-16" as="offset"/></mxGeometry>
+</mxCell>
+<mxCell id="flow-edge-8" value="handoff · Redacted result +&lt;br&gt;payload release" semanticLabel="handoff · Redacted result + payload release" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;whiteSpace=wrap;exitX=1;exitY=0.750;entryX=1.000;entryY=0.667;endArrow=block;endFill=1;strokeColor=#b06000;strokeWidth=2;dashed=1;dashPattern=8 4;fontSize=9;labelBackgroundColor=#ffffff;jumpStyle=arc;jumpSize=10;" edge="1" parent="1" source="flow-node-3" target="flow-node-6">
+  <mxGeometry x="0.00" y="0" width="174.6" height="32.0" relative="1" as="geometry">
+  <mxPoint x="0.0" y="-12" as="offset"/>
+  <Array as="points">
+    <mxPoint x="1480.0" y="794.5"/>
+            <mxPoint x="1480.0" y="1214.0"/>
+  </Array>
+</mxGeometry>
 </mxCell>
 
-      <mxCell id="flow-node-0" value="&lt;b&gt;Provider/profile selection&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;CONSUMED · ENTRY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+      <mxCell id="flow-node-0" value="&lt;b&gt;Provider / profile capability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;CONSUMED · ENTRY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f3f4;strokeColor=#80868b;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="310.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-1" value="&lt;b&gt;Credential precedence&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-1" value="&lt;b&gt;Resolve + verify media once&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="452.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-2" value="&lt;b&gt;Secure cache + refresh lock&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-2" value="&lt;b&gt;Bounded stream-owned payload&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="594.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-3" value="&lt;b&gt;TLS / CA / proxy / client&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · RESPONSIBILITY&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-3" value="&lt;b&gt;Authenticated transport&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · FAN-OUT&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef7e0;strokeColor=#f9ab00;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="736.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-4" value="&lt;b&gt;Authenticated request&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · STATE / LOOP&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8fd;strokeColor=#a142f4;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-4" value="&lt;b&gt;Byte-identical retries&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · STATE / LOOP&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8fd;strokeColor=#a142f4;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="878.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-5" value="&lt;b&gt;Retry / recreate client&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · STATE / LOOP&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8fd;strokeColor=#a142f4;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-5" value="&lt;b&gt;Media rejection → quarantine&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;IN SCOPE · MERGE&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#188038;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="1020.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
-<mxCell id="flow-node-6" value="&lt;b&gt;Redacted result + cleanup&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;PRODUCED · OUTCOME&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
+<mxCell id="flow-node-6" value="&lt;b&gt;Redacted result + payload release&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;PRODUCED · OUTCOME&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f4ea;strokeColor=#34a853;strokeWidth=2;fontSize=13;" vertex="1" parent="1">
   <mxGeometry x="640.0" y="1162.0" width="330.0" height="78.0" as="geometry"/>
 </mxCell>
 
-      <mxCell id="flow-question" value="&lt;b&gt;Question&lt;/b&gt;&lt;br&gt;How do responsibilities connect from Provider/profile selection to Redacted result + cleanup?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="175" width="535" height="105" as="geometry"/></mxCell>
+      <mxCell id="flow-question" value="&lt;b&gt;Question&lt;/b&gt;&lt;br&gt;How do responsibilities connect from Provider / profile capability to Redacted result + payload release?" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f0fe;strokeColor=#1a73e8;fontSize=12;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="175" width="535" height="105" as="geometry"/></mxCell>
       <mxCell id="flow-authority" value="&lt;b&gt;Authority&lt;/b&gt;&lt;br&gt;Authoritative for topology, responsibility direction, branch/merge shape, and visible feedback rails. Numbered prose owns exact values, timing, errors, and compatibility." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce8e6;strokeColor=#d93025;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="305" width="535" height="125" as="geometry"/></mxCell>
       <mxCell id="flow-contracts" value="&lt;b&gt;Contracts&lt;/b&gt;&lt;br&gt;AUTH-001 · AUTH-002 · AUTH-003 · AUTH-010 · AUTH-011&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Complete definitions and scenarios are in SKILL.md and references.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e0;strokeColor=#f9ab00;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="455" width="535" height="105" as="geometry"/></mxCell>
       <mxCell id="flow-defers" value="&lt;b&gt;Deferred / collaborating owners&lt;/b&gt;&lt;br&gt;implementation-operations&lt;br&gt;implementation-platform-lifecycle&lt;br&gt;implementation-observability&lt;br&gt;&lt;br&gt;Operational services may degrade without becoming semantic authority or corrupting session correctness." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8f9fa;strokeColor=#9aa0a6;dashed=1;fontSize=10;align=left;spacingLeft=12;" vertex="1" parent="1"><mxGeometry x="1600" y="585" width="535" height="235" as="geometry"/></mxCell>

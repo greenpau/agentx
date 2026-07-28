@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,8 +38,9 @@ var (
 // untrusted provider error through Unwrap or As. The original cause may contain
 // credential material even when its presentation string has been sanitized.
 type publicEngineError struct {
-	message string
-	matches []error
+	message       string
+	matches       []error
+	mediaRejected bool
 }
 
 func (e *publicEngineError) Error() string {
@@ -104,7 +108,11 @@ func (e *Engine) publicErrorWithMessage(cause error, message string) error {
 
 func (e *Engine) publicErrorFromInspection(message string, inspection engineErrorInspection) error {
 	message = e.normalizedPublicErrorMessage(message)
-	return &publicEngineError{message: message, matches: append([]error(nil), inspection.matches...)}
+	return &publicEngineError{
+		message:       message,
+		matches:       append([]error(nil), inspection.matches...),
+		mediaRejected: inspection.mediaRejected,
+	}
 }
 
 func publicConfigError(config Config, cause error, message string) error {
@@ -118,7 +126,10 @@ type engineErrorInspection struct {
 	eof         bool
 	delivery    bool
 	persistence bool
-	provider    *model.ProviderError
+	// mediaRejected is a package-owned classification snapshot. It survives
+	// provider-error sealing without retaining or exposing the provider error.
+	mediaRejected bool
+	provider      *model.ProviderError
 }
 
 // inspectEngineError classifies exact roots, package-owned sealed snapshots,
@@ -158,7 +169,10 @@ func inspectEngineError(err error) engineErrorInspection {
 		switch typed := current.(type) {
 		case *publicEngineError:
 			if typed != nil {
-				mergeEngineInspection(&result, engineErrorInspection{matches: typed.matches})
+				mergeEngineInspection(&result, engineErrorInspection{
+					matches:       typed.matches,
+					mediaRejected: typed.mediaRejected,
+				})
 			}
 		case *callbackOperationError:
 			if typed != nil {
@@ -218,6 +232,7 @@ func mergeEngineInspection(target *engineErrorInspection, source engineErrorInsp
 	target.eof = target.eof || source.eof
 	target.delivery = target.delivery || source.delivery
 	target.persistence = target.persistence || source.persistence
+	target.mediaRejected = target.mediaRejected || source.mediaRejected
 	if target.provider == nil {
 		target.provider = source.provider
 	}
@@ -245,8 +260,11 @@ func mergeEngineInspection(target *engineErrorInspection, source engineErrorInsp
 func classifyEngineErrorNode(err error, result *engineErrorInspection) {
 	switch typed := err.(type) {
 	case *model.ProviderError:
-		if typed != nil && result.provider == nil {
-			result.provider = typed
+		if typed != nil {
+			result.mediaRejected = result.mediaRejected || typed.MediaRejected
+			if result.provider == nil {
+				result.provider = typed
+			}
 		}
 	}
 }
@@ -502,6 +520,217 @@ func (e *Engine) validateProviderItemsMetadata(items []model.Item) error {
 		}
 	}
 	return nil
+}
+
+func providerItemsContainAttachmentData(items []model.Item) bool {
+	var publicText strings.Builder
+	for _, item := range items {
+		appendProviderPublicText(&publicText, item)
+		if providerItemJSONContainsAttachmentData(item) {
+			return true
+		}
+	}
+	if model.ContainsAttachmentData(publicText.String()) {
+		return true
+	}
+	return false
+}
+
+// requestMediaDigests snapshots the immutable identities of every attachment
+// in the effective provider request. The returned set is used only to detect a
+// provider reflecting request bytes into opaque response fields which cannot
+// be safely rewritten or redacted without corrupting replay.
+func requestMediaDigests(request model.Request) map[[sha256.Size]byte]struct{} {
+	digests := make(map[[sha256.Size]byte]struct{})
+	for _, item := range request.Input {
+		for _, part := range item.Content {
+			if part.Manifest == nil ||
+				part.Type != model.ContentInputImage &&
+					part.Type != model.ContentInputFile {
+				continue
+			}
+			decoded, err := hex.DecodeString(part.Manifest.SHA256)
+			if err != nil || len(decoded) != sha256.Size {
+				clear(decoded)
+				continue
+			}
+			var digest [sha256.Size]byte
+			copy(digest[:], decoded)
+			clear(decoded)
+			digests[digest] = struct{}{}
+		}
+	}
+	return digests
+}
+
+func providerEventReflectsRequestMedia(
+	event model.Event,
+	digests map[[sha256.Size]byte]struct{},
+) bool {
+	if len(digests) == 0 {
+		return false
+	}
+	values := []string{
+		string(event.Type), event.RawType, event.RequestID, event.ResponseID,
+		event.ItemID, event.Delta, string(event.ReasoningKind),
+	}
+	if event.Call != nil {
+		values = appendProviderItemValues(values, *event.Call)
+	}
+	if event.Error != nil {
+		values = append(values,
+			event.Error.Code, event.Error.Type, event.Error.Param,
+			event.Error.Message, event.Error.RequestID,
+		)
+	}
+	if event.Response != nil {
+		values = append(values,
+			event.Response.ID, event.Response.Model, event.Response.Status,
+			event.Response.PreviousResponseID,
+		)
+		for _, item := range event.Response.Output {
+			values = appendProviderItemValues(values, item)
+		}
+	}
+	for _, value := range values {
+		if providerValueReflectsRequestMedia(value, digests) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendProviderItemValues(values []string, item model.Item) []string {
+	values = append(values,
+		string(item.Type), item.ID, item.APIResponseID, string(item.Role),
+		item.Status, item.Phase, item.CallID, item.Name, item.Arguments,
+		item.Output, item.EncryptedContent,
+	)
+	for _, part := range item.Content {
+		values = append(values, string(part.Type), part.Text)
+	}
+	for _, part := range item.Summary {
+		values = append(values, string(part.Type), part.Text)
+	}
+	return values
+}
+
+func providerValueReflectsRequestMedia(
+	value string,
+	digests map[[sha256.Size]byte]struct{},
+) bool {
+	if value == "" {
+		return false
+	}
+	for _, prefix := range [...]string{
+		"data:image/png;base64,",
+		"data:image/jpeg;base64,",
+		"data:application/pdf;base64,",
+	} {
+		if strings.Contains(value, prefix) {
+			return true
+		}
+	}
+	// Provider responses are bounded before reaching the engine. Retain an
+	// independent ceiling here so a caller-supplied Provider implementation
+	// cannot force an unbounded decode.
+	const maximumEncodedCandidateBytes = 64 << 20
+	for offset := 0; offset < len(value); {
+		if !providerBase64Byte(value[offset]) {
+			offset++
+			continue
+		}
+		end := offset + 1
+		for end < len(value) && providerBase64Byte(value[end]) {
+			end++
+		}
+		candidate := value[offset:end]
+		if len(candidate) >= 4 &&
+			len(candidate) <= maximumEncodedCandidateBytes &&
+			len(candidate)%4 == 0 &&
+			base64CandidateMatchesRequestMedia(candidate, digests) {
+			return true
+		}
+		offset = end
+	}
+	return false
+}
+
+func base64CandidateMatchesRequestMedia(
+	candidate string,
+	digests map[[sha256.Size]byte]struct{},
+) bool {
+	if strings.ContainsAny(candidate, "\r\n\t ") {
+		return false
+	}
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(candidate)))
+	n, err := base64.StdEncoding.Strict().Decode(decoded, []byte(candidate))
+	if err != nil {
+		clear(decoded)
+		return false
+	}
+	digest := sha256.Sum256(decoded[:n])
+	clear(decoded)
+	_, exists := digests[digest]
+	return exists
+}
+
+func providerItemJSONContainsAttachmentData(item model.Item) bool {
+	if item.Type != model.ItemFunctionCall || item.Arguments == "" {
+		return false
+	}
+	var decoded any
+	if json.Unmarshal([]byte(item.Arguments), &decoded) != nil {
+		return false
+	}
+	return decodedJSONContainsAttachmentData(decoded, 0)
+}
+
+func appendProviderPublicText(output *strings.Builder, item model.Item) {
+	if output == nil {
+		return
+	}
+	switch item.Type {
+	case model.ItemMessage:
+		if item.Role != model.RoleAssistant {
+			return
+		}
+		for _, part := range item.Content {
+			output.WriteString(part.Text)
+		}
+	case model.ItemFunctionCall:
+		output.WriteString(item.Arguments)
+	case model.ItemFunctionCallOutput:
+		// Function-call output is local capability data, not provider output.
+	case model.ItemReasoning:
+		for _, part := range item.Summary {
+			output.WriteString(part.Text)
+		}
+	}
+}
+
+func decodedJSONContainsAttachmentData(value any, depth int) bool {
+	if depth > 64 {
+		return true
+	}
+	switch typed := value.(type) {
+	case string:
+		return model.ContainsAttachmentData(typed)
+	case []any:
+		for _, child := range typed {
+			if decodedJSONContainsAttachmentData(child, depth+1) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, child := range typed {
+			if model.ContainsAttachmentData(key) ||
+				decodedJSONContainsAttachmentData(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *Engine) validateProviderResponseMetadata(response *model.Response) error {

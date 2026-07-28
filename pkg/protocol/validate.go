@@ -8,6 +8,8 @@ import (
 	"math"
 	"strings"
 	"unicode"
+
+	"github.com/greenpau/agentx/pkg/attachment"
 )
 
 const (
@@ -18,7 +20,7 @@ const (
 // Validate checks the semantic envelope. Sequence zero is accepted for a new
 // event because the transcript owner assigns durable order atomically.
 func (e Event) Validate() error {
-	if e.Version != CurrentVersion {
+	if e.Version != LegacyVersion && e.Version != CurrentVersion {
 		return fmt.Errorf("unsupported protocol version %d", e.Version)
 	}
 	if err := validateIdentifier("event id", string(e.ID)); err != nil {
@@ -95,6 +97,13 @@ func (e Event) Validate() error {
 	case EventKindMessage:
 		if e.Message == nil {
 			return payloadMismatch(e.Kind)
+		}
+		if e.Version == LegacyVersion {
+			for _, block := range e.Message.Content {
+				if block.Type == ContentAttachment {
+					return errors.New("attachment content requires protocol version 2")
+				}
+			}
 		}
 		return e.Message.Validate()
 	case EventKindToolCall:
@@ -334,6 +343,9 @@ func (m Message) Validate() error {
 	if len(m.Content) == 0 {
 		return errors.New("message content is required")
 	}
+	limits := attachment.DefaultLimits()
+	seenAttachments := make(map[attachment.ID]struct{})
+	var attachmentBytes int64
 	for i, block := range m.Content {
 		if err := block.Validate(); err != nil {
 			return fmt.Errorf("content block %d: %w", i, err)
@@ -341,6 +353,23 @@ func (m Message) Validate() error {
 		if block.Type == ContentReasoning && m.Role != RoleAssistant {
 			return fmt.Errorf("content block %d: reasoning requires assistant role", i)
 		}
+		if block.Type != ContentAttachment {
+			continue
+		}
+		if m.Role != RoleUser {
+			return fmt.Errorf("content block %d: attachment requires user role", i)
+		}
+		if len(seenAttachments) >= limits.MaxAttachmentsPerMessage {
+			return fmt.Errorf("message exceeds %d attachments", limits.MaxAttachmentsPerMessage)
+		}
+		if _, duplicate := seenAttachments[block.AttachmentID]; duplicate {
+			return fmt.Errorf("content block %d: duplicate attachment id", i)
+		}
+		seenAttachments[block.AttachmentID] = struct{}{}
+		if block.SizeBytes > limits.MaxAggregateBytes-attachmentBytes {
+			return fmt.Errorf("message attachment bytes exceed %d", limits.MaxAggregateBytes)
+		}
+		attachmentBytes += block.SizeBytes
 	}
 	return nil
 }
@@ -349,15 +378,17 @@ func (m Message) Validate() error {
 func (b ContentBlock) Validate() error {
 	switch b.Type {
 	case ContentText, ContentReasoning:
-		if b.Name != "" || b.MIMEType != "" || b.URI != "" {
+		if b.AttachmentID != "" || b.Kind != "" || b.Name != "" ||
+			b.MIMEType != "" || b.SizeBytes != 0 || b.SHA256 != "" ||
+			b.StorageID != "" {
 			return errors.New("text/reasoning block contains attachment fields")
 		}
 	case ContentAttachment:
-		if strings.TrimSpace(b.Name) == "" && strings.TrimSpace(b.URI) == "" {
-			return errors.New("attachment requires name or URI")
-		}
 		if b.Text != "" {
 			return errors.New("attachment block contains inline text")
+		}
+		if err := b.AttachmentManifest().Validate(attachment.DefaultLimits()); err != nil {
+			return fmt.Errorf("invalid attachment manifest: %w", err)
 		}
 	default:
 		return fmt.Errorf("unknown content type %q", b.Type)

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/cli"
 	"github.com/greenpau/agentx/pkg/command"
 	"github.com/greenpau/agentx/pkg/config"
@@ -36,25 +37,40 @@ var (
 )
 
 type inputQueue struct {
-	mu     sync.Mutex
-	items  []queuedInput
-	bytes  int
-	closed bool
-	err    error
-	notify chan struct{}
+	mu            sync.Mutex
+	items         []queuedInput
+	prompts       map[string]struct{}
+	bytes         int
+	closed        bool
+	err           error
+	lastRejection error
+	notify        chan struct{}
 }
 
 type queuedInput struct {
 	envelope surface.InputEnvelope
+	message  protocol.Message
 	bytes    int
 }
 
-func newInputQueue() *inputQueue { return &inputQueue{notify: make(chan struct{}, 1)} }
+func newInputQueue() *inputQueue {
+	return &inputQueue{notify: make(chan struct{}, 1), prompts: make(map[string]struct{})}
+}
 func (q *inputQueue) push(item surface.InputEnvelope) error {
+	return q.pushMessage(item, protocol.Message{})
+}
+
+func (q *inputQueue) pushMessage(item surface.InputEnvelope, message protocol.Message) error {
 	q.mu.Lock()
 	if q.closed {
 		q.mu.Unlock()
 		return surface.ErrClosed
+	}
+	if item.UUID != "" {
+		if _, duplicate := q.prompts[item.UUID]; duplicate {
+			q.mu.Unlock()
+			return engine.ErrDuplicatePrompt
+		}
 	}
 	size := inputEnvelopeSize(item)
 	if len(q.items) >= maximumQueuedInputs || size > maximumQueuedInputBytes || q.bytes > maximumQueuedInputBytes-size {
@@ -74,7 +90,10 @@ func (q *inputQueue) push(item surface.InputEnvelope) error {
 	}
 	q.items = append(q.items, queuedInput{})
 	copy(q.items[insert+1:], q.items[insert:])
-	q.items[insert] = queuedInput{envelope: item, bytes: size}
+	q.items[insert] = queuedInput{envelope: item, message: message, bytes: size}
+	if item.UUID != "" {
+		q.prompts[item.UUID] = struct{}{}
+	}
 	q.bytes += size
 	q.mu.Unlock()
 	q.signal()
@@ -108,6 +127,7 @@ func (q *inputQueue) close(err error) {
 	// must not produce side effects after the failure was observed.
 	if err != nil {
 		q.items = nil
+		q.prompts = make(map[string]struct{})
 		q.bytes = 0
 	}
 	q.mu.Unlock()
@@ -120,6 +140,11 @@ func (q *inputQueue) signal() {
 	}
 }
 func (q *inputQueue) next(ctx context.Context) (surface.InputEnvelope, error) {
+	queued, err := q.nextMessage(ctx)
+	return queued.envelope, err
+}
+
+func (q *inputQueue) nextMessage(ctx context.Context) (queuedInput, error) {
 	for {
 		q.mu.Lock()
 		if len(q.items) > 0 {
@@ -127,22 +152,46 @@ func (q *inputQueue) next(ctx context.Context) (surface.InputEnvelope, error) {
 			q.items = q.items[1:]
 			q.bytes -= queued.bytes
 			q.mu.Unlock()
-			return queued.envelope, nil
+			return queued, nil
 		}
 		closed, err := q.closed, q.err
 		q.mu.Unlock()
 		if closed {
 			if err != nil {
-				return surface.InputEnvelope{}, err
+				return queuedInput{}, err
 			}
-			return surface.InputEnvelope{}, io.EOF
+			return queuedInput{}, io.EOF
 		}
 		select {
 		case <-ctx.Done():
-			return surface.InputEnvelope{}, ctx.Err()
+			return queuedInput{}, ctx.Err()
 		case <-q.notify:
 		}
 	}
+}
+
+func (q *inputQueue) releasePrompt(promptID string) {
+	if promptID == "" {
+		return
+	}
+	q.mu.Lock()
+	delete(q.prompts, promptID)
+	q.mu.Unlock()
+}
+
+func (q *inputQueue) reject(err error) {
+	if err == nil {
+		return
+	}
+	q.mu.Lock()
+	q.lastRejection = err
+	q.mu.Unlock()
+}
+
+func (q *inputQueue) rejection() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.lastRejection
 }
 
 func inputEnvelopeSize(item surface.InputEnvelope) int {
@@ -418,6 +467,34 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 	}
 	queue := newInputQueue()
 	active := &activeTurn{}
+	if strings.TrimSpace(opts.Prompt) != "" || len(opts.Attachments) > 0 {
+		var (
+			envelopeMessage json.RawMessage
+			message         protocol.Message
+			promptID        string
+		)
+		if len(opts.Attachments) == 0 {
+			envelopeMessage, _ = json.Marshal(opts.Prompt)
+		} else {
+			if strings.HasPrefix(strings.TrimSpace(opts.Prompt), "/") {
+				return &cli.UsageError{Message: "attachments cannot accompany a slash or local command"}
+			}
+			promptID, err = surface.NewUUID()
+			if err != nil {
+				return err
+			}
+			message, err = session.importInitialAttachments(ctx, opts.Prompt, opts.Attachments, promptID)
+			if err != nil {
+				resultErr := encodeRejectedStructuredUser(encoder, session, promptID, err)
+				return errors.Join(err, resultErr)
+			}
+		}
+		if err := queue.pushMessage(surface.InputEnvelope{
+			Type: "user", Message: envelopeMessage, UUID: promptID,
+		}, message); err != nil {
+			return err
+		}
+	}
 	readerCtx, stopReader := context.WithCancel(ctx)
 	input := newStructuredInputReader(readerCtx, inputSource)
 	readerDone := make(chan struct{})
@@ -425,24 +502,33 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 		defer close(readerDone)
 		readStructuredInput(readerCtx, input.reader, stderr, encoder, broker, queue, active, session, opts.ReplayUserMessages)
 	}()
+	expiryCtx, stopExpiry := context.WithCancel(readerCtx)
+	expiryDone := make(chan struct{})
+	go func() {
+		defer close(expiryDone)
+		session.monitorUploadExpiry(expiryCtx, encoder, func(err error) {
+			active.abort()
+			broker.Close()
+			queue.close(err)
+		})
+	}()
 	defer func() {
 		stopReader()
 		input.stop()
 		<-readerDone
+		stopExpiry()
+		<-expiryDone
 	}()
-	if strings.TrimSpace(opts.Prompt) != "" {
-		message, _ := json.Marshal(opts.Prompt)
-		if err := queue.push(surface.InputEnvelope{Type: "user", Message: message}); err != nil {
-			return err
-		}
-	}
 	lastResultFailed := false
 	sawUserInput := false
 	for {
-		envelope, nextErr := queue.next(ctx)
+		queued, nextErr := queue.nextMessage(ctx)
 		if nextErr == io.EOF {
 			if lastResultFailed {
 				return errLastStructuredResultError
+			}
+			if rejected := queue.rejection(); rejected != nil {
+				return rejected
 			}
 			if !sawUserInput {
 				return encodeStructuredInputFailure(
@@ -456,19 +542,32 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 		if nextErr != nil {
 			return encodeStructuredInputFailure(encoder, session, nextErr)
 		}
+		envelope := queued.envelope
+		message := queued.message
 		sawUserInput = true
 		if session.engine.HasPromptID(envelope.UUID) {
+			queue.releasePrompt(envelope.UUID)
 			if err := encodeDuplicate(encoder, session, envelope, opts.ReplayUserMessages); err != nil {
 				return err
 			}
 			continue
 		}
-		text, decodeErr := surface.DecodeUserText(envelope.Message)
-		if decodeErr != nil {
-			return fmt.Errorf("invalid structured user message: %w", decodeErr)
+		if len(message.Content) == 0 {
+			decoded, decodeErr := surface.DecodeUserMessage(envelope.Message)
+			if decodeErr != nil {
+				queue.releasePrompt(envelope.UUID)
+				return fmt.Errorf("invalid structured user message: %w", decodeErr)
+			}
+			message, decodeErr = session.admitUserMessage(ctx, decoded, envelope.UUID)
+			if decodeErr != nil {
+				queue.releasePrompt(envelope.UUID)
+				return fmt.Errorf("invalid structured user message: %w", decodeErr)
+			}
 		}
+		text := userMessageText(message)
 		turnCtx, cancel := context.WithCancel(ctx)
 		if !active.set(cancel) {
+			queue.releasePrompt(envelope.UUID)
 			continue
 		}
 		if err := encodeSessionState(encoder, session.engine.SessionID(), "running"); err != nil {
@@ -482,6 +581,8 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 			text = commandResult.Prompt
 			if strings.TrimSpace(text) == "" {
 				commandErr = errors.New("prompt command produced empty model input")
+			} else {
+				message.Content = []protocol.ContentBlock{protocol.TextBlock(text)}
 			}
 		}
 		if isCommand && (commandErr != nil || commandResult.Kind != command.ResultPrompt) {
@@ -492,19 +593,21 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 			}
 			replayErr := encodeStructuredCommandInput(encoder, session, envelope, opts.ReplayUserMessages)
 			outputErr := encodeSDKLocalCommandOutput(encoder, session.engine.SessionID(), session.sanitize(commandOutput))
-			resultErr := encodeSDKResult(encoder, outcome, commandErr)
+			resultErr := encodeSDKPromptResult(encoder, outcome, commandErr, envelope.UUID)
 			idleErr := encodeSessionState(encoder, session.engine.SessionID(), "idle")
 			cancel()
 			active.clear()
+			queue.releasePrompt(envelope.UUID)
 			if err := errors.Join(replayErr, outputErr, resultErr, idleErr); err != nil {
 				return errors.Join(commandErr, err)
 			}
 			lastResultFailed = commandErr != nil
 			continue
 		}
-		outcome, runErr := session.submitPrompt(turnCtx, text, envelope.UUID)
+		outcome, runErr := session.submitMessage(turnCtx, message, envelope.UUID)
 		cancel()
 		active.clear()
+		queue.releasePrompt(envelope.UUID)
 		if outcome.SessionID == "" {
 			outcome.SessionID = session.engine.SessionID()
 		}
@@ -516,7 +619,7 @@ func runStructured(ctx context.Context, opts cli.Options, workspace string, stdi
 			}
 			continue
 		}
-		resultErr := encodeSDKResult(encoder, outcome, runErr)
+		resultErr := encodeSDKPromptResult(encoder, outcome, runErr, envelope.UUID)
 		idleErr := encodeSessionState(encoder, session.engine.SessionID(), "idle")
 		if err := errors.Join(resultErr, idleErr); err != nil {
 			return errors.Join(runErr, err)
@@ -549,16 +652,426 @@ func encodeStructuredInputFailure(encoder *surface.Encoder, session *runtimeSess
 	return publicErr
 }
 
+func encodeRejectedStructuredUser(
+	encoder *surface.Encoder,
+	session *runtimeSession,
+	promptID string,
+	cause error,
+) error {
+	if cause == nil {
+		cause = errors.New("user input was rejected")
+	}
+	outcome := engine.Outcome{
+		SessionID:  session.engine.SessionID(),
+		Status:     protocol.TurnResultError,
+		StopReason: "input_error",
+		Usage:      protocol.Usage{Model: session.config.Azure.ModelName},
+	}
+	record, err := sdkResultRecord(outcome, redactOperationalError(cause, session.sanitize))
+	if err != nil {
+		return err
+	}
+	if promptID != "" {
+		record["prompt_uuid"] = promptID
+	}
+	return encoder.Encode(record)
+}
+
+func (r *runtimeSession) admitUserMessage(
+	ctx context.Context,
+	input surface.UserMessage,
+	promptID string,
+) (protocol.Message, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.Message{}, err
+	}
+	if err := protocol.ValidatePromptID(promptID); err != nil {
+		return protocol.Message{}, err
+	}
+	if err := r.validatePromptAttachmentSet(input, promptID); err != nil {
+		return protocol.Message{}, err
+	}
+	if input.HasAttachments() {
+		if err := surface.ValidateUUID(promptID); err != nil {
+			return protocol.Message{}, errors.New("attachment-bearing user input requires a canonical UUID")
+		}
+		if strings.HasPrefix(strings.TrimSpace(input.Text()), "/") {
+			return protocol.Message{}, errors.New("attachments cannot accompany a slash or local command")
+		}
+		if r.attachments == nil || !r.inputMediaEnabled {
+			return protocol.Message{}, errors.New("attachment input is unavailable for this session")
+		}
+		ids := input.AttachmentIDs()
+		resolved, err := r.attachments.ResolveMany(ctx, ids)
+		if err != nil {
+			return protocol.Message{}, errors.New("one or more attachment references are missing or tampered")
+		}
+		defer func() {
+			for index := range resolved {
+				clear(resolved[index].Bytes)
+			}
+		}()
+		byID := make(map[attachment.ID]attachment.Manifest, len(resolved))
+		for _, item := range resolved {
+			byID[item.Manifest.AttachmentID] = item.Manifest
+		}
+		for _, block := range input.Content {
+			if block.Type == surface.UserContentAttachment &&
+				(block.Attachment == nil || byID[block.Attachment.AttachmentID] != *block.Attachment) {
+				return protocol.Message{}, errors.New("attachment reference metadata does not match committed content")
+			}
+		}
+	}
+
+	message := protocol.Message{Role: protocol.RoleUser}
+	for _, block := range input.Content {
+		switch block.Type {
+		case surface.UserContentText:
+			message.Content = append(message.Content, protocol.TextBlock(block.Text))
+		case surface.UserContentAttachment:
+			message.Content = append(message.Content, protocol.AttachmentBlock(*block.Attachment))
+		}
+	}
+	if err := message.Validate(); err != nil {
+		return protocol.Message{}, err
+	}
+	return message, nil
+}
+
+func (r *runtimeSession) validatePromptAttachmentSet(
+	input surface.UserMessage,
+	promptID string,
+) error {
+	ids := input.AttachmentIDs()
+	referenced := make(map[attachment.ID]struct{}, len(ids))
+	for _, id := range ids {
+		referenced[id] = struct{}{}
+	}
+	r.uploadMu.Lock()
+	defer r.uploadMu.Unlock()
+	for _, owner := range r.uploadPrompts {
+		if owner == promptID {
+			return errors.New("attachment prompt still has an incomplete upload")
+		}
+	}
+	for _, id := range ids {
+		if owner := r.attachmentPrompts[id]; owner != "" && owner != promptID {
+			return errors.New("attachment reference belongs to a different prompt UUID")
+		}
+	}
+	// Every successfully committed import correlated to this prompt is part of
+	// one atomic submitted set. Omitting it would silently drop an import while
+	// still consuming the prompt UUID.
+	for id, size := range r.attachmentReserved {
+		if size <= 0 || r.attachmentPrompts[id] != promptID {
+			continue
+		}
+		if _, present := referenced[id]; !present {
+			return errors.New("attachment prompt omits a committed attachment")
+		}
+	}
+	return nil
+}
+
+func (r *runtimeSession) handleAttachmentImport(
+	ctx context.Context,
+	encoder *surface.Encoder,
+	record surface.AttachmentImport,
+) error {
+	if r.attachments == nil || !r.inputMediaEnabled {
+		return encodeAttachmentImportRejected(encoder, record.UploadID, "attachments_unavailable")
+	}
+	switch record.Operation {
+	case surface.AttachmentImportBegin:
+		if r.engine.HasPromptID(record.PromptUUID) {
+			return encodeAttachmentImportRejected(encoder, record.UploadID, "prompt_already_accepted")
+		}
+		r.uploadMu.Lock()
+		r.ensureUploadLedgerLocked()
+		_, uploadExists := r.uploadPrompts[record.UploadID]
+		_, terminalSent := r.uploadTerminalSent[record.UploadID]
+		if uploadExists || terminalSent {
+			r.uploadMu.Unlock()
+			return encodeAttachmentImportRejected(encoder, record.UploadID, "duplicate_upload")
+		}
+		limits := r.attachments.Limits()
+		// Every active application-level upload reserves the terminal-ledger
+		// entry needed to settle it exactly once. Reject overflow before
+		// admission so a stream of otherwise valid begin records cannot grow
+		// uploadTerminalSent beyond the advertised session ceiling.
+		if len(r.uploadTerminalSent)+len(r.uploadPrompts) >= limits.MaxUploadsPerSession {
+			r.uploadMu.Unlock()
+			return encodeAttachmentImportRejected(encoder, record.UploadID, "resource_limit")
+		}
+		if r.promptCounts[record.PromptUUID] >= limits.MaxAttachmentsPerMessage ||
+			record.SizeBytes > limits.MaxAggregateBytes-r.promptBytes[record.PromptUUID] {
+			// Retain only enough correlation to emit this upload ID's sole
+			// terminal failure. Absence from uploadReserved ensures this
+			// unadmitted begin cannot alter the prompt's existing reservation.
+			r.uploadPrompts[record.UploadID] = record.PromptUUID
+			r.uploadMu.Unlock()
+			return r.encodeTerminalImportFailure(
+				encoder, record.UploadID, record.AttachmentID, "resource_limit",
+			)
+		}
+		r.uploadPrompts[record.UploadID] = record.PromptUUID
+		r.uploadReserved[record.UploadID] = record.SizeBytes
+		r.promptCounts[record.PromptUUID]++
+		r.promptBytes[record.PromptUUID] += record.SizeBytes
+		r.uploadMu.Unlock()
+		request, _ := record.BeginUpload()
+		ack, err := r.attachments.Begin(ctx, request)
+		if err != nil {
+			return r.encodeTerminalImportFailure(encoder, record.UploadID, record.AttachmentID, uploadErrorCode(err))
+		}
+		return r.encodeAttachmentAcknowledgement(encoder, ack)
+	case surface.AttachmentImportChunk:
+		if err := r.attachments.Chunk(ctx, record.UploadID, uint64(record.Sequence), record.Data); err != nil {
+			ack, abortErr := r.attachments.Abort(ctx, record.UploadID)
+			if abortErr == nil {
+				ack.Reason = uploadErrorCode(err)
+				return r.encodeAttachmentAcknowledgement(encoder, ack)
+			}
+			if outcome, exists := r.attachments.UploadOutcome(record.UploadID); exists {
+				outcome.Reason = uploadErrorCode(err)
+				return r.encodeAttachmentAcknowledgement(encoder, outcome)
+			}
+			return encodeAttachmentImportRejected(encoder, record.UploadID, uploadErrorCode(err))
+		}
+		return nil
+	case surface.AttachmentImportCommit:
+		ack, err := r.attachments.Commit(ctx, record.UploadID)
+		if err != nil && !ack.Terminal {
+			if outcome, exists := r.attachments.UploadOutcome(record.UploadID); exists {
+				return r.encodeAttachmentAcknowledgement(encoder, outcome)
+			}
+			return encodeAttachmentImportRejected(encoder, record.UploadID, uploadErrorCode(err))
+		}
+		if ack.Terminal {
+			return r.encodeAttachmentAcknowledgement(encoder, ack)
+		}
+		return nil
+	case surface.AttachmentImportAbort:
+		ack, err := r.attachments.Abort(ctx, record.UploadID)
+		if err != nil {
+			if outcome, exists := r.attachments.UploadOutcome(record.UploadID); exists {
+				return r.encodeAttachmentAcknowledgement(encoder, outcome)
+			}
+			return encodeAttachmentImportRejected(encoder, record.UploadID, uploadErrorCode(err))
+		}
+		return r.encodeAttachmentAcknowledgement(encoder, ack)
+	default:
+		return encodeAttachmentImportRejected(encoder, record.UploadID, "unsupported_operation")
+	}
+}
+
+func (r *runtimeSession) encodeTerminalImportFailure(
+	encoder *surface.Encoder,
+	uploadID attachment.UploadID,
+	attachmentID attachment.ID,
+	code string,
+) error {
+	return r.encodeAttachmentAcknowledgement(encoder, attachment.UploadAcknowledgement{
+		UploadID: uploadID, AttachmentID: attachmentID,
+		Status: attachment.UploadFailed, Terminal: true, Reason: code,
+	})
+}
+
+func (r *runtimeSession) encodeAttachmentAcknowledgement(
+	encoder *surface.Encoder,
+	ack attachment.UploadAcknowledgement,
+) error {
+	var discard *attachment.Manifest
+	r.uploadMu.Lock()
+	r.ensureUploadLedgerLocked()
+	if ack.Terminal && r.uploadTerminalSent[ack.UploadID] {
+		r.uploadMu.Unlock()
+		return encodeAttachmentImportRejected(encoder, ack.UploadID, "upload_already_terminal")
+	}
+	promptID := r.uploadPrompts[ack.UploadID]
+	if ack.Terminal {
+		r.uploadTerminalSent[ack.UploadID] = true
+		reserved, tracked := r.uploadReserved[ack.UploadID]
+		delete(r.uploadPrompts, ack.UploadID)
+		delete(r.uploadReserved, ack.UploadID)
+		if ack.Status == attachment.UploadCommitted && ack.Manifest != nil {
+			base := r.promptBytes[promptID] - reserved
+			if base < 0 {
+				base = 0
+			}
+			limit := r.attachments.Limits().MaxAggregateBytes
+			if ack.Manifest.SizeBytes > limit-base {
+				manifest := *ack.Manifest
+				discard = &manifest
+				ack.Status = attachment.UploadFailed
+				ack.Manifest = nil
+				ack.Reason = "resource_limit"
+				r.releasePromptReservationLocked(promptID, reserved, tracked)
+			} else {
+				r.promptBytes[promptID] = base + ack.Manifest.SizeBytes
+				r.attachmentPrompts[ack.Manifest.AttachmentID] = promptID
+				r.attachmentReserved[ack.Manifest.AttachmentID] = ack.Manifest.SizeBytes
+			}
+		} else {
+			r.releasePromptReservationLocked(promptID, reserved, tracked)
+		}
+	}
+	r.uploadMu.Unlock()
+	var discardErr error
+	if discard != nil {
+		discardCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		discardErr = r.attachments.DiscardUnreferenced(discardCtx, discard.AttachmentID)
+		cancel()
+	}
+	record := map[string]any{
+		"type": "attachment_import_result", "version": attachment.ProtocolVersion,
+		"upload_id": ack.UploadID, "attachment_id": ack.AttachmentID,
+		"status": ack.Status, "terminal": ack.Terminal,
+	}
+	if promptID != "" {
+		record["prompt_uuid"] = promptID
+	}
+	if ack.Manifest != nil {
+		record["attachment"] = ack.Manifest
+	}
+	if ack.Reason != "" {
+		record["reason"] = ack.Reason
+	}
+	return errors.Join(discardErr, encoder.Encode(record))
+}
+
+func (r *runtimeSession) ensureUploadLedgerLocked() {
+	if r.uploadPrompts == nil {
+		r.uploadPrompts = make(map[attachment.UploadID]string)
+	}
+	if r.uploadReserved == nil {
+		r.uploadReserved = make(map[attachment.UploadID]int64)
+	}
+	if r.attachmentPrompts == nil {
+		r.attachmentPrompts = make(map[attachment.ID]string)
+	}
+	if r.attachmentReserved == nil {
+		r.attachmentReserved = make(map[attachment.ID]int64)
+	}
+	if r.promptCounts == nil {
+		r.promptCounts = make(map[string]int)
+	}
+	if r.promptBytes == nil {
+		r.promptBytes = make(map[string]int64)
+	}
+	if r.uploadTerminalSent == nil {
+		r.uploadTerminalSent = make(map[attachment.UploadID]bool)
+	}
+}
+
+func (r *runtimeSession) releasePromptReservationLocked(
+	promptID string,
+	size int64,
+	counted bool,
+) {
+	if !counted {
+		return
+	}
+	if r.promptCounts[promptID] > 0 {
+		r.promptCounts[promptID]--
+	}
+	r.promptBytes[promptID] -= size
+	if r.promptBytes[promptID] < 0 {
+		r.promptBytes[promptID] = 0
+	}
+	if r.promptCounts[promptID] == 0 {
+		delete(r.promptCounts, promptID)
+		delete(r.promptBytes, promptID)
+	}
+}
+
+func (r *runtimeSession) consumePromptAttachmentReservations(
+	message protocol.Message,
+	promptID string,
+) {
+	r.uploadMu.Lock()
+	defer r.uploadMu.Unlock()
+	r.ensureUploadLedgerLocked()
+	for _, block := range message.Content {
+		if block.Type != protocol.ContentAttachment ||
+			r.attachmentPrompts[block.AttachmentID] != promptID {
+			continue
+		}
+		size, reserved := r.attachmentReserved[block.AttachmentID]
+		if !reserved {
+			continue
+		}
+		delete(r.attachmentReserved, block.AttachmentID)
+		r.releasePromptReservationLocked(promptID, size, true)
+	}
+}
+
+func encodeAttachmentImportRejected(
+	encoder *surface.Encoder,
+	uploadID attachment.UploadID,
+	code string,
+) error {
+	return encoder.Encode(map[string]any{
+		"type": "attachment_import_rejected", "version": attachment.ProtocolVersion,
+		"upload_id": uploadID, "status": "rejected", "terminal": false,
+		"reason": code,
+	})
+}
+
+func uploadErrorCode(err error) string {
+	switch {
+	case errors.Is(err, attachment.ErrDuplicate):
+		return "duplicate"
+	case errors.Is(err, attachment.ErrSequence):
+		return "invalid_sequence"
+	case errors.Is(err, attachment.ErrBase64):
+		return "invalid_base64"
+	case errors.Is(err, attachment.ErrSizeMismatch):
+		return "size_mismatch"
+	case errors.Is(err, attachment.ErrDigestMismatch):
+		return "digest_mismatch"
+	case errors.Is(err, attachment.ErrMediaMismatch):
+		return "mime_mismatch"
+	case errors.Is(err, attachment.ErrUnsupportedMedia):
+		return "unsupported_media"
+	case errors.Is(err, attachment.ErrMalformedMedia):
+		return "malformed_media"
+	case errors.Is(err, attachment.ErrResourceLimit):
+		return "resource_limit"
+	case errors.Is(err, attachment.ErrUploadExpired):
+		return "timeout"
+	case errors.Is(err, attachment.ErrUploadTerminal):
+		return "upload_already_terminal"
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	default:
+		return "import_failed"
+	}
+}
+
 func encodeDuplicate(encoder *surface.Encoder, session *runtimeSession, envelope surface.InputEnvelope, replay bool) error {
 	if !replay {
 		return nil
 	}
-	text, err := surface.DecodeUserText(envelope.Message)
-	if err != nil {
-		return err
+	message, exists := session.engine.AcceptedPrompt(envelope.UUID)
+	if !exists {
+		legacy, err := surface.DecodeUserMessage(envelope.Message)
+		if err != nil || legacy.HasAttachments() {
+			return errors.New("accepted prompt replay metadata is unavailable")
+		}
+		message = protocol.Message{
+			Role: protocol.RoleUser,
+			Content: []protocol.ContentBlock{
+				protocol.TextBlock(legacy.Text()),
+			},
+		}
+	}
+	wireMessage := map[string]any{"role": "user", "content": apiTextContent(message.Content)}
+	if messageContentHasAttachments(message.Content) {
+		wireMessage["content_version"] = attachment.ProtocolVersion
 	}
 	record := map[string]any{
-		"type": "user", "message": map[string]any{"role": "user", "content": text},
+		"type": "user", "message": wireMessage,
 		"parent_tool_use_id": nil, "uuid": envelope.UUID,
 		"session_id": session.engine.SessionID(), "isReplay": true,
 	}
@@ -579,7 +1092,18 @@ func encodeStructuredCommandInput(encoder *surface.Encoder, session *runtimeSess
 		}
 		envelope.UUID = uuid
 	}
-	return encodeDuplicate(encoder, session, envelope, true)
+	decoded, err := surface.DecodeUserMessage(envelope.Message)
+	if err != nil || decoded.HasAttachments() {
+		return errors.New("local command replay requires text-only input")
+	}
+	return encoder.Encode(map[string]any{
+		"type": "user", "message": map[string]any{
+			"role":    "user",
+			"content": []map[string]any{{"type": "text", "text": decoded.Text()}},
+		},
+		"parent_tool_use_id": nil, "uuid": envelope.UUID,
+		"session_id": session.engine.SessionID(), "isReplay": true,
+	})
 }
 
 // runStructuredOneShot emits the same NDJSON event contract without treating
@@ -605,7 +1129,7 @@ func runStructuredOneShot(ctx context.Context, opts cli.Options, workspace strin
 	if err != nil {
 		return encodeStructuredInputFailure(encoder, session, err)
 	}
-	if strings.TrimSpace(promptText) == "" {
+	if strings.TrimSpace(promptText) == "" && len(opts.Attachments) == 0 {
 		return encodeStructuredInputFailure(
 			encoder,
 			session,
@@ -614,6 +1138,34 @@ func runStructuredOneShot(ctx context.Context, opts cli.Options, workspace strin
 	}
 	if err := encodeSessionState(encoder, session.engine.SessionID(), "running"); err != nil {
 		return err
+	}
+	if len(opts.Attachments) > 0 {
+		if strings.HasPrefix(strings.TrimSpace(promptText), "/") {
+			return encodeStructuredInputFailure(
+				encoder, session,
+				&cli.UsageError{Message: "attachments cannot accompany a slash or local command"},
+			)
+		}
+		promptID, err := surface.NewUUID()
+		if err != nil {
+			return err
+		}
+		message, err := session.importInitialAttachments(ctx, promptText, opts.Attachments, promptID)
+		if err != nil {
+			resultErr := encodeRejectedStructuredUser(encoder, session, promptID, err)
+			idleErr := encodeSessionState(encoder, session.engine.SessionID(), "idle")
+			return errors.Join(err, resultErr, idleErr)
+		}
+		outcome, runErr := session.submitMessage(ctx, message, promptID)
+		if outcome.SessionID == "" {
+			outcome.SessionID = session.engine.SessionID()
+		}
+		resultErr := encodeSDKPromptResult(encoder, outcome, runErr, promptID)
+		idleErr := encodeSessionState(encoder, session.engine.SessionID(), "idle")
+		if err := errors.Join(resultErr, idleErr); err != nil {
+			return errors.Join(runErr, err)
+		}
+		return runErr
 	}
 	commandStarted := time.Now()
 	commandResult, isCommand, commandErr := session.dispatchUserCommand(ctx, promptText, true)
@@ -653,6 +1205,9 @@ func readStructuredInput(ctx context.Context, stdin io.Reader, stderr io.Writer,
 	warnings := newTerminalLineWriter(stderr, session.credentials)
 	decoder := surface.NewDecoder(stdin, warnings)
 	fail := func(err error) {
+		if cleanupErr := session.settleUploads(encoder, attachment.AbortProcessFailure); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
 		active.abort()
 		broker.Close()
 		queue.close(err)
@@ -675,6 +1230,10 @@ func readStructuredInput(ctx context.Context, stdin io.Reader, stderr io.Writer,
 		envelope, err := decoder.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if cleanupErr := session.settleUploads(encoder, attachment.AbortEOF); cleanupErr != nil {
+					fail(cleanupErr)
+					return
+				}
 				broker.Close()
 				queue.close(nil)
 			} else {
@@ -689,19 +1248,64 @@ func readStructuredInput(ctx context.Context, stdin io.Reader, stderr io.Writer,
 		}
 		switch envelope.Type {
 		case "user":
-			if _, err := surface.DecodeUserText(envelope.Message); err != nil {
-				fail(fmt.Errorf("invalid structured user message: %w", err))
-				return
+			if envelope.UUID == "" {
+				envelope.UUID, err = surface.NewUUID()
+				if err != nil {
+					fail(err)
+					return
+				}
 			}
 			if envelope.Priority != "" && envelope.Priority != "now" && envelope.Priority != "next" && envelope.Priority != "later" {
-				fail(fmt.Errorf("invalid structured user priority %q", envelope.Priority))
-				return
+				rejection := fmt.Errorf("unsupported structured priority %q", envelope.Priority)
+				queue.reject(rejection)
+				if err := encodeRejectedStructuredUser(encoder, session, envelope.UUID, rejection); err != nil {
+					fail(err)
+					return
+				}
+				continue
 			}
 			if envelope.IsReplay && (envelope.UUID == "" || envelope.SessionID == "") {
-				fail(errors.New("replayed user input requires uuid and session_id"))
+				if err := encodeRejectedStructuredUser(encoder, session, envelope.UUID, errors.New("replayed user input requires uuid and session_id")); err != nil {
+					fail(err)
+					return
+				}
+				continue
+			}
+			decoded, decodeErr := surface.DecodeUserMessage(envelope.Message)
+			if decodeErr != nil {
+				rejection := errors.New("invalid structured user message")
+				queue.reject(rejection)
+				if err := encodeRejectedStructuredUser(encoder, session, envelope.UUID, rejection); err != nil {
+					fail(err)
+					return
+				}
+				continue
+			}
+			message, admissionErr := session.admitUserMessage(ctx, decoded, envelope.UUID)
+			if admissionErr != nil {
+				queue.reject(admissionErr)
+				if err := encodeRejectedStructuredUser(encoder, session, envelope.UUID, admissionErr); err != nil {
+					fail(err)
+					return
+				}
+				continue
+			}
+			interrupt := !session.engine.HasPromptID(envelope.UUID)
+			if err := enqueueStructuredMessage(queue, active, envelope, message, interrupt); err != nil {
+				queue.reject(err)
+				if err := encodeRejectedStructuredUser(encoder, session, envelope.UUID, err); err != nil {
+					fail(err)
+					return
+				}
+				continue
+			}
+			session.consumePromptAttachmentReservations(message, envelope.UUID)
+		case "attachment_import":
+			if envelope.AttachmentImport == nil {
+				fail(errors.New("attachment import payload is missing"))
 				return
 			}
-			if err := enqueueStructuredUser(queue, active, envelope); err != nil {
+			if err := session.handleAttachmentImport(ctx, encoder, *envelope.AttachmentImport); err != nil {
 				fail(err)
 				return
 			}
@@ -753,6 +1357,45 @@ func readStructuredInput(ctx context.Context, stdin io.Reader, stderr io.Writer,
 	}
 }
 
+func (r *runtimeSession) settleUploads(
+	encoder *surface.Encoder,
+	reason attachment.AbortReason,
+) error {
+	if r.attachments == nil {
+		return nil
+	}
+	var result error
+	for _, ack := range r.attachments.AbortAll(reason) {
+		result = errors.Join(result, r.encodeAttachmentAcknowledgement(encoder, ack))
+	}
+	return result
+}
+
+func (r *runtimeSession) monitorUploadExpiry(
+	ctx context.Context,
+	encoder *surface.Encoder,
+	fail func(error),
+) {
+	if r.attachments == nil {
+		return
+	}
+	notifications := r.attachments.UploadNotifications()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ack, open := <-notifications:
+			if !open {
+				return
+			}
+			if err := r.encodeAttachmentAcknowledgement(encoder, ack); err != nil {
+				fail(err)
+				return
+			}
+		}
+	}
+}
+
 // enqueueStructuredUser makes admission precede interruption. A queue that is
 // already closed or full cannot cancel useful in-flight work for an input it
 // will never retain. Once admitted, priority-now uses the same active-turn
@@ -764,6 +1407,22 @@ func enqueueStructuredUser(queue *inputQueue, active *activeTurn, envelope surfa
 		return err
 	}
 	if envelope.Priority == "now" && active != nil {
+		active.interrupt()
+	}
+	return nil
+}
+
+func enqueueStructuredMessage(
+	queue *inputQueue,
+	active *activeTurn,
+	envelope surface.InputEnvelope,
+	message protocol.Message,
+	interrupt bool,
+) error {
+	if err := queue.pushMessage(envelope, message); err != nil {
+		return err
+	}
+	if interrupt && envelope.Priority == "now" && active != nil {
 		active.interrupt()
 	}
 	return nil
@@ -832,13 +1491,17 @@ func encodeSDKInit(encoder *surface.Encoder, session *runtimeSession, opts cli.O
 		}
 	}
 	mode := effectivePermissionMode(opts)
-	return encoder.Encode(map[string]any{
+	record := map[string]any{
 		"type": "system", "subtype": "init", "apiKeySource": sdkAPIKeySource(session.config),
 		"agentx_version": ProductVersion(), "cwd": session.workspace, "tools": toolNames(session),
 		"mcp_servers": sdkMCPServers(session), "model": session.config.Azure.ModelName, "permissionMode": mode,
 		"slash_commands": commandNames, "output_style": sdkOutputStyle(session), "skills": sdkSkillNames(session),
 		"plugins": sdkPlugins(session), "agents": []any{}, "uuid": uuid, "session_id": session.engine.SessionID(),
-	})
+	}
+	if capabilities := sdkInputCapabilities(session); capabilities != nil {
+		record["input_capabilities"] = capabilities
+	}
+	return encoder.Encode(record)
 }
 
 func sdkInitializeResponse(session *runtimeSession) (map[string]any, error) {
@@ -856,7 +1519,7 @@ func sdkInitializeResponse(session *runtimeSession) (map[string]any, error) {
 		})
 	}
 	modelName := session.config.Azure.ModelName
-	return map[string]any{
+	result := map[string]any{
 		"commands":                commands,
 		"agents":                  []any{},
 		"output_style":            sdkOutputStyle(session),
@@ -868,7 +1531,32 @@ func sdkInitializeResponse(session *runtimeSession) (map[string]any, error) {
 		}},
 		"account": map[string]any{"apiKeySource": sdkAPIKeySource(session.config), "apiProvider": "foundry"},
 		"pid":     os.Getpid(),
-	}, nil
+	}
+	if capabilities := sdkInputCapabilities(session); capabilities != nil {
+		result["input_capabilities"] = capabilities
+	}
+	return result, nil
+}
+
+func sdkInputCapabilities(session *runtimeSession) map[string]any {
+	if session == nil || !session.inputMediaEnabled {
+		return nil
+	}
+	capability := session.inputMedia
+	return map[string]any{
+		"attachments": map[string]any{
+			"protocol_version": capability.Attachment.ProtocolVersion,
+			"sources":          capability.Attachment.Sources,
+			"media_types":      capability.Attachment.MediaTypes,
+			"limits":           capability.Attachment.Limits,
+			"provider_limits": map[string]any{
+				"max_request_items":       capability.MaxRequestItems,
+				"max_encoded_media_bytes": capability.MaxEncodedBytes,
+				"max_request_bytes":       capability.MaxRequestBytes,
+				"max_ndjson_record_bytes": surface.MaxNDJSONRecordBytes,
+			},
+		},
+	}
 }
 
 func sdkAPIKeySource(runtime config.Runtime) string {
@@ -989,6 +1677,22 @@ func encodeSDKResult(encoder *surface.Encoder, outcome engine.Outcome, runErr er
 	return encoder.Encode(record)
 }
 
+func encodeSDKPromptResult(
+	encoder *surface.Encoder,
+	outcome engine.Outcome,
+	runErr error,
+	promptID string,
+) error {
+	record, err := sdkResultRecord(outcome, runErr)
+	if err != nil {
+		return err
+	}
+	if promptID != "" {
+		record["prompt_uuid"] = promptID
+	}
+	return encoder.Encode(record)
+}
+
 // sdkResultRecord is the single public terminal-result projection for both
 // aggregate JSON and streaming SDK output. Keeping it shared prevents a
 // surface from leaking internal turn-status names or non-UUID identifiers.
@@ -1028,6 +1732,9 @@ func sdkResultRecord(outcome engine.Outcome, runErr error) (map[string]any, erro
 		"stop_reason": stopReason, "total_cost_usd": cost,
 		"usage": sdkAggregateUsage(outcome.Usage), "modelUsage": sdkModelUsage(outcome.Usage),
 		"permission_denials": permissionDenials, "uuid": uuid, "session_id": outcome.SessionID,
+	}
+	if outcome.PromptID != "" {
+		record["prompt_uuid"] = outcome.PromptID
 	}
 	if subtype == "success" {
 		record["result"] = outcome.Text

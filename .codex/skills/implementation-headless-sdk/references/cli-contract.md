@@ -73,8 +73,19 @@ If stdin is a terminal, use the positional prompt. If stdin is nonterminal and t
 - If positional prompt and stdin text both exist, join them with exactly one newline.
 
 - **CLI-007 — Input mode coupling.** Streaming JSON input is valid only with streaming JSON output.
-- **CLI-008 — Empty prompt.** A new noninteractive session requires input unless a valid resume or SDK transport can supply it.
+- **CLI-008 — Empty prompt.** A new noninteractive session requires text or at
+  least one valid `--attachment` unless a valid resume or SDK transport can
+  supply input. An attachment-only initial turn is valid and selects the
+  headless surface.
 - **CLI-009 — Encoding.** Treat stdin text as UTF-8 and preserve content after normal line-ending handling; do not interpret it as terminal key input.
+- **CLI-027 — Initial file attachments.** `--attachment PATH` is repeatable and
+  preserves each explicit caller value and occurrence order until the
+  session-owned importer consumes it. The option is valid only for a
+  model-backed headless request, including duplex stream JSON; it conflicts
+  with the standalone MCP host and native session management. Import all files
+  atomically before turn submission. Text, when present, precedes the
+  attachments in the typed user message. A slash-prefixed prompt with any
+  attachment fails locally.
 
 ## Option families
 
@@ -95,13 +106,18 @@ The externally meaningful option grammar includes:
 Output formats:
 
 - `text`: print the final result string and newline; limit/errors use concise human-readable stderr/text behavior.
-- `json`: nonverbose emits only the terminal result object; verbose emits an aggregate array of retained session events.
-- `stream-json`: emit each selected event as one JSON line; requires verbose mode.
+- `json`: nonverbose emits only the terminal result object. The broader
+  contract's verbose aggregate form is unavailable in the standalone Go
+  profile because `--verbose` is unavailable.
+- `stream-json`: emit each selected event as one JSON line. The standalone Go
+  profile uses this format without, and does not accept, `--verbose`.
 
 ## Validation rules
 
 - **CLI-010 — Format constraints.** Stream input requires stream output. Replay requires both directions to stream. Partial assistant events require print plus stream output. Disabling persistence is print-only; in the standalone Go profile it selects a temporary nonresumable session, conflicts with resume/continue/fork, and disables project-memory loading and commands.
-- **CLI-011 — SDK normalization.** Supplying an SDK URL forces print, verbose, stream input and stream output.
+- **CLI-011 — SDK normalization.** Supplying an SDK URL forces print, verbose,
+  stream input, and stream output. This combination is dormant in the
+  standalone Go profile because SDK URL and verbose modes are unavailable.
 - **CLI-012 — Prompt source exclusivity.** A direct replacement system prompt conflicts with replacement-from-file; append text conflicts with append-from-file. File read errors identify the failing source before execution.
 - **CLI-013 — Model fallback.** Fallback model must differ from the primary model.
 - **CLI-014 — Session identity.** Explicit session ID conflicts with continue/resume unless forking. Validate identifier format and absence before creating a new session, except when a trusted server-side SDK transport supplies its own tagged identity.
@@ -111,6 +127,11 @@ Output formats:
 - **CLI-018 — Teammate identity.** Team name, agent name and agent identifier are all present or all absent.
 - **CLI-019 — MCP composition.** Parse each CLI MCP item as inline JSON first, otherwise as a file. Accumulate all parse errors. Later configurations override earlier entries deterministically. Reject reserved names and apply managed policy filters.
 - **CLI-020 — Managed restrictions.** Enterprise/managed MCP configuration may forbid dynamic SDK servers or strict-mode combinations. Report filtered/forbidden entries rather than silently enabling them.
+- **CLI-028 — Attachment/provider gate.** Construct the configured provider and
+  inspect its advertised input-media capability before importing a selected
+  file. Capability absence is text-only and rejects every attachment before a
+  provider request. Initial file import generates one prompt UUID and carries
+  it through transcript admission and the structured/aggregate terminal result.
 
 ## Native session-management path
 
@@ -217,6 +238,13 @@ Regular headless MCP connections required for turn one are awaited. Account-host
 methods panic, an invalid read count, a panicking `Read`, and a blocking or
 panicking `Close`. Verify fixed failure, zero host error-method calls, prompt
 non-admission, and bounded cancellation/timeout.
+15. Repeat `--attachment` for PNG, JPEG, and PDF with and without prompt text.
+Verify headless inference, file order, attachment-only admission, one prompt
+UUID, and one provider request. Make the second file invalid and verify no user
+message or provider request is admitted.
+16. Use `--attachment` with the standalone MCP host, native session
+management, a slash command, and a text-only provider/model profile. Each fails
+explicitly without silently pasting a path into model text.
 
 ## Non-normative provenance
 

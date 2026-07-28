@@ -258,9 +258,35 @@ Undefined owner is safe only for known main-thread-only manual clear/compact cal
 
 **MC-102 — Reactive recovery bound.** On model prompt-too-long, first allow a pending context-collapse drain once, then reactive summary compaction once. Do not repeatedly alternate error, compact, and stop hooks. If recovery fails, surface the withheld original error and stop.
 
-**MC-103 — Media failure.** Media-size/provider media errors may trigger one reactive compact path without a context-collapse drain. Keep the same bounded guard.
+**MC-103 — Media failure.** Legacy synthetic/meta media-size errors may trigger
+one reactive compact path without a context-collapse drain. Keep the same
+bounded guard. A native provider media rejection quarantines the complete
+rejected projected attachment set and is nonretryable; compaction must not use
+this rule to make that media eligible again.
 
 **MC-104 — Optional axes.** State separately whether session memory, persistent file memory, relevance selection, team memory, team sync, automatic dream consolidation, cached edits, API-native edits, context collapse, prompt-cache sharing, and streaming retry are build-included, runtime-enabled, model/provider supported, account-eligible, and policy-allowed. Disabled behavior follows each contract above and must not leave partial global state.
+
+**MC-105 — Native attachment authority.** Compaction changes only the
+provider-context projection. It preserves the durable typed user message,
+manifest order, stable identities, and attachment-store references. A summary
+is text and cannot become a replacement authoritative copy of attachment
+bytes.
+
+**MC-106 — Media tail bound.** Before a provider request, retain the newest
+relevant native media within 100 items and 41,943,040 decoded bytes. Represent
+older excess media only with bounded derived `[image]` or `[document]` markers
+in that request projection; do not silently remove it from durable history or
+resume/fork state.
+
+**MC-107 — Quarantine preservation.** Provider-rejected attachment identities
+remain quarantined across compaction and resume. A compact or retry path cannot
+make their bytes eligible again merely because surrounding text was
+summarized.
+
+**MC-108 — Durable-media failure.** A missing, unreadable, or digest-mismatched
+referenced blob prevents construction or installation of the affected
+projection. Never hide this failure behind summary text, a restoration marker,
+or deletion of the manifest.
 
 ## Persistent file memory and relevance recall
 
@@ -443,6 +469,17 @@ hashes in this bounded profile.
 **MC-A26 — Empty memory recall.** Recall from an empty private store and from a store whose entries are all filtered. Both succeed with an explicit empty collection that serializes as `[]`; a disabled or inaccessible store remains a distinct unavailable/error outcome.
 
 **MC-A27 — Bounded direct-store recall.** Populate a private store with 513 directory entries, then with individually valid memory files whose aggregate size exceeds 8 MiB. Both recalls fail with `ErrRecallLimit` before unbounded enumeration or content retention; a store within both limits still returns the same deterministic relevance order.
+
+**MC-A28 — Native media across compaction.** Compact and resume a conversation
+whose newest tail contains ordered images and PDFs and whose older history
+exceeds both native media projection limits. Verify the provider sees only the
+newest bounded media plus derived markers, while the transcript and attachment
+store retain every valid manifest/blob for resume and fork.
+
+**MC-A29 — Quarantined or damaged media.** Quarantine one attachment through a
+provider rejection, then compact and retry; its bytes are never resent. Remove
+or tamper with another referenced blob and verify compaction installation and
+provider projection fail attributably without rewriting durable history.
 
 ## Non-normative provenance
 

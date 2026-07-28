@@ -192,6 +192,38 @@ When an `opusplan` plan already exceeds 200,000 tokens, stay on its parsed base 
 
 **MOD-082 — Other beta decisions.** Vertex receives the web-search beta/header for AgentX 4 Opus, Sonnet, or Haiku; Foundry receives it for every deployed model. Tool-search uses one header for Bedrock/Vertex and another for first-party/Foundry. First-party-only experimental betas include Foundry unless separately excluded, and a global experimental-beta disable wins. These decisions do not add models to the catalog.
 
+**MOD-083 — Native attachment qualification.** The current native attachment
+profile is enabled only for the Azure/OpenAI Responses adapter when the logical
+model is exactly `gpt-5.6-sol` and the configured API selector is exactly
+empty, `v1`, or `preview`. All other providers, logical model names, and API
+selectors are text-only and reject native media before transport. This is a
+closed local advertisement and preflight qualification, not deployment
+introspection or proof that every deployment behind an allowed selector accepts
+the advertised modalities.
+
+**MOD-084 — Qualified media matrix.** A qualified request accepts only
+`image/png`, `image/jpeg`, and `application/pdf` through the native immutable
+attachment store. Images map to Responses `input_image`; PDF maps to
+`input_file`. PNG/JPEG remain subject to `IQ-013` decode/re-encode,
+dimension, pixel, and no-resize rules. `application/pdf` means only the
+conservative `IQ-013` classic-xref/catalog/page-tree subset; it does not claim
+object/xref streams, incremental updates, active/forms/embedded content,
+OCR/conversion, or a page count above the configured bound. Audio, SVG, GIF,
+WebP, URLs, arbitrary binary, and every other MIME are unsupported.
+Capability advertisement must expose this exact matrix and must be absent for
+a text-only profile.
+
+**MOD-085 — Provider evidence boundary.** The request forms follow the
+official [Azure Responses API image and file input
+schema](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses).
+Loopback request tests prove local construction and zero-call preflight.
+Because Azure deployments and their vision/PDF eligibility vary independently,
+every release artifact and intended deployment/profile must retain a separate
+installed-runtime PNG/JPEG/PDF qualification before it claims real-provider
+support. The current worktree's one-profile result is recorded as
+[non-normative environment-scoped evidence](../../implementation-conformance-audit/references/native-attachment-production-qualification.md);
+it does not qualify another artifact, deployment, selector, model, or platform.
+
 ## Context and output limits
 
 **MOD-090 — Context-window order.** Resolve the effective input context in this order:
@@ -413,6 +445,29 @@ Use the response's actual speed field to select Opus 4.6 fast pricing, not the u
 **MOD-A13 — Capability-cache recovery.** Seed a valid private cache with overlapping IDs, malformed unknown fields, and a timestamp. Verify exact then longest-substring matching, stripped persisted fields, no timestamp expiry, and static fallback on malformed-file read or refresh failure.
 
 **MOD-A14 — Provider capability matrix.** For known AgentX 3, Haiku 4.5, Sonnet 4.5, Sonnet 4.6, Opus 4.1, Opus 4.6, and an unknown custom ID, evaluate thinking, adaptive thinking, effort, maximum effort, interleaved thinking, structured output, and context management on all four providers. Verify MOD-071–078, then add an exact third-party pinned override and verify explicit true and explicit false both win.
+
+**MOD-A14A — Native attachment capability.** Cross the provider, logical
+model, and API-selector values in `MOD-083`. Verify only the exact qualified
+combinations advertise the version-1 image/PDF capability and construct exact
+loopback media requests; all other combinations omit capability metadata,
+remain compatible with legacy text, reject media explicitly, and make zero
+provider calls. This is local configuration/preflight evidence, not remote
+deployment qualification.
+
+**MOD-A14B — Installed-runtime native attachment qualification.** Install or
+otherwise execute the exact candidate artifact with the intended
+provider/deployment/profile and a selector allowed by `MOD-083`. Submit a
+representative normalized PNG, JPEG, conservative multi-page PDF,
+attachment-only turn, and mixed ordered request through public CLI and
+stream-JSON routes. Verify model-grounded responses, stable typed replay,
+resume after source removal, fork-owned media, privacy, bounded cleanup, and
+zero unintended calls for locally rejected input. Record artifact digest,
+logical model, selector class, media fixtures, request count, outcomes, skips,
+and cleanup without endpoint, deployment, credentials, source/runtime paths,
+provider bodies, base64, prompts, or raw model output. Repeat for every release
+artifact, deployment, selector, and native platform claimed. A provider
+rejection/quarantine claim requires a deliberately induced closed
+media-specific rejection; a successful media run cannot stand in for it.
 
 **MOD-A15 — Output limits.** Verify every row of MOD-093, then apply a server maximum below the default, the 8K reservation rollout, invalid/negative/too-large environment overrides, and legacy thinking. Verify clamping order and the one-token thinking margin.
 

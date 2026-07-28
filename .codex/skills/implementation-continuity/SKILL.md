@@ -13,6 +13,15 @@ Use the [architecture diagram](assets/architecture.drawio) to inspect the persis
 
 Continuity work must preserve message identity, parent relationships, tool-use/result pairing, branch selection, metadata ownership, background-task references, and explicit compaction boundaries. A crash, disconnect, partial stream, or interrupted write must either resume coherently or explain why recovery is impossible.
 
+Attachment continuity additionally preserves the complete immutable manifest
+and its session-owned blob independently of the original import path. Resume
+revalidates every referenced blob before model projection. Fork copies verified
+content into the destination store under the same attachment and
+content-addressed storage identities while the source session is locked; it
+does not share a mutable pathname or depend on the source file. Missing or
+tampered media blocks resume/fork attribution instead of becoming a
+placeholder asserted as user content.
+
 ## Specialized workflows
 
 - Use [implementation-transcript-recovery](../implementation-transcript-recovery/SKILL.md) to implement the append-only transcript protocol, native session inventory and deletion, message graph, sidechains, metadata, branching, tombstones, resume, fork, and consistency repair.
@@ -27,3 +36,7 @@ Continuity work must preserve message identity, parent relationships, tool-use/r
 - Native deletion continuity survives interrupted intent, receipt publication,
   detach, descriptor-rooted cleanup, and parent sync without making a pending
   ID selectable or letting an old receipt target a recreated generation.
+- Attachment-only and mixed turns resume with their exact ordered manifests;
+  forks contain independent verified blobs; incomplete uploads and committed
+  imports absent from durable history are collected without removing blobs
+  still referenced by any durable event in that session.

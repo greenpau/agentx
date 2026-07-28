@@ -14,14 +14,20 @@ Implement semantic query engine shared by interactive, headless, SDK, agent, and
 3. Use the [architecture diagram](assets/architecture.drawio) to trace the normal loop and recovery edges, the [model resolution and availability diagram](assets/model-resolution-availability.drawio) for selection and provider/capability boundaries, and the [derived assistance and speculation diagram](assets/derived-assistance-speculation.drawio) for stop-phase scheduling, stale suggestion generations, copy-on-write boundaries, and non-atomic acceptance. Treat the written `QM-*` and `MOD-*` requirements as authoritative when a diagram omits detail.
 4. Model durable history, API-bound history, partial stream state, and presentation events as separate data products. Never mutate durable history merely to satisfy one provider's wire rules.
 5. Implement one iteration as an explicit state transition. Preserve the ordering of projection, context-pressure handling, streaming, recovery, tool continuation, hooks, queued input, and limit checks.
-6. Make every accepted tool-use identifier terminal before leaving or retrying an attempt. Repair malformed historical pairing only in the API projection unless strict validation is enabled.
-7. Snapshot turn-level gates and limits at the documented boundaries. Do not let an asynchronous configuration refresh change policy midway through one query invocation.
-8. Keep derived summaries, prompt suggestions, and speculative work outside authoritative history until their explicit projection/acceptance point.
-9. Exercise every applicable acceptance scenario in the references, including model-policy/provider faults, cancellation, partial-stream, derived-assistance, and speculative-commit cases.
+6. Preserve provider-neutral text/image/document order. Admission and recovery
+   may verify store-owned identities/digests internally, but only a qualified
+   provider adapter may materialize immutable media bytes into a provider
+   body. Preflight every count/byte/profile limit before transport.
+7. Make every accepted tool-use identifier terminal before leaving or retrying an attempt. Repair malformed historical pairing only in the API projection unless strict validation is enabled.
+8. Snapshot turn-level gates and limits at the documented boundaries. Do not let an asynchronous configuration refresh change policy midway through one query invocation.
+9. Keep derived summaries, prompt suggestions, and speculative work outside authoritative history until their explicit projection/acceptance point.
+10. Exercise every applicable acceptance scenario in the references, including model-policy/provider faults, native-media rejection, cancellation, partial-stream, derived-assistance, and speculative-commit cases.
 
 ## Ownership boundaries
 
-- Own user-turn admission through terminal query outcome, model-request construction, stream interpretation, model retry/fallback, usage accumulation, and API-safe message normalization.
+- Own user-turn admission through terminal query outcome, typed-media projection
+  and quarantine, model-request construction, stream interpretation, model
+  retry/fallback, usage accumulation, and API-safe message normalization.
 - Receive tool execution as an ordered stream of normalized results: concurrency-safe groups may arrive in completion order, while accepted identity, pairing, source parentage, and unsafe barriers remain authoritative. Do not implement permission or sandbox policy here.
 - Receive compaction and context-collapse decisions through bounded interfaces. Do not make summaries authoritative transcript replacements.
 - Publish semantic events; leave terminal layout, SDK serialization, and remote transport framing to presentation adapters.

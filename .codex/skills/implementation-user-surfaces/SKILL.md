@@ -28,6 +28,22 @@ See the [surface architecture diagram](assets/architecture.drawio) for the requi
 - **SURF-007 — Feature absence.** Build exclusion, runtime gating, eligibility, authentication, policy, platform support, and current availability are independent. Disabled optional surfaces leave the core runtime usable.
 - **SURF-008 — Presentation backpressure.** A slow UI or transport may buffer boundedly, but semantic event ordering and durable state updates must survive presentation delay or disconnect.
 - **SURF-009 — Opaque operational failures.** Exit-code selection and user-visible projection classify foreign failures only from exact sentinels, surface-owned context state, detached values, and package-sealed snapshots. A surface may traverse exact standard-library or package-owned wrappers, but stops at a foreign child and never invokes foreign `Error`, `Is`, `As`, or `Unwrap` behavior. Unknown failures receive fixed diagnostics, and a blocking error method cannot delay completion or exit.
+- **SURF-010 — Attachment capability parity.** A surface may accept attachments
+  only after the runtime advertises a versioned input capability for the
+  configured provider, logical model, and API route/selector. CLI path import
+  and stream-JSON upload produce the same closed provider-neutral union,
+  content order, verified MIME/kind, and canonical digest/size for equivalent
+  normalized bytes; their attachment IDs may differ because ownership and ID
+  assignment are route-specific. Capability absence means text-only.
+  Interactive and VS Code surfaces remain text-only until they implement this
+  negotiation; source presence in the shared runtime does not make those
+  adapters attachment-capable.
+- **SURF-011 — Safe media projection.** Replay and structured output may expose
+  the complete bounded manifest, including opaque content-addressed storage
+  identity, but never bytes, base64, source or temporary paths, runtime storage
+  paths, or provider request bodies. Attachment-bearing replay retains the
+  versioned typed union and block order so it decodes without loss; ordinary
+  duplicate and prompt-correlation rules still govern execution.
 
 ## Implementation workflow
 
@@ -51,6 +67,10 @@ Use [implementation-optional-experiences](../implementation-optional-experiences
 ## Cross-surface acceptance
 
 - Submit the same prompt interactively and through structured input; both produce equivalent model-visible messages and tool decisions even though presentation differs.
+- Submit the same ordered PNG/JPEG/conservative-PDF message through CLI file import and the
+  negotiated stream-JSON protocol; both produce equivalent model-visible
+  content. A text-only adapter rejects or omits the capability rather than
+  silently dropping media.
 - Deny a tool locally and through an SDK permission response; both yield a normalized denial tied to the original tool-use identifier.
 - Interrupt during streaming; every accepted tool/control identifier terminates and durable transcript state remains resumable.
 - Emit terminal-only progress; it is visible in the interactive UI but absent from implemented model context and replayed semantic history.

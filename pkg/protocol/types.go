@@ -7,11 +7,42 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/attachment"
 	"github.com/greenpau/agentx/pkg/identity"
 )
 
 // CurrentVersion is the canonical event schema version emitted by this build.
-const CurrentVersion = 1
+const CurrentVersion = 2
+
+// LegacyVersion is the text-only event schema accepted during resume. Version
+// 2 adds immutable attachment manifests; binaries that only understand version
+// 1 must reject those records instead of silently dropping their media.
+const LegacyVersion = 1
+
+// Conversation-scoped session-metadata keys follow the selected message
+// branch during rewind, resume, and fork. Keeping this vocabulary at the
+// protocol boundary prevents transcript recovery from treating query-engine
+// projections or media quarantine as unrelated session preferences.
+const (
+	MetadataProviderResponseOutput = "provider_response_output"
+	MetadataContextClear           = "context_clear"
+	MetadataContextProjection      = "context_projection"
+	MetadataAttachmentQuarantine   = "attachment_quarantine"
+)
+
+// IsConversationScopedMetadataKey reports whether durable metadata derives
+// from one selected conversation branch rather than the whole session.
+func IsConversationScopedMetadataKey(key string) bool {
+	switch key {
+	case MetadataProviderResponseOutput,
+		MetadataContextClear,
+		MetadataContextProjection,
+		MetadataAttachmentQuarantine:
+		return true
+	default:
+		return false
+	}
+}
 
 // Identifier aliases retain distinct compile-time domains while allowing
 // protocol consumers to use one import for the common wire vocabulary.
@@ -178,18 +209,44 @@ const (
 	ContentAttachment ContentType = "attachment"
 )
 
-// ContentBlock carries either text/reasoning or attachment metadata. Binary
-// attachment bytes live in the owning file-transfer subsystem, not JSONL.
+// ContentBlock is a closed provider-neutral content union. Attachment fields
+// describe an immutable runtime-owned snapshot; binary bytes and import paths
+// never enter the semantic event or transcript.
 type ContentBlock struct {
-	Type     ContentType `json:"type"`
-	Text     string      `json:"text,omitempty"`
-	Name     string      `json:"name,omitempty"`
-	MIMEType string      `json:"mime_type,omitempty"`
-	URI      string      `json:"uri,omitempty"`
+	Type ContentType `json:"type"`
+	Text string      `json:"text,omitempty"`
+
+	AttachmentID attachment.ID   `json:"attachment_id,omitempty"`
+	Kind         attachment.Kind `json:"kind,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	MIMEType     string          `json:"mime_type,omitempty"`
+	SizeBytes    int64           `json:"size_bytes,omitempty"`
+	SHA256       string          `json:"sha256,omitempty"`
+	StorageID    string          `json:"storage_id,omitempty"`
 }
 
 // TextBlock constructs a plain text block.
 func TextBlock(text string) ContentBlock { return ContentBlock{Type: ContentText, Text: text} }
+
+// AttachmentBlock constructs a metadata-only reference to runtime-owned bytes.
+func AttachmentBlock(manifest attachment.Manifest) ContentBlock {
+	return ContentBlock{
+		Type:         ContentAttachment,
+		AttachmentID: manifest.AttachmentID, Kind: manifest.Kind, Name: manifest.Name,
+		MIMEType: manifest.MIMEType, SizeBytes: manifest.SizeBytes,
+		SHA256: manifest.SHA256, StorageID: manifest.StorageID,
+	}
+}
+
+// AttachmentManifest returns the immutable attachment metadata carried by the
+// block. Callers must check Type before using the result.
+func (b ContentBlock) AttachmentManifest() attachment.Manifest {
+	return attachment.Manifest{
+		AttachmentID: b.AttachmentID, Kind: b.Kind, Name: b.Name,
+		MIMEType: b.MIMEType, SizeBytes: b.SizeBytes,
+		SHA256: b.SHA256, StorageID: b.StorageID,
+	}
+}
 
 // ToolCall records an accepted model request before tool-schema validation.
 // Exactly one argument representation is present: Arguments for an already

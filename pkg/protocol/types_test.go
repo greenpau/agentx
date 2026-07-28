@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/greenpau/agentx/pkg/attachment"
 )
 
 var testTime = time.Date(2026, 7, 21, 12, 0, 0, 123, time.UTC)
@@ -297,5 +299,90 @@ func TestVisibilityProjection(t *testing.T) {
 		if test.value.UserVisible() != test.user || test.value.ModelVisible() != test.model {
 			t.Fatalf("unexpected projection for %q", test.value)
 		}
+	}
+}
+
+func TestAttachmentMessageIsOrderedAndMetadataOnly(t *testing.T) {
+	manifest := attachment.Manifest{
+		AttachmentID: "att_0123456789abcdef", Kind: attachment.KindImage,
+		Name: "screen.png", MIMEType: attachment.MIMEPNG, SizeBytes: 42,
+		SHA256:    strings.Repeat("a", 64),
+		StorageID: "blob_sha256_" + strings.Repeat("a", 64),
+	}
+	message := Message{
+		Role: RoleUser,
+		Content: []ContentBlock{
+			TextBlock("inspect"),
+			AttachmentBlock(manifest),
+			TextBlock("carefully"),
+		},
+	}
+	if err := message.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got := message.Content[1].AttachmentManifest(); got != manifest {
+		t.Fatalf("attachment manifest = %#v, want %#v", got, manifest)
+	}
+	data, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"base64", "file://", "/tmp/"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Fatalf("metadata-only message contains %q: %s", forbidden, data)
+		}
+	}
+
+	attachmentOnly := Message{Role: RoleUser, Content: []ContentBlock{AttachmentBlock(manifest)}}
+	if err := attachmentOnly.Validate(); err != nil {
+		t.Fatalf("attachment-only Validate() error = %v", err)
+	}
+}
+
+func TestAttachmentMessageRejectsInvalidUnionAndDuplicates(t *testing.T) {
+	digest := strings.Repeat("b", 64)
+	manifest := attachment.Manifest{
+		AttachmentID: "att_0123456789abcdef", Kind: attachment.KindDocument,
+		Name: "input.pdf", MIMEType: attachment.MIMEPDF, SizeBytes: 100,
+		SHA256: digest, StorageID: "blob_sha256_" + digest,
+	}
+	block := AttachmentBlock(manifest)
+	tests := []Message{
+		{Role: RoleAssistant, Content: []ContentBlock{block}},
+		{Role: RoleUser, Content: []ContentBlock{block, block}},
+		{Role: RoleUser, Content: []ContentBlock{{Type: ContentText, Text: "x", AttachmentID: manifest.AttachmentID}}},
+	}
+	for index, message := range tests {
+		if err := message.Validate(); err == nil {
+			t.Fatalf("case %d unexpectedly validated", index)
+		}
+	}
+}
+
+func TestProtocolVersionMigrationAcceptsLegacyTextAndRequiresV2ForAttachments(t *testing.T) {
+	legacy, err := NewMessageEvent("ses_legacy", "turn_legacy", RoleUser, TextBlock("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Version = LegacyVersion
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy text event rejected: %v", err)
+	}
+
+	digest := strings.Repeat("c", 64)
+	media, err := NewMessageEvent(
+		"ses_media", "turn_media", RoleUser,
+		AttachmentBlock(attachment.Manifest{
+			AttachmentID: "att_0123456789abcdef", Kind: attachment.KindImage,
+			Name: "screen.png", MIMEType: attachment.MIMEPNG, SizeBytes: 10,
+			SHA256: digest, StorageID: "blob_sha256_" + digest,
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	media.Version = LegacyVersion
+	if err := media.Validate(); err == nil {
+		t.Fatal("legacy event version accepted attachment content")
 	}
 }

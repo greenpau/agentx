@@ -45,6 +45,7 @@ type Options struct {
 	DangerouslyBypass      bool
 	AllowedTools           []string
 	DisallowedTools        []string
+	Attachments            []string
 	MaxTurns               int
 	MaxBudgetUSD           float64
 	SessionID              string
@@ -230,6 +231,18 @@ func Parse(args []string) (Options, error) {
 				return Options{}, err
 			}
 			opts.DisallowedTools = appendList(opts.DisallowedTools, value)
+		case "--attachment":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			if value == "" {
+				return Options{}, &UsageError{Message: "--attachment requires a non-empty path"}
+			}
+			// The runtime import boundary, not command-line parsing, owns path
+			// resolution and safety checks. Preserve the explicit caller value
+			// byte-for-byte and retain one entry per flag occurrence.
+			opts.Attachments = append(opts.Attachments, value)
 		case "--max-turns":
 			value, err := next()
 			if err != nil {
@@ -332,7 +345,7 @@ func InferPrint(options Options, stdoutTerminal bool) Options {
 	if options.SessionManagementRequested() {
 		return options
 	}
-	if !options.MCPServer && (options.OutputFormat != OutputText || options.InputFormat == InputStreamJSON || !stdoutTerminal) {
+	if !options.MCPServer && (options.OutputFormat != OutputText || options.InputFormat == InputStreamJSON || len(options.Attachments) > 0 || !stdoutTerminal) {
 		options.Print = true
 	}
 	return options
@@ -376,7 +389,8 @@ func (o Options) validate(finalSurface bool) error {
 		if o.Print || o.OutputFormat != OutputText || o.InputFormat != InputText || strings.TrimSpace(o.Prompt) != "" ||
 			o.Resume != "" || o.Continue || o.ForkSession || o.SessionID != "" || o.Bare || o.TrustWorkspace ||
 			o.OutputStyle != "" || o.MCPConfig != "" || o.Model != "" || o.Effort != "" || o.SystemPrompt != "" ||
-			o.SystemPromptFile != "" || o.AppendSystemPrompt != "" || o.AppendSystemPromptFile != "" {
+			o.SystemPromptFile != "" || o.AppendSystemPrompt != "" || o.AppendSystemPromptFile != "" ||
+			len(o.Attachments) != 0 {
 			return &UsageError{Message: "--mcp-server is a standalone stdio surface and cannot be combined with conversation options"}
 		}
 	}
@@ -602,6 +616,7 @@ Continuity and context:
   --system-prompt-file PATH      Replace it from a bounded file
   --append-system-prompt TEXT    Append dynamic system instructions
   --append-system-prompt-file PATH Append them from a bounded file
+  --attachment PATH             Import one initial PNG, JPEG, or PDF (repeatable)
 
 Native session management:
   --list-sessions                List sessions for the workspace selected by --cwd

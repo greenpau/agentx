@@ -39,6 +39,22 @@
 
 **OBS-015 — Sink isolation.** Route each event independently to eligible sinks. One sink's exception, backpressure, authentication failure, or invalid response does not prevent other sinks or the semantic operation.
 
+**OBS-016 — Attachment privacy.** Attachment bytes, base64, source paths,
+runtime storage paths, provider data URLs/bodies, and decoded image/PDF content
+are prohibited in logs, diagnostics, traces, metrics, telemetry, automatic
+crash reports, and unrestricted error strings at every verbosity. Bounded
+reason codes, media kind/MIME, decoded-size buckets, attachment count, duration,
+and stable correlation identities may be observed only when their destination
+and cardinality policy permit them. A private local DEBUG record may also carry
+one bounded exact aggregate decoded-byte count for the complete admitted turn;
+it may not carry per-item sizes or attachment/storage identities. Import and
+provider failures remain attributable without serializing hostile content. For
+a media-bearing provider failure, classify only from the closed trusted
+status/code/parameter vocabulary and then replace all provider-owned
+diagnostics and correlations with one fixed runtime message before any error,
+retry, log, transcript, or presentation projection; provider prose is never
+retained even when split into individually short base64-like fragments.
+
 ## Usage and cost
 
 **OBS-020 — Cumulative stream usage.** Provider stream deltas may contain cumulative rather than incremental counts. Update the last message snapshot accordingly, then add a completed message's usage to aggregate counters exactly once.
@@ -168,6 +184,20 @@ Run one successful persistent text-output turn and one provider-failure turn wit
 Run two model-backed turns in one persistent session: one performs a retry and capability call before success, and one receives a nonretryable provider configuration rejection. Repeat at INFO and DEBUG and through text, JSON, and stream-JSON surfaces. Normalize random IDs/timestamps and verify semantic stdout plus durable transcript lifecycle are level-independent. INFO retains the retry WARN and terminal ERROR but no routine start/success records. DEBUG has distinct turn IDs, exactly one start and terminal record per admitted turn, and stage-correlated iteration, stream, retry, capability, usage, duration, request, discovery-generation, and finalization evidence sufficient to locate the failing stage. A zero-skill generation reports only safe gates, root relationship/state, counts, and omission reasons. Records may contain a short repository-relative caller and no automatic stack; they contain no credential, prompt/answer, tool payload, skill body, arbitrary frontmatter, endpoint, deployment, exact configured API version, URL/query, header/body, file content, or exact workspace path. A strictly validated provider-reported minimum version may appear only as public remediation metadata.
 
 Separately fail the accepted-user transcript append after the DEBUG attempt-start record. Diagnostic start and ERROR finalization evidence may exist, but no diagnostic line becomes an authoritative transcript start or permits a fabricated durable terminal event. The failed append, logger level, and logger sink cannot change semantic or recovery truth.
+
+### `OBS-A11` — Attachment privacy under failure
+
+Import files whose absolute path, name, bytes, base64, PDF strings, and image
+metadata each contain sentinel secrets. Exercise malformed chunks, MIME and
+digest mismatch, timeout, cancellation, transcript failure, provider
+rejection, and DEBUG diagnostics. If the selected profile includes an automatic
+crash-report adapter, exercise it too; the current standalone Go profile has no
+such adapter and must record that route as unavailable rather than infer
+coverage from ordinary logging. Verify no
+sentinel, raw path, data URL, provider body, or runtime path reaches any output
+or observation sink; only bounded classifications and allowed correlations
+remain, and every semantic cleanup outcome is identical with all sinks
+disabled.
 
 ## Provenance
 

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/greenpau/agentx/pkg/attachment"
 )
 
 // Provider starts one model response stream. A Stream is bound to ctx for its
@@ -40,6 +42,9 @@ var (
 	ErrRequestTimeout = errors.New("model provider request timed out")
 	// ErrProtocol reports malformed or contradictory provider wire data.
 	ErrProtocol = errors.New("invalid model protocol")
+	// ErrInputMediaUnavailable reports that a provider cannot safely materialize
+	// one or more provider-neutral attachment references for this request.
+	ErrInputMediaUnavailable = errors.New("model input media is unavailable")
 )
 
 // Role is a message author's Responses API role.
@@ -67,17 +72,28 @@ type ContentType string
 
 const (
 	ContentInputText   ContentType = "input_text"
+	ContentInputImage  ContentType = "input_image"
+	ContentInputFile   ContentType = "input_file"
 	ContentOutputText  ContentType = "output_text"
 	ContentRefusal     ContentType = "refusal"
 	ContentSummaryText ContentType = "summary_text"
 )
 
-// Content is one text-like item. The model layer deliberately does not infer
-// media filesystem access; future media adapters should add explicit bounded
-// content fields rather than smuggling paths through Text.
+// Content is one provider-neutral message part. Media parts contain only an
+// immutable attachment manifest; bytes and source paths remain behind the
+// request's AttachmentSource and are loaded only by the provider adapter.
 type Content struct {
-	Type ContentType `json:"type"`
-	Text string      `json:"text"`
+	Type     ContentType          `json:"type"`
+	Text     string               `json:"text,omitempty"`
+	Manifest *attachment.Manifest `json:"attachment,omitempty"`
+}
+
+// AttachmentSource resolves an immutable, runtime-owned attachment snapshot.
+// Implementations must honor ctx and return a defensive byte slice. Provider
+// adapters compare the returned manifest with the requested manifest before
+// using the bytes.
+type AttachmentSource interface {
+	Resolve(ctx context.Context, id attachment.ID) (attachment.Manifest, []byte, error)
 }
 
 // Item is a semantic Responses API input or output item. Only fields relevant
@@ -156,6 +172,9 @@ type Request struct {
 	PreviousResponseID string            `json:"previous_response_id,omitempty"`
 	ParallelToolCalls  *bool             `json:"parallel_tool_calls,omitempty"`
 	Metadata           map[string]string `json:"metadata,omitempty"`
+	// AttachmentSource is an ephemeral provider-bound resolver. It is not part
+	// of request serialization, transcript projection, or diagnostics.
+	AttachmentSource AttachmentSource `json:"-"`
 }
 
 // Usage is cumulative for one accepted provider response.
@@ -231,6 +250,10 @@ type ProviderError struct {
 	Message    string `json:"message"`
 	RequestID  string `json:"request_id,omitempty"`
 	Retryable  bool   `json:"retryable,omitempty"`
+	// MediaRejected is trusted adapter classification for quarantine decisions.
+	// It is deliberately not serialized or exposed as provider-controlled wire
+	// data.
+	MediaRejected bool `json:"-"`
 
 	retryDelay    time.Duration
 	hasRetryDelay bool
@@ -274,6 +297,14 @@ func (e *ProviderError) Format(state fmt.State, verb rune) {
 	default:
 		_, _ = fmt.Fprint(state, e.Error())
 	}
+}
+
+// IsMediaRejection reports only trusted provider-adapter classification. It
+// deliberately uses the package-owned error graph inspector rather than
+// matching provider-controlled prose.
+func IsMediaRejection(err error) bool {
+	providerError := inspectModelError(err).provider
+	return providerError != nil && providerError.MediaRejected
 }
 
 // Validate checks only provider-neutral request shape. Tool argument and output
@@ -320,19 +351,8 @@ func validateItem(item Item) error {
 		if len(item.Content) == 0 {
 			return errors.New("message has no content")
 		}
-		for _, content := range item.Content {
-			switch content.Type {
-			case ContentInputText:
-				if item.Role == RoleAssistant {
-					return errors.New("assistant replay must use output_text")
-				}
-			case ContentOutputText, ContentRefusal:
-				if item.Role != RoleAssistant {
-					return fmt.Errorf("%s is valid only for assistant messages", content.Type)
-				}
-			default:
-				return fmt.Errorf("unsupported message content type %q", content.Type)
-			}
+		if err := validateMessageContent(item.Role, item.Content); err != nil {
+			return err
 		}
 	case ItemFunctionCall:
 		if item.CallID == "" || item.Name == "" {
@@ -350,9 +370,77 @@ func validateItem(item Item) error {
 			if content.Type != ContentSummaryText {
 				return fmt.Errorf("unsupported reasoning summary type %q", content.Type)
 			}
+			if content.Manifest != nil {
+				return errors.New("reasoning summary contains attachment metadata")
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported item type %q", item.Type)
+	}
+	return nil
+}
+
+func validateMessageContent(role Role, content []Content) error {
+	limits := attachment.DefaultLimits()
+	seenAttachments := make(map[attachment.ID]struct{})
+	var mediaBytes int64
+	for index, part := range content {
+		switch part.Type {
+		case ContentInputText:
+			if role == RoleAssistant {
+				return errors.New("assistant replay must use output_text")
+			}
+			if part.Manifest != nil {
+				return fmt.Errorf("message content %d: input_text contains attachment metadata", index)
+			}
+		case ContentOutputText, ContentRefusal:
+			if role != RoleAssistant {
+				return fmt.Errorf("%s is valid only for assistant messages", part.Type)
+			}
+			if part.Manifest != nil {
+				return fmt.Errorf("message content %d: %s contains attachment metadata", index, part.Type)
+			}
+		case ContentInputImage, ContentInputFile:
+			if role != RoleUser {
+				return fmt.Errorf("%s is valid only for user messages", part.Type)
+			}
+			if part.Text != "" {
+				return fmt.Errorf("message content %d: %s contains inline text", index, part.Type)
+			}
+			if part.Manifest == nil {
+				return fmt.Errorf("message content %d: %s requires an attachment manifest", index, part.Type)
+			}
+			manifest := *part.Manifest
+			if err := manifest.Validate(limits); err != nil {
+				return fmt.Errorf("message content %d: invalid attachment manifest", index)
+			}
+			switch part.Type {
+			case ContentInputImage:
+				if manifest.Kind != attachment.KindImage ||
+					manifest.MIMEType != attachment.MIMEPNG &&
+						manifest.MIMEType != attachment.MIMEJPEG {
+					return fmt.Errorf("message content %d: input_image requires PNG or JPEG metadata", index)
+				}
+			case ContentInputFile:
+				if manifest.Kind != attachment.KindDocument ||
+					manifest.MIMEType != attachment.MIMEPDF {
+					return fmt.Errorf("message content %d: input_file requires PDF metadata", index)
+				}
+			}
+			if _, duplicate := seenAttachments[manifest.AttachmentID]; duplicate {
+				return fmt.Errorf("message content %d: duplicate attachment reference", index)
+			}
+			if len(seenAttachments) >= limits.MaxAttachmentsPerMessage {
+				return fmt.Errorf("message has more than %d attachment references", limits.MaxAttachmentsPerMessage)
+			}
+			if manifest.SizeBytes > limits.MaxAggregateBytes-mediaBytes {
+				return fmt.Errorf("message attachments exceed %d decoded bytes", limits.MaxAggregateBytes)
+			}
+			seenAttachments[manifest.AttachmentID] = struct{}{}
+			mediaBytes += manifest.SizeBytes
+		default:
+			return fmt.Errorf("unsupported message content type %q", part.Type)
+		}
 	}
 	return nil
 }

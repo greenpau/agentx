@@ -33,11 +33,38 @@
 
 ## Input and attachment scenarios
 
-- **CA-011:** Submit string, text-block array, image-last array, all-image array, empty prompt, shell mode, orphaned-permission mode, and task notification. Each normalizes without inventing or losing content.
+- **CA-011:** Submit legacy string and `text|input_text` arrays, including the
+  legacy profile's image-last and all-image arrays, plus native version-1 text
+  and attachment-only input, shell mode, orphaned-permission mode, and task
+  notification. Legacy compatibility preserves its declared content; native
+  version-1 output canonicalizes `input_text` to `text`. Empty or
+  whitespace-only text-only native input rejects, while a message with no text
+  and at least one committed attachment is valid.
 - **CA-012:** Combine file, directory, IDE selection, agent mention, MCP resource, pasted text, and pasted image references. Preserve source order, identity, trust labels, and boundedness.
-- **CA-013:** Resize multiple images with one invalid/empty image. Successful images remain ordered, the failure is attributable, and no empty block reaches the model API.
+- **CA-013:** In a legacy interactive profile that explicitly implements image
+  resizing, resize multiple images with one invalid/empty image. Successful
+  images remain ordered, the failure is attributable, and no empty block
+  reaches the model API. The standalone native profile instead exercises the
+  atomic no-resize rules in `CA-015A/B`.
 - **CA-014:** Store, recall, edit, recollapse, queue, and submit a large paste; separately persist and resume its history/reference identity. The authoritative paste bytes remain identical and cache permissions are owner-only, but queue membership itself does not survive process restart.
 - **CA-015:** A prompt command contains an attachment reference while its raw arguments contain another. Apply the documented expanded-content extraction exactly once and retain literal unresolved text.
+- **CA-015A:** Import one PNG, one JPEG, and one conservative PDF through
+  repeatable CLI paths, then through stream-JSON upload. Both routes produce
+  the same closed union schema, content order, verified MIME/kind, and
+  canonical digest/size for equivalent normalized bytes; attachment IDs remain
+  route- and session-specific because CLI generates them while stream clients
+  supply them. Neither route emits a source path or inline bytes in
+  transcript/output. The PDF fixture has a complete classic xref and
+  consistent catalog/page tree; escaped active names, comment-spoofed
+  structure, bad object offsets, object/xref streams, and incremental updates
+  fail.
+- **CA-015B:** Fail one member of a multi-file set, then submit a valid
+  priority-`now` set while another turn runs. The invalid set neither interrupts
+  nor partially admits; the valid set retains one prompt UUID and interrupts
+  only after full admission. Exercise the independent terminal
+  upload-lifecycle ledger with a smaller injected limit, retain explicit
+  evidence for the fixed 100,000 durable-manifest store bound, and prove that
+  neither ceiling silently evicts live evidence.
 
 ## Queue and lifecycle scenarios
 

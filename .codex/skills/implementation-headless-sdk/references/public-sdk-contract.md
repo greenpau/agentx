@@ -27,7 +27,13 @@ This reference defines the embeddable SDK surface that surrounds the structured 
 
 **SDKAPI-011 — In-process MCP server.** Create a named MCP server configuration with optional version and tool list. Its instance runs in the embedding process and can be supplied wherever SDK MCP configuration is accepted. Shutdown closes outstanding calls, and calls longer than the host stream-close deadline require an explicit timeout configuration rather than an unbounded process hold.
 
-**SDKAPI-012 — Query iterator.** `query` accepts either one text prompt or an asynchronous stream of structured user messages plus options. It returns an asynchronous query handle that projects the same SDK messages and result schemas as stream-json. Only one semantic turn runs at a time per session handle; controls remain responsive through the separate input path. Iterator close/abort settles pending controls and owned subprocesses according to `RUN-*` and `WIRE-*`.
+**SDKAPI-012 — Query iterator.** `query` accepts either one text prompt or an asynchronous stream of structured user messages plus options. A client may use version-1 native attachment imports and typed references only after validating the session's advertised `input_capabilities`; absence remains text-only. It returns an asynchronous query handle that projects the same SDK messages and result schemas as stream-json. Only one semantic turn runs at a time per session handle; controls remain responsive through the separate input path. Iterator close/abort settles pending controls, uploads, and owned subprocesses according to `RUN-*` and `WIRE-*`.
+
+The current standalone Go profile exposes this behavior only through the
+installed CLI process and its stdio stream-JSON protocol. It does not publish a
+native in-process `query` facade, asynchronous-language iterator package, or
+duplex session handle. Treat `SDKAPI-012` as the compatibility target for such
+a facade, not evidence that one is shipped.
 
 ## Persistent session helpers
 

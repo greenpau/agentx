@@ -192,6 +192,251 @@ Structured stdout contains protocol records only; diagnostics are written separa
 Cost fields are `null` when the configured deployment has no authoritative price;
 numeric `0` is reserved for a known zero cost.
 
+### Attach images and PDFs
+
+Use repeatable `--attachment PATH` arguments for explicit caller-selected
+files. Prompt text is optional, order follows the attachment arguments, and
+the complete set is admitted atomically:
+
+```sh
+agentx --print --attachment screenshot.png "explain the error shown here"
+agentx --print --attachment before.jpg --attachment after.png \
+  "compare these images in order"
+agentx --print --attachment design.pdf --attachment screenshot.png \
+  "check the implementation against the document"
+agentx --print --attachment report.pdf
+```
+
+`--attachment` selects headless execution for an attachment-only invocation.
+It cannot be combined with the standalone MCP server or provider-free session
+management modes. A slash/local-command prompt with attachments rejects
+locally; attachments are neither left pending nor accidentally routed through
+the command.
+
+The first supported media and limits are:
+
+| Kind | Exact MIME | Validation/transform | Limits |
+| --- | --- | --- | --- |
+| Image | `image/png` | magic signature, full decode, re-encode, metadata removed; no resizing | 20 MiB, 8,192 pixels per dimension, 20,000,000 pixels |
+| Image | `image/jpeg` | magic signature, full decode, JPEG quality 90 re-encode, metadata removed; no resizing | 20 MiB, 8,192 pixels per dimension, 20,000,000 pixels |
+| Document | `application/pdf` | magic plus conservative, decoded-name, classic-xref and page-tree validation; no execution, OCR, or conversion | 20 MiB, 100 pages |
+
+One message may contain at most 8 attachments and 40 MiB of decoded media.
+The session may retain at most 100,000 durable committed manifests and 512 MiB
+of unique committed blobs. Independently, the in-process terminal
+upload-attempt ledger is capped at 100,000 accepted upload lifecycle IDs. A
+provider request is additionally limited to 100 retained media items, 40 MiB
+decoded media, 55,927,120 encoded media bytes, and 67,108,864 bytes of final
+JSON. Display names are limited to 255 bytes and MIME values to 64 bytes.
+
+AgentX accepts only explicit paths. It resolves and opens each file as a
+regular, single-link snapshot; symbolic links, hard links, directories, empty
+files, unreadable files, replacement, truncation, growth, identity churn,
+malformed content, claimed-MIME/magic mismatch, and every exceeded bound fail
+before admission. File extensions alone do not establish MIME. The original
+path is short-lived import input and is never sent to the model or persisted.
+
+PDF input is intentionally narrower than arbitrary PDF 1.x/2.0 syntax. AgentX
+requires one complete classic cross-reference table whose in-use offsets match
+the declared indirect objects, a real catalog and internally consistent
+parented page tree, direct bounded stream lengths, and an exact page count.
+It decodes PDF `#xx` name escapes before policy checks and treats comments and
+strings as inert rather than structural evidence. It rejects encryption,
+JavaScript and action/navigation/launch/URI constructs, annotations, forms and
+XFA, embedded/file-spec/associated-file/collection content, rich media,
+object streams, xref streams, and incremental `/Prev` updates. Accepted PDF
+bytes remain byte-identical; AgentX does not execute or decompress stream
+content, render, OCR, convert, or claim to sanitize arbitrary PDF semantics.
+
+The current provider qualification is Azure/OpenAI Responses with logical
+model exactly `gpt-5.6-sol` and `api_version` exactly empty, `v1`, or
+`preview`. Other providers/models/selectors are text-only and media fails
+before network I/O. AgentX maps qualified images to Responses `input_image`
+data URLs and PDFs to `input_file` data URLs, following the official
+[Azure Responses API input
+schema](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses).
+Loopback tests verify exact JSON construction. Azure deployment modality
+eligibility is not introspected. One current-worktree profile passed
+representative installed-runtime PNG, JPEG, conservative two-page PDF,
+mixed-order, stream, resume, fork, compaction, and privacy checks; the
+[sanitized evidence](.codex/skills/implementation-conformance-audit/references/native-attachment-production-qualification.md)
+does not qualify another artifact, deployment, selector, provider, account, or
+platform. Repeat `MOD-A14B` for every release profile that claims
+real-provider attachments.
+
+Remote quarantine is deliberately evidence-bound. AgentX classifies a failure
+only when a media-bearing request receives HTTP 413/415; code
+`media_rejected`, `unsupported_media`, `invalid_image`, `invalid_image_url`,
+`invalid_file`, `invalid_file_data`, `image_too_large`, or `file_too_large`;
+or an exact/suffix-qualified `input_image`, `input_file`, `image_url`, or
+`file_data` parameter. An ordinary HTTP 400, terminal SSE failure, or message
+prose alone does not quarantine a valid attachment. Every provider-owned
+diagnostic and correlation field from a media-bearing failure is replaced with
+a fixed runtime message before output, logging, retry observation, or
+persistence, preventing wrapped request base64 from becoming diagnostic
+content.
+
+#### Upload attachments over stream JSON
+
+A stream-JSON client must wait for `system/init` or a successful `initialize`
+response and inspect `input_capabilities.attachments`. Absence means text-only;
+do not infer support from the AgentX version. The qualified capability is:
+
+```json
+{
+  "protocol_version": 1,
+  "sources": [
+    {"source":"file_path","scope":"initial_cli"},
+    {"source":"stream_json_v1","scope":"per_turn"}
+  ],
+  "media_types": [
+    {"kind":"image","mime_type":"image/png","max_bytes":20971520,"max_dimension":8192,"max_pixels":20000000,"transform_policy":"decode_reencode_strip_metadata_reject_oversize_no_resize"},
+    {"kind":"image","mime_type":"image/jpeg","max_bytes":20971520,"max_dimension":8192,"max_pixels":20000000,"transform_policy":"decode_reencode_strip_metadata_reject_oversize_no_resize"},
+    {"kind":"document","mime_type":"application/pdf","max_bytes":20971520,"max_pages":100,"transform_policy":"validate_structure_no_execute_no_ocr_no_conversion"}
+  ],
+  "limits": {
+    "max_attachments_per_message": 8,
+    "max_concurrent_uploads": 8,
+    "max_uploads_per_session": 100000,
+    "max_item_bytes": 20971520,
+    "max_aggregate_bytes": 41943040,
+    "max_storage_bytes": 536870912,
+    "max_model_request_media_bytes": 41943040,
+    "max_chunk_decoded_bytes": 262144,
+    "max_chunk_encoded_bytes": 349528,
+    "max_display_name_bytes": 255,
+    "max_mime_type_bytes": 64,
+    "max_image_dimension": 8192,
+    "max_image_pixels": 20000000,
+    "max_pdf_pages": 100,
+    "upload_timeout_ms": 120000
+  },
+  "provider_limits": {
+    "max_request_items": 100,
+    "max_encoded_media_bytes": 55927120,
+    "max_request_bytes": 67108864,
+    "max_ndjson_record_bytes": 8388608
+  }
+}
+```
+
+`file_path` is advertised only for the initial CLI prompt;
+`stream_json_v1` is the per-turn structured upload route. The
+`max_uploads_per_session` value aligns two independent ceilings in protocol
+version 1: at most 100,000 durable committed manifests in the session store,
+including selected-path and committed stream imports, and at most 100,000
+terminal accepted upload lifecycle IDs in the current in-process ledger.
+Reaching one ceiling does not consume or expand the other, and neither expands
+the 512 MiB unique-blob storage limit.
+
+Choose one canonical RFC 4122 version 1–5 prompt UUID and keep it through
+import, queueing, transcript admission, and terminal result. Send one JSON
+object per physical line:
+
+```json
+{"type":"attachment_import","version":1,"operation":"begin","prompt_uuid":"3f1e7948-5c1f-4c1f-8e2c-88bc9839ec27","upload_id":"upl_image1","attachment_id":"att_image1","name":"screen.png","size_bytes":12345,"mime_type":"image/png","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"type":"attachment_import","version":1,"operation":"chunk","upload_id":"upl_image1","sequence":0,"data":"<strict-padded-standard-base64>"}
+{"type":"attachment_import","version":1,"operation":"commit","upload_id":"upl_image1"}
+```
+
+Every member shown for the selected operation is required and no other member
+is accepted. Duplicate member names, including escape-equivalent spellings,
+are rejected at every depth.
+
+`upload_id` matches `upl_[A-Za-z0-9][A-Za-z0-9_-]{0,62}` and
+`attachment_id` uses the corresponding `att_` grammar. `begin` declares the
+positive raw decoded size, MIME claim, and lowercase SHA-256. Chunks start at
+sequence 0, increase by exactly one, contain nonempty canonical padded
+standard base64, decode to at most 262,144 bytes, and contain at most 349,528
+encoded characters. Every NDJSON record is at most 8,388,608 bytes. Abort an
+accepted upload with:
+
+```json
+{"type":"attachment_import","version":1,"operation":"abort","upload_id":"upl_image1"}
+```
+
+Accepted `begin` emits a nonterminal `attachment_import_result`; valid chunks
+emit no output. Commit emits exactly one terminal result with
+`status:"committed"` and a complete normalized `attachment` manifest. Image
+normalization can change the committed size and digest from the raw upload, so
+reference only that returned manifest. Timeout, EOF, cancellation, explicit
+abort, validation, digest, size, or commit failure settles the upload once and
+removes its reservation and temporary artifact. No user record may reference
+an upload before successful commit.
+
+Submit the returned manifest in the closed provider-neutral user union:
+
+```json
+{
+  "type": "user",
+  "uuid": "3f1e7948-5c1f-4c1f-8e2c-88bc9839ec27",
+  "priority": "next",
+  "message": {
+    "role": "user",
+    "content_version": 1,
+    "content": [
+      {"type": "text", "text": "Explain this screenshot."},
+      {
+        "type": "attachment_ref",
+        "attachment_id": "att_image1",
+        "kind": "image",
+        "name": "screen.png",
+        "mime_type": "image/png",
+        "size_bytes": 12003,
+        "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "storage_id": "blob_sha256_abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+      }
+    ]
+  }
+}
+```
+
+`content_version` is required when an attachment reference appears. Blocks
+retain array order and the array may contain attachments only. Version 1
+accepts both `type:"text"` and the compatibility spelling
+`type:"input_text"` as one text variant; replay emits canonical
+`type:"text"`. Every shown manifest field is required; unknown or duplicate
+fields are rejected. All references in one user message must be committed for
+that prompt UUID, and the message must include every successfully committed
+attachment correlated to that UUID. Omitting one rejects the complete message
+instead of silently dropping part of the imported set. The whole message and
+queue reservation are validated before priority `now` cancels healthy work.
+Queue capacity is 128 records and 16 MiB of aggregate admission accounting.
+Legacy string, content-string, and text/`input_text` array messages remain
+compatible.
+
+Attachment-bearing replay preserves `content_version:1`, block order, and the
+complete bounded manifest including opaque content-addressed `storage_id`, so
+it decodes without losing attachment identity. Replay and terminal output
+never expose bytes, base64, source paths, temporary paths, runtime storage
+paths, provider request bodies, or complete data URLs. See the
+[normative wire contract](.codex/skills/implementation-headless-sdk/references/sdk-wire-protocol.md#versioned-user-content-and-attachment-import)
+for the closed rejection and acknowledgement unions.
+
+#### Attachment storage, cleanup, resume, and fork
+
+Committed attachments live under the owner-private native session
+`attachments/` store. Normalized blobs are immutable and content-addressed;
+transcripts persist manifests and blob identities only. The store has the
+100,000 durable-manifest ceiling described above even when multiple manifests
+deduplicate to one blob. Shutdown and store open abort incomplete uploads and
+clean their temporary artifacts. Failed turns retain committed blobs while
+durable history references them; orphan collection never deletes a referenced
+blob.
+
+Resume verifies and reuses the same session-owned blob without consulting the
+original source path. Fork verifies and copies referenced blobs into the
+destination session while preserving stable identities, so it does not depend
+on a mutable shared path or the source file. Missing or tampered durable media
+fails with its attachment identity; AgentX does not invent a placeholder as
+authoritative content. Deleting a native session removes its local attachment
+store through the normal recoverable deletion protocol, but is not secure
+erasure and does not remove backups, remote copies, or descendant forks.
+
+Attachment content is untrusted model input. It grants no tool, filesystem, or
+instruction authority. Do not attach secrets unless the configured model
+provider is authorized to receive them.
+
 ### Troubleshoot a turn
 
 Successful turns do not write routine lifecycle records at the default INFO
@@ -477,6 +722,9 @@ the remote workspace extension host. Install the binary and create
 - Never paste credentials into prompts, tool inputs, chat context, or diagnostics.
 - Never commit `~/.agentx/auth.json` or another secret-bearing file.
 - Review permission requests carefully, especially shell commands and writes.
+- Treat attachment content as untrusted model input. Its presence does not
+  grant tool or filesystem permission, and source paths must be selected
+  explicitly.
 - Prefer `plan` or `dontAsk` when inspecting an unfamiliar repository.
 - Review `AGENTS.md`, `.codex/skills`, and the workspace `.agentx/` directory before enabling trusted workspace features.
 - Use `--bare` or `agentx.bare` when repository customization is not required.
@@ -484,7 +732,17 @@ the remote workspace extension host. Install the binary and create
 
 ## Current limitations
 
-- This profile accepts text input; image, audio, and arbitrary attachment blocks are not supported.
+- Native attachments are limited to headless CLI and stream-JSON PNG, JPEG,
+  and PDF input under the exact provider qualification above. Interactive REPL
+  and VS Code composer attachment input remain text-only.
+- Audio, SVG, GIF, WebP, URLs, arbitrary binary, OCR, PDF conversion, and
+  automatic image resizing are not supported. PDF object/xref streams,
+  incremental updates, encryption, forms, annotations, embedded files, and
+  active/action content are also outside the conservative accepted PDF subset.
+- Loopback tests prove exact request construction and zero-call preflight. One
+  current-worktree profile has separate live PNG/JPEG/conservative-PDF
+  evidence; release-artifact and per-deployment/selector/platform
+  qualification remains outstanding.
 - Provider OAuth, delegated agents and teams, cloud handoff, and automatic binary updates are unavailable.
 - The VS Code extension does not provide a complete session-history browser.
 - Reasoning effort, permission mode, output style, allow/deny rules, bare mode, and trust loading are restart-bound in VS Code.

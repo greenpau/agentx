@@ -139,6 +139,72 @@ func TestListsAndInlineValues(t *testing.T) {
 	}
 }
 
+func TestAttachmentPathsAreRepeatableAndPreservedVerbatim(t *testing.T) {
+	opts, err := Parse([]string{
+		"--attachment", "relative/screen shot.png",
+		"--attachment=../literal/../report.pdf",
+		"--attachment", " trailing-space.jpg ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"relative/screen shot.png",
+		"../literal/../report.pdf",
+		" trailing-space.jpg ",
+	}
+	if len(opts.Attachments) != len(want) {
+		t.Fatalf("attachments = %#v, want %#v", opts.Attachments, want)
+	}
+	for index := range want {
+		if opts.Attachments[index] != want[index] {
+			t.Fatalf("attachment %d = %q, want %q", index, opts.Attachments[index], want[index])
+		}
+	}
+	if !strings.Contains(Usage(), "--attachment PATH") || !strings.Contains(Usage(), "repeatable") {
+		t.Fatal("help does not document repeatable initial attachments")
+	}
+}
+
+func TestAttachmentOnlyInputInfersHeadlessAndRejectsUnrelatedSurfaces(t *testing.T) {
+	opts, err := Parse([]string{"--attachment", "screen.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Prompt != "" || len(opts.Attachments) != 1 {
+		t.Fatalf("attachment-only parse = %#v", opts)
+	}
+	opts = InferPrint(opts, true)
+	if !opts.Print {
+		t.Fatal("attachment-only initial input did not infer headless mode")
+	}
+	if !HeadlessRequested([]string{"--attachment", "screen.png"}, true) {
+		t.Fatal("attachment-only invocation did not acquire headless signal ownership")
+	}
+
+	for _, args := range [][]string{
+		{"--mcp-server", "--attachment", "screen.png"},
+		{"--list-sessions", "--cwd", "/workspace", "--attachment", "screen.png"},
+		{"--delete-session", "ses_123", "--session-revision", "revision", "--cwd", "/workspace", "--attachment", "screen.png"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) accepted an attachment on an unrelated surface", args)
+		}
+	}
+}
+
+func TestAttachmentRequiresOnePathValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"--attachment"},
+		{"--attachment", "--"},
+		{"--attachment="},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) accepted a missing attachment path", args)
+		}
+	}
+}
+
 func TestBooleanFlagsRejectInlineValues(t *testing.T) {
 	for _, arg := range []string{"--print=true", "--help=false", "--trust-workspace=1", "--continue=yes", "--list-sessions=true", "--owned-process-tree=true"} {
 		if _, err := Parse([]string{arg}); err == nil {
@@ -453,6 +519,7 @@ func TestSessionManagementRejectsEveryOtherExplicitOption(t *testing.T) {
 		{name: "permission mode default", args: []string{"--permission-mode", "default"}},
 		{name: "allowed tools empty", args: []string{"--allowed-tools", ""}},
 		{name: "disallowed tools empty", args: []string{"--disallowed-tools", ""}},
+		{name: "attachment", args: []string{"--attachment", "screen.png"}},
 		{name: "max turns default", args: []string{"--max-turns", "100"}},
 		{name: "max budget", args: []string{"--max-budget-usd", "1"}},
 		{name: "session ID empty", args: []string{"--session-id", ""}},
@@ -499,6 +566,7 @@ func TestSessionManagementSelectorCannotBeConsumedAsOptionValue(t *testing.T) {
 		"--permission-mode",
 		"--allowed-tools",
 		"--disallowed-tools",
+		"--attachment",
 		"--max-turns",
 		"--max-budget-usd",
 		"--session-id",
