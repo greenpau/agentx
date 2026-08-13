@@ -59,6 +59,9 @@ jobs:
       - name: Test signal and test-only capability boundaries
         run: go test -count=1 -v ./pkg/signals ./pkg/testing
 
+      - name: Generate tested coverage bundle
+        run: make self-test
+
       - name: Cross-compile supported portable profiles
         shell: bash
         run: |

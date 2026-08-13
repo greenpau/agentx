@@ -2,6 +2,8 @@ APP_VERSION:=$(shell awk 'NR == 1 && $$0 ~ /^[0-9]+\.[0-9]+\.[0-9]+$$/ { print; 
 VERBOSE:=-v
 TEST_DIR:=./...
 BINARY:=./bin/agentx
+COVERAGE_DIR:=./.coverage
+TESTED:=go tool tested
 
 ifeq ($(APP_VERSION),)
 $(error VERSION must contain a major.minor.patch release version)
@@ -81,8 +83,24 @@ run-boundary-tests:
 	@go test -count=1 -v ./pkg/signals ./pkg/testing
 	@echo "$@: complete"
 
+.PHONY: self-test
+self-test:
+	@echo "$@: started"
+	@rm -rf $(COVERAGE_DIR)
+	@$(TESTED) run -C . -o $(COVERAGE_DIR) \
+		--minimum-coverage 1 --coverage-diff-base HEAD \
+		-- -count=1 $(TEST_ARGS) $(TEST_DIR)
+	@echo "$@: complete"
+
 .PHONY: test
-test: linter run-tests run-race-tests run-shuffle-tests run-boundary-tests
+test:
+	@rm -rf $(COVERAGE_DIR)
+	@$(MAKE) linter run-tests run-race-tests run-shuffle-tests run-boundary-tests
+	@$(MAKE) self-test
+	@echo "$@: complete"
+
+.PHONY: coverage
+coverage: test
 	@echo "$@: complete"
 
 .PHONY: cross-build
