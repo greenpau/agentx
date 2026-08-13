@@ -57,12 +57,15 @@ func TestBuilderCompleteOverrideSuppressesAppend(t *testing.T) {
 }
 
 func TestDefaultSystemPromptUsesGenericAgentIdentity(t *testing.T) {
-	got := defaultSystemPrompt("gpt-5.6-sol")
+	got := defaultSystemPrompt("gpt-5.6-terra")
 	if !strings.HasPrefix(got, "You are AI agent, ") {
 		t.Fatalf("default system prompt has an unexpected identity: %q", got)
 	}
 	if strings.Contains(got, "You are AgentX") {
 		t.Fatalf("default system prompt retained the product identity: %q", got)
+	}
+	if !strings.Contains(got, "gpt-5.6-terra") || strings.Contains(got, "gpt-5.6-sol") {
+		t.Fatalf("default system prompt did not project the selected logical model: %q", got)
 	}
 }
 

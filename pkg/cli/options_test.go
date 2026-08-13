@@ -107,11 +107,87 @@ func TestStandaloneMCPRejectsIgnoredConversationConfiguration(t *testing.T) {
 		{"--mcp-server", "--session-id", "ses_ignored"},
 		{"--mcp-server", "--trust-workspace"},
 		{"--mcp-server", "--output-style", "ignored"},
+		{"--mcp-server", "--provider", "terra-5-6"},
 		{"--mcp-server", "--model", "gpt-5.6-sol"},
 		{"--mcp-server", "--system-prompt", "ignored"},
 	} {
 		if _, err := Parse(args); err == nil {
 			t.Errorf("Parse(%q) silently accepted ignored MCP-host configuration", args)
+		}
+	}
+}
+
+func TestProviderSelectorParsingAndHelp(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "separate", args: []string{"--provider", "terra-5-6"}, want: "terra-5-6"},
+		{name: "inline", args: []string{"--provider=sol.5_6"}, want: "sol.5_6"},
+		{name: "exact", args: []string{"--provider", " Terra-5-6 "}, want: " Terra-5-6 "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opts, err := Parse(test.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opts.Provider != test.want {
+				t.Fatalf("provider = %q, want %q", opts.Provider, test.want)
+			}
+		})
+	}
+
+	for _, args := range [][]string{{"--provider"}, {"--provider="}} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) accepted an empty provider ID", args)
+		} else if !IsUsageError(err) {
+			t.Fatalf("Parse(%q) error = %T %v, want usage error", args, err, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"--provider", "sol-east", "--provider", "terra-west"},
+		{"--provider=sol-east", "--provider=terra-west"},
+		{"--provider", "sol-east", "--provider=terra-west"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) accepted repeated provider selectors", args)
+		} else if !IsUsageError(err) || !strings.Contains(err.Error(), "only once") {
+			t.Fatalf("Parse(%q) error = %T %v, want one-selector usage error", args, err, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"--provider", "--provider"},
+		{"--provider", "--provider=terra-west"},
+		{"--provider", "--model", "gpt-5.6-sol"},
+		{"--provider", "--effort=high"},
+		{"--provider", "-p"},
+		{"--provider", "-invalid-profile"},
+	} {
+		if _, err := Parse(args); err == nil {
+			t.Fatalf("Parse(%q) consumed an option-looking provider value", args)
+		} else if !IsUsageError(err) || !strings.Contains(err.Error(), "requires a value before") {
+			t.Fatalf("Parse(%q) error = %T %v, want missing-value usage error", args, err, err)
+		}
+	}
+
+	if usage := Usage(); !strings.Contains(usage, "--provider ID") ||
+		!strings.Contains(usage, "exact ID") {
+		t.Fatal("help does not document exact provider-profile selection")
+	}
+}
+
+func TestModelAssertionPreservesExactValueAndRejectsEmpty(t *testing.T) {
+	opts, err := Parse([]string{"--model", " gpt-5.6-sol "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Model != " gpt-5.6-sol " {
+		t.Fatalf("model assertion = %q", opts.Model)
+	}
+	for _, args := range [][]string{{"--model"}, {"--model="}} {
+		if _, err := Parse(args); err == nil || !IsUsageError(err) {
+			t.Fatalf("Parse(%q) empty model error = %v", args, err)
 		}
 	}
 }
@@ -514,6 +590,7 @@ func TestSessionManagementRejectsEveryOtherExplicitOption(t *testing.T) {
 		{name: "SDK URL empty", args: []string{"--sdk-url", ""}},
 		{name: "output style empty", args: []string{"--output-style", ""}},
 		{name: "MCP config empty", args: []string{"--mcp-config", ""}},
+		{name: "provider", args: []string{"--provider", "sol-5-6"}},
 		{name: "model empty", args: []string{"--model", ""}},
 		{name: "effort empty", args: []string{"--effort", ""}},
 		{name: "permission mode default", args: []string{"--permission-mode", "default"}},
@@ -561,6 +638,7 @@ func TestSessionManagementSelectorCannotBeConsumedAsOptionValue(t *testing.T) {
 		"--output-style",
 		"--mcp-config",
 		"--cwd",
+		"--provider",
 		"--model",
 		"--effort",
 		"--permission-mode",
@@ -686,5 +764,208 @@ func TestHelpDocumentsNativeSessionManagement(t *testing.T) {
 		if !strings.Contains(usage, option) {
 			t.Errorf("help does not document %s", option)
 		}
+	}
+}
+
+func TestParseProviderDiscoveryAllowedForms(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		args   []string
+		format OutputFormat
+	}{
+		{name: "default text", args: []string{"--list-providers"}, format: OutputText},
+		{name: "explicit text", args: []string{"--list-providers", "--output-format", "text"}, format: OutputText},
+		{name: "JSON after selector", args: []string{"--list-providers", "--output-format=json"}, format: OutputJSON},
+		{name: "JSON before selector", args: []string{"--output-format", "json", "--list-providers"}, format: OutputJSON},
+		{name: "trailing terminator", args: []string{"--list-providers", "--"}, format: OutputText},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opts, err := Parse(test.args)
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", test.args, err)
+			}
+			if !opts.ListProviders || !opts.ProviderDiscoveryRequested() {
+				t.Fatalf("Parse(%q) did not select provider discovery: %#v", test.args, opts)
+			}
+			if opts.OutputFormat != test.format {
+				t.Fatalf("Parse(%q) output = %q, want %q", test.args, opts.OutputFormat, test.format)
+			}
+			if opts.Print {
+				t.Fatalf("Parse(%q) enabled print mode", test.args)
+			}
+		})
+	}
+}
+
+func TestProviderDiscoveryRejectsValuesDuplicatesAndPrompts(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "inline selector value", args: []string{"--list-providers=true"}},
+		{name: "duplicate selector", args: []string{"--list-providers", "--list-providers"}},
+		{name: "duplicate output", args: []string{"--list-providers", "--output-format", "text", "--output-format", "json"}},
+		{name: "stream output", args: []string{"--list-providers", "--output-format", "stream-json"}},
+		{name: "unknown output", args: []string{"--list-providers", "--output-format", "yaml"}},
+		{name: "prompt after", args: []string{"--list-providers", "prompt"}},
+		{name: "prompt before", args: []string{"prompt", "--list-providers"}},
+		{name: "prompt after terminator", args: []string{"--list-providers", "--", "prompt"}},
+		{name: "empty positional", args: []string{"--list-providers", ""}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Parse(test.args); err == nil {
+				t.Fatalf("Parse(%q) succeeded", test.args)
+			} else if !IsUsageError(err) {
+				t.Fatalf("Parse(%q) error = %T %v, want usage error", test.args, err, err)
+			}
+		})
+	}
+}
+
+func TestProviderDiscoveryRejectsEveryOtherExplicitOption(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "print", args: []string{"--print"}},
+		{name: "print alias", args: []string{"-p"}},
+		{name: "help", args: []string{"--help"}},
+		{name: "help alias", args: []string{"-h"}},
+		{name: "version", args: []string{"--version"}},
+		{name: "version alias", args: []string{"-v"}},
+		{name: "debug", args: []string{"--debug"}},
+		{name: "debug alias", args: []string{"-d"}},
+		{name: "verbose", args: []string{"--verbose"}},
+		{name: "bare", args: []string{"--bare"}},
+		{name: "trust workspace", args: []string{"--trust-workspace"}},
+		{name: "MCP server", args: []string{"--mcp-server"}},
+		{name: "partial messages", args: []string{"--include-partial-messages"}},
+		{name: "replay messages", args: []string{"--replay-user-messages"}},
+		{name: "continue", args: []string{"--continue"}},
+		{name: "continue alias", args: []string{"-c"}},
+		{name: "fork", args: []string{"--fork-session"}},
+		{name: "list sessions", args: []string{"--list-sessions"}},
+		{name: "no persistence", args: []string{"--no-session-persistence"}},
+		{name: "owned process tree", args: []string{"--owned-process-tree"}},
+		{name: "bypass permissions", args: []string{"--dangerously-skip-permissions"}},
+		{name: "bypass permissions alias", args: []string{"--bypass-permissions"}},
+		{name: "input format default", args: []string{"--input-format", "text"}},
+		{name: "JSON schema empty", args: []string{"--json-schema", ""}},
+		{name: "SDK URL empty", args: []string{"--sdk-url", ""}},
+		{name: "output style empty", args: []string{"--output-style", ""}},
+		{name: "MCP config empty", args: []string{"--mcp-config", ""}},
+		{name: "cwd empty", args: []string{"--cwd", ""}},
+		{name: "provider", args: []string{"--provider", "sol-5-6"}},
+		{name: "model empty", args: []string{"--model", ""}},
+		{name: "effort empty", args: []string{"--effort", ""}},
+		{name: "permission mode default", args: []string{"--permission-mode", "default"}},
+		{name: "allowed tools empty", args: []string{"--allowed-tools", ""}},
+		{name: "disallowed tools empty", args: []string{"--disallowed-tools", ""}},
+		{name: "attachment", args: []string{"--attachment", "screen.png"}},
+		{name: "max turns default", args: []string{"--max-turns", "100"}},
+		{name: "max budget", args: []string{"--max-budget-usd", "1"}},
+		{name: "session ID empty", args: []string{"--session-id", ""}},
+		{name: "resume empty", args: []string{"--resume", ""}},
+		{name: "delete session", args: []string{"--delete-session", "ses_123"}},
+		{name: "session revision", args: []string{"--session-revision", "revision"}},
+		{name: "session page size", args: []string{"--session-page-size", "1"}},
+		{name: "session page token", args: []string{"--session-page-token", "next"}},
+		{name: "system prompt empty", args: []string{"--system-prompt", ""}},
+		{name: "system prompt file empty", args: []string{"--system-prompt-file", ""}},
+		{name: "append system prompt empty", args: []string{"--append-system-prompt", ""}},
+		{name: "append system prompt file empty", args: []string{"--append-system-prompt-file", ""}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"--list-providers"}, test.args...)
+			if _, err := Parse(args); err == nil {
+				t.Fatalf("Parse(%q) accepted a non-discovery option", args)
+			} else if !IsUsageError(err) {
+				t.Fatalf("Parse(%q) error = %T %v, want usage error", args, err, err)
+			}
+		})
+	}
+}
+
+func TestProviderDiscoverySelectorCannotBeConsumedAsOptionValue(t *testing.T) {
+	scalarOptions := []string{
+		"--output-format",
+		"--input-format",
+		"--json-schema",
+		"--sdk-url",
+		"--output-style",
+		"--mcp-config",
+		"--cwd",
+		"--provider",
+		"--model",
+		"--effort",
+		"--permission-mode",
+		"--allowed-tools",
+		"--disallowed-tools",
+		"--attachment",
+		"--max-turns",
+		"--max-budget-usd",
+		"--session-id",
+		"--resume",
+		"--delete-session",
+		"--session-revision",
+		"--session-page-size",
+		"--session-page-token",
+		"--system-prompt",
+		"--system-prompt-file",
+		"--append-system-prompt",
+		"--append-system-prompt-file",
+	}
+	for _, option := range scalarOptions {
+		t.Run(option, func(t *testing.T) {
+			args := []string{option, "--list-providers"}
+			if _, err := Parse(args); err == nil {
+				t.Fatalf("Parse(%q) consumed provider discovery as %s's value", args, option)
+			} else if !IsUsageError(err) {
+				t.Fatalf("Parse(%q) error = %T %v, want usage error", args, err, err)
+			}
+			for _, terminal := range []bool{false, true} {
+				if HeadlessRequested(args, terminal) {
+					t.Fatalf("HeadlessRequested(%q, %v) routed swallowed provider discovery", args, terminal)
+				}
+			}
+		})
+	}
+
+	opts, err := Parse([]string{"--", "--list-providers"})
+	if err != nil {
+		t.Fatalf("literal selector after option terminator: %v", err)
+	}
+	if opts.ProviderDiscoveryRequested() || opts.Prompt != "--list-providers" {
+		t.Fatalf("literal selector after option terminator = %#v", opts)
+	}
+}
+
+func TestProviderDiscoveryNeverInfersPrintOrHeadless(t *testing.T) {
+	for _, args := range [][]string{
+		{"--list-providers"},
+		{"--list-providers", "--output-format", "text"},
+		{"--list-providers", "--output-format", "json"},
+	} {
+		opts, err := Parse(args)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", args, err)
+		}
+		for _, stdoutTerminal := range []bool{false, true} {
+			if inferred := InferPrint(opts, stdoutTerminal); inferred.Print {
+				t.Fatalf("InferPrint(%q, %v) enabled print", args, stdoutTerminal)
+			}
+			if HeadlessRequested(args, stdoutTerminal) {
+				t.Fatalf("HeadlessRequested(%q, %v) = true", args, stdoutTerminal)
+			}
+		}
+	}
+}
+
+func TestHelpDocumentsProviderDiscovery(t *testing.T) {
+	usage := Usage()
+	if !strings.Contains(usage, "--list-providers") || !strings.Contains(usage, "provider profiles and declared capabilities") {
+		t.Fatal("help does not document provider discovery")
 	}
 }

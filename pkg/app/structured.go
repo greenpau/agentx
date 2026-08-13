@@ -640,11 +640,14 @@ func encodeStructuredInputFailure(encoder *surface.Encoder, session *runtimeSess
 		cause = errors.New("structured input failed")
 	}
 	publicErr := redactOperationalError(cause, session.sanitize)
+	status := session.engine.Status()
 	outcome := engine.Outcome{
-		SessionID:  session.engine.SessionID(),
-		Status:     protocol.TurnResultError,
-		StopReason: "input_error",
-		Usage:      protocol.Usage{Model: session.config.Azure.ModelName},
+		SessionID:          session.engine.SessionID(),
+		Status:             protocol.TurnResultError,
+		StopReason:         "input_error",
+		Usage:              protocol.Usage{Model: session.config.Azure.ModelName},
+		InputContextTokens: status.InputContextTokens,
+		MaxOutputTokens:    status.MaxOutputTokens,
 	}
 	if err := encodeSDKResult(encoder, outcome, publicErr); err != nil {
 		return errors.Join(publicErr, err)
@@ -661,11 +664,14 @@ func encodeRejectedStructuredUser(
 	if cause == nil {
 		cause = errors.New("user input was rejected")
 	}
+	status := session.engine.Status()
 	outcome := engine.Outcome{
-		SessionID:  session.engine.SessionID(),
-		Status:     protocol.TurnResultError,
-		StopReason: "input_error",
-		Usage:      protocol.Usage{Model: session.config.Azure.ModelName},
+		SessionID:          session.engine.SessionID(),
+		Status:             protocol.TurnResultError,
+		StopReason:         "input_error",
+		Usage:              protocol.Usage{Model: session.config.Azure.ModelName},
+		InputContextTokens: status.InputContextTokens,
+		MaxOutputTokens:    status.MaxOutputTokens,
 	}
 	record, err := sdkResultRecord(outcome, redactOperationalError(cause, session.sanitize))
 	if err != nil {
@@ -1463,11 +1469,11 @@ func handleControl(envelope surface.InputEnvelope, encoder *surface.Encoder, bro
 				payload = map[string]any{"mcpServers": sdkMCPServers(session)}
 			}
 		case "set_model":
-			operationErr = fmt.Errorf("model is fixed to %q by auth.json", session.config.Azure.ModelName)
+			operationErr = fmt.Errorf("provider %q and model %q are fixed for this process; restart AgentX with --provider <id>", session.config.SelectedProvider.ID, session.config.Azure.ModelName)
 		case "set_permission_mode":
 			operationErr = errors.New("live permission-mode mutation is unavailable; start a new session with --permission-mode")
 		case "set_max_thinking_tokens":
-			operationErr = errors.New("the gpt-5.6-sol Azure profile uses reasoning effort and does not expose a mutable thinking-token budget")
+			operationErr = errors.New("the selected provider exposes reasoning effort, not a mutable thinking-token budget")
 		default:
 			operationErr = fmt.Errorf("unsupported control request %q", envelope.Request.Subtype)
 		}
@@ -1494,8 +1500,11 @@ func encodeSDKInit(encoder *surface.Encoder, session *runtimeSession, opts cli.O
 	record := map[string]any{
 		"type": "system", "subtype": "init", "apiKeySource": sdkAPIKeySource(session.config),
 		"agentx_version": ProductVersion(), "cwd": session.workspace, "tools": toolNames(session),
-		"mcp_servers": sdkMCPServers(session), "model": session.config.Azure.ModelName, "permissionMode": mode,
-		"slash_commands": commandNames, "output_style": sdkOutputStyle(session), "skills": sdkSkillNames(session),
+		"mcp_servers": sdkMCPServers(session), "model": session.config.Azure.ModelName,
+		"provider": session.config.SelectedProvider.ID, "provider_type": session.config.SelectedProvider.Type,
+		"reasoning_capabilities": sdkReasoningCapabilities(session.config.SelectedProvider.Reasoning),
+		"permissionMode":         mode,
+		"slash_commands":         commandNames, "output_style": sdkOutputStyle(session), "skills": sdkSkillNames(session),
 		"plugins": sdkPlugins(session), "agents": []any{}, "uuid": uuid, "session_id": session.engine.SessionID(),
 	}
 	if capabilities := sdkInputCapabilities(session); capabilities != nil {
@@ -1518,24 +1527,74 @@ func sdkInitializeResponse(session *runtimeSession) (map[string]any, error) {
 			"name": descriptor.Name, "description": descriptor.Description, "argumentHint": descriptor.ArgumentHint,
 		})
 	}
-	modelName := session.config.Azure.ModelName
 	result := map[string]any{
 		"commands":                commands,
 		"agents":                  []any{},
 		"output_style":            sdkOutputStyle(session),
 		"available_output_styles": sdkAvailableOutputStyles(session),
-		"models": []map[string]any{{
-			"value": modelName, "displayName": modelName,
-			"description":    "Deployment-backed Azure OpenAI Responses model configured by AgentX-home auth.json",
-			"supportsEffort": true,
-		}},
-		"account": map[string]any{"apiKeySource": sdkAPIKeySource(session.config), "apiProvider": "foundry"},
-		"pid":     os.Getpid(),
+		// Preserve the established selected-logical-model projection for SDK
+		// consumers that do not understand endpoint profiles. The separate
+		// providers catalog is the unambiguous selector when two endpoints expose
+		// the same logical model.
+		"models":    sdkSelectedModelCatalog(session.config),
+		"providers": sdkProviderCatalog(session.config),
+		"account": map[string]any{
+			"apiKeySource": sdkAPIKeySource(session.config),
+			"apiProvider":  "foundry",
+			"provider":     session.config.SelectedProvider.ID,
+			"providerType": session.config.SelectedProvider.Type,
+		},
+		"pid": os.Getpid(),
 	}
 	if capabilities := sdkInputCapabilities(session); capabilities != nil {
 		result["input_capabilities"] = capabilities
 	}
 	return result, nil
+}
+
+func sdkSelectedModelCatalog(runtimeConfig config.Runtime) []map[string]any {
+	provider := runtimeConfig.SelectedProvider
+	return []map[string]any{{
+		"value": provider.Model, "displayName": provider.Model,
+		"description": "Deployment-backed Azure OpenAI Responses model configured by AgentX-home auth.json",
+		"provider":    provider.ID, "providerType": provider.Type,
+		"supportsEffort":            len(provider.Reasoning.Efforts) > 0,
+		"supportedReasoningEfforts": append([]string(nil), provider.Reasoning.Efforts...),
+		"defaultReasoningEffort":    provider.Reasoning.DefaultEffort,
+		"reasoning":                 sdkReasoningCapabilities(provider.Reasoning),
+	}}
+}
+
+func sdkProviderCatalog(runtimeConfig config.Runtime) []map[string]any {
+	return sdkProviderCatalogFromDescriptors(runtimeConfig.Providers)
+}
+
+// sdkProviderCatalogFromDescriptors is the single public provider projection
+// shared by SDK initialize and startup discovery. Both consumers therefore
+// expose the same fields, field meanings, reasoning order, and selected state.
+func sdkProviderCatalogFromDescriptors(descriptors []config.ProviderDescriptor) []map[string]any {
+	providers := make([]map[string]any, 0, len(descriptors))
+	for _, provider := range descriptors {
+		providers = append(providers, map[string]any{
+			"value": provider.ID, "id": provider.ID, "providerType": provider.Type,
+			"model": provider.Model, "displayName": provider.ID + " (" + provider.Model + ")",
+			"description": "Deployment-backed model endpoint configured by AgentX-home auth.json",
+			"default":     provider.Default, "selected": provider.Selected,
+			"supportsEffort":            len(provider.Reasoning.Efforts) > 0,
+			"supportedReasoningEfforts": append([]string(nil), provider.Reasoning.Efforts...),
+			"defaultReasoningEffort":    provider.Reasoning.DefaultEffort,
+			"reasoning":                 sdkReasoningCapabilities(provider.Reasoning),
+		})
+	}
+	return providers
+}
+
+func sdkReasoningCapabilities(reasoning config.ReasoningCapabilities) map[string]any {
+	return map[string]any{
+		"supported":     len(reasoning.Efforts) > 0,
+		"efforts":       append([]string(nil), reasoning.Efforts...),
+		"defaultEffort": reasoning.DefaultEffort,
+	}
 }
 
 func sdkInputCapabilities(session *runtimeSession) map[string]any {
@@ -1730,7 +1789,7 @@ func sdkResultRecord(outcome engine.Outcome, runErr error) (map[string]any, erro
 		"duration_ms": outcome.Duration.Milliseconds(), "duration_api_ms": outcome.APIDuration.Milliseconds(),
 		"is_error": subtype != "success", "num_turns": outcome.ModelTurns,
 		"stop_reason": stopReason, "total_cost_usd": cost,
-		"usage": sdkAggregateUsage(outcome.Usage), "modelUsage": sdkModelUsage(outcome.Usage),
+		"usage": sdkAggregateUsage(outcome.Usage), "modelUsage": sdkModelUsage(outcome),
 		"permission_denials": permissionDenials, "uuid": uuid, "session_id": outcome.SessionID,
 	}
 	if outcome.PromptID != "" {
@@ -1772,17 +1831,26 @@ func sdkAggregateUsage(usage protocol.Usage) map[string]any {
 	}
 }
 
-func sdkModelUsage(usage protocol.Usage) map[string]any {
+func sdkModelUsage(outcome engine.Outcome) map[string]any {
+	usage := outcome.Usage
 	var cost any
 	if usage.CostUSD != nil {
 		cost = *usage.CostUSD
+	}
+	contextWindow := outcome.InputContextTokens
+	if contextWindow <= 0 {
+		contextWindow = engine.DefaultInputContextTokens
+	}
+	maxOutputTokens := outcome.MaxOutputTokens
+	if maxOutputTokens <= 0 {
+		maxOutputTokens = engine.DefaultMaxOutputTokens
 	}
 	return map[string]any{
 		usage.Model: map[string]any{
 			"inputTokens": usage.InputTokens, "outputTokens": usage.OutputTokens,
 			"cacheReadInputTokens": usage.CachedInputTokens, "cacheCreationInputTokens": int64(0),
-			"webSearchRequests": 0, "costUSD": cost, "contextWindow": 128_000,
-			"maxOutputTokens": engine.DefaultMaxOutputTokens,
+			"webSearchRequests": 0, "costUSD": cost, "contextWindow": contextWindow,
+			"maxOutputTokens": maxOutputTokens,
 		},
 	}
 }
@@ -1790,10 +1858,10 @@ func sdkModelUsage(usage protocol.Usage) map[string]any {
 func sdkContextUsage(session *runtimeSession) map[string]any {
 	status := session.engine.Status()
 	tokens := status.Usage.TotalTokens
-	percentage := float64(tokens) / 128_000 * 100
+	percentage := float64(tokens) / float64(status.InputContextTokens) * 100
 	return map[string]any{
 		"categories":  []map[string]any{{"name": "Conversation", "tokens": tokens, "color": "blue"}},
-		"totalTokens": tokens, "maxTokens": 128_000, "rawMaxTokens": 128_000,
+		"totalTokens": tokens, "maxTokens": status.InputContextTokens, "rawMaxTokens": status.InputContextTokens,
 		"percentage": percentage, "gridRows": []any{}, "model": status.Model,
 		"memoryFiles": []any{}, "mcpTools": []any{}, "agents": []any{},
 		"isAutoCompactEnabled": false,

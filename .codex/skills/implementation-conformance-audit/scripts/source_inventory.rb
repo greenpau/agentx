@@ -38,6 +38,7 @@ module SourceInventory
     'pkg/app/input.go' => 'implementation-commands-input',
     'pkg/app/interactions.go' => 'implementation-headless-sdk',
     'pkg/app/mcp_server.go' => 'implementation-mcp-lsp',
+    'pkg/app/provider_discovery.go' => 'implementation-headless-sdk',
     'pkg/app/renderers.go' => 'implementation-headless-sdk',
     'pkg/app/runtime.go' => 'implementation-transcript-recovery',
     'pkg/app/runtime_services.go' => 'implementation-observability',
@@ -58,6 +59,7 @@ module SourceInventory
     'pkg/config/credential_file_permissions_unix.go' => 'implementation-auth-network',
     'pkg/config/credential_file_permissions_windows.go' => 'implementation-auth-network',
     'pkg/config/environment.go' => 'implementation-auth-network',
+    'pkg/config/provider_registry.go' => 'implementation-auth-network',
 
     'pkg/platform/owned_directory_permissions_other.go' => 'implementation-platform-lifecycle',
     'pkg/platform/owned_directory_permissions_unix.go' => 'implementation-platform-lifecycle',

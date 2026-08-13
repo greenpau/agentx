@@ -102,6 +102,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err := opts.Validate(); err != nil {
 		return err
 	}
+	if opts.ProviderDiscoveryRequested() {
+		return runProviderDiscovery(home, opts.OutputFormat, stdout)
+	}
 	if opts.OwnedProcessTree {
 		if err := platform.EnableOwnedProcessTree(); err != nil {
 			return fmt.Errorf("establish owned process tree: %w", err)
@@ -233,7 +236,7 @@ func runInteractive(ctx context.Context, opts cli.Options, workspace string, std
 	}()
 	interactions.SetCredentialSanitizer(session.credentials)
 	sink.SetCredentialSanitizer(session.credentials)
-	if err := writeTerminalRecord(stdout, session.credentials, fmt.Sprintf("AgentX %s — %s via Azure OpenAI — session %s\n", ProductVersion(), session.config.Azure.ModelName, session.engine.SessionID())); err != nil {
+	if err := writeTerminalRecord(stdout, session.credentials, fmt.Sprintf("AgentX %s — %s via provider %s (%s) — session %s\n", ProductVersion(), session.config.Azure.ModelName, session.config.SelectedProvider.ID, session.config.SelectedProvider.Type, session.engine.SessionID())); err != nil {
 		return err
 	}
 	for {

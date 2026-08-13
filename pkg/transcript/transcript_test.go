@@ -164,6 +164,28 @@ func TestOpenRejectsCredentialBearingLegacyPhysicalRecord(t *testing.T) {
 	}
 }
 
+func TestReadFileValidatorPrecedesTypedEventDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	// This is valid JSON but cannot decode as a protocol Event because the
+	// provider identifier has the wrong JSON type. A runtime binding validator
+	// must see it before ordinary recovery can isolate it.
+	raw := []byte(`{"version":2,"id":"evt_bad_binding_type","session_id":"ses_bad_binding_type","parent_id":null,"sequence":1,"timestamp":"2026-07-21T14:30:00Z","kind":"message","visibility":"both","persistence":"durable","origin":"user","session":{"provider_id":42},"message":{"role":"user","content":[{"type":"text","text":"hello"}]}}` + "\n")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	validated := false
+	_, err := ReadFile(t.Context(), path, ReadOptions{
+		ExpectedSessionID: "ses_bad_binding_type",
+		ValidateRecord: func([]byte) error {
+			validated = true
+			return errors.New("invalid security metadata")
+		},
+	})
+	if !validated || err == nil || !strings.Contains(err.Error(), "validate existing transcript record") {
+		t.Fatalf("typed decode preceded physical validation: validated=%t err=%v", validated, err)
+	}
+}
+
 func TestOpenValidatesFutureNewlineForUnterminatedLegacyRecord(t *testing.T) {
 	event := messageEvent("evt_legacy_tail", "ses_legacy_tail", "safe")
 	event.Sequence = 1

@@ -152,7 +152,7 @@ func TestRunProcessMissingAuthShowsSetupGuidance(t *testing.T) {
 	for _, required := range []string{
 		filepath.Join(home, "auth.json"),
 		"https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md",
-		`"provider": "azure_openai"`,
+		`"type": "azure_openai"`,
 		`"api_key": "replace-with-your-secret"`,
 	} {
 		if !strings.Contains(stderr.String(), required) {
@@ -204,6 +204,41 @@ func TestRunProcessProjectsOneJSONManagementOutcome(t *testing.T) {
 	}
 }
 
+func TestRunProcessProjectsProviderDiscoveryBeforeConversationLifecycle(t *testing.T) {
+	configureProcessAuth(t)
+	var stdout, stderr bytes.Buffer
+	var forceCalls atomic.Int32
+	code := runProcess(
+		[]string{"--list-providers", "--output-format", "json"},
+		strings.NewReader("ignored"),
+		&stdout,
+		&stderr,
+		func(int) { forceCalls.Add(1) },
+	)
+	if code != 0 || stderr.Len() != 0 || forceCalls.Load() != 0 {
+		t.Fatalf("provider discovery = code %d, stderr %q, force calls %d", code, stderr.String(), forceCalls.Load())
+	}
+	var result struct {
+		Version   int                      `json:"version"`
+		Providers []map[string]interface{} `json:"providers"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(stdout.String()))
+	if err := decoder.Decode(&result); err != nil {
+		t.Fatalf("decode provider discovery %q: %v", stdout.String(), err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		t.Fatalf("provider discovery emitted more than one object: %q (%v)", stdout.String(), err)
+	}
+	if result.Version != 1 || len(result.Providers) != 1 ||
+		result.Providers[0]["id"] != "test-provider" ||
+		result.Providers[0]["model"] != "gpt-5.6-sol" ||
+		result.Providers[0]["default"] != true ||
+		result.Providers[0]["selected"] != false {
+		t.Fatalf("provider discovery result = %#v", result)
+	}
+}
+
 func configureProcessAuth(t *testing.T) {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), "agentx-home")
@@ -211,15 +246,20 @@ func configureProcessAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := `{
-  "version": 1,
-  "provider": "azure_openai",
-  "azure_openai": {
-    "endpoint": "https://example.test",
-    "model": "gpt-5.6-sol",
-    "deployment": "gpt-5.6-sol",
-    "api_key": "synthetic-main-test-key",
-    "api_version": "preview"
-  }
+  "version": 2,
+  "providers": [{
+    "id": "test-provider",
+    "type": "azure_openai",
+    "default": true,
+    "capabilities": {"reasoning": {"efforts": ["high"], "default_effort": "high"}},
+    "azure_openai": {
+      "endpoint": "https://example.test",
+      "model": "gpt-5.6-sol",
+      "deployment": "gpt-5.6-sol",
+      "api_key": "synthetic-main-test-key",
+      "api_version": "preview"
+    }
+  }]
 }`
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(auth), 0o600); err != nil {
 		t.Fatal(err)

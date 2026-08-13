@@ -103,8 +103,7 @@ func readFileSnapshot(ctx context.Context, path string, options ReadOptions, aft
 		if len(trimmed) == 0 {
 			return nil
 		}
-		var event protocol.Event
-		if err := json.Unmarshal(trimmed, &event); err != nil {
+		if !json.Valid(trimmed) {
 			code := "malformed_record"
 			message := "malformed transcript record was isolated and skipped"
 			if !terminated {
@@ -114,6 +113,10 @@ func readFileSnapshot(ctx context.Context, path string, options ReadOptions, aft
 			collector.add(Diagnostic{Code: code, Message: message, Line: line})
 			return nil
 		}
+		// A syntactically valid JSON object can still fail typed Event decoding,
+		// for example when a provider-binding member has the wrong JSON type.
+		// Run the physical validator first so security metadata cannot evade its
+		// fail-closed policy by being isolated as an ordinary recovery diagnostic.
 		if options.ValidateRecord != nil {
 			physical := append([]byte(nil), raw...)
 			if terminated {
@@ -128,6 +131,15 @@ func readFileSnapshot(ctx context.Context, path string, options ReadOptions, aft
 					return errors.New("validate unterminated transcript record")
 				}
 			}
+		}
+		var event protocol.Event
+		if err := json.Unmarshal(trimmed, &event); err != nil {
+			collector.add(Diagnostic{
+				Code:    "malformed_record",
+				Message: "malformed transcript record was isolated and skipped",
+				Line:    line,
+			})
+			return nil
 		}
 		if err := event.ValidateStored(); err != nil {
 			collector.add(Diagnostic{

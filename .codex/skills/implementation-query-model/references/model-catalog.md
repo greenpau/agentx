@@ -224,6 +224,37 @@ support. The current worktree's one-profile result is recorded as
 [non-normative environment-scoped evidence](../../implementation-conformance-audit/references/native-attachment-production-qualification.md);
 it does not qualify another artifact, deployment, selector, model, or platform.
 
+**MOD-086 — Operator-declared endpoint reasoning and context policy.** In the
+standalone Go version-2 provider registry, each profile's
+`capabilities.reasoning.efforts` is a required, nonempty, ordered, duplicate-free
+subset of exactly `none`, `low`, `medium`, `high`, `xhigh`, and `max`;
+`default_effort` must be a member. Treat this as the operator's closed
+capability declaration for that endpoint, not as a capability inferred from
+the logical model name. Preserve its order in the credential-free provider
+catalog and never add an undeclared effort.
+
+Freeze the selected profile's subset across configuration and provider
+construction. Reject startup when the effective initial effort—profile
+default, then process override, then command-line override—is outside it.
+Reject an unsupported live change before persisting metadata or changing
+status. Before mutating engine state during restore, scan every recognized
+durable reasoning-effort event and reject a valid historical value outside the
+selected subset. Surrounding JSON whitespace (space, horizontal tab, carriage
+return, and line feed) is representation-only: it must neither prevent a
+supported recognized value from restoring nor let an unsupported recognized
+value evade this scan. The provider adapter independently checks both its configured
+effort and every effective request effort before transport. An empty subset at
+an internal package seam retains provider-neutral compatibility only; it is not
+a valid version-2 auth profile.
+
+Input capacity is a separate application-owned limit, not another inference
+from the endpoint name. Supply a positive input-context ceiling when
+constructing the engine for every selected profile. The current standalone
+application supplies an explicit conservative 128,000-token ceiling. The
+engine's zero-value compatibility fallback is allowed only for exact
+`gpt-5.6-sol`; another logical model with no explicit ceiling fails
+construction rather than inheriting a guessed capacity.
+
 ## Context and output limits
 
 **MOD-090 — Context-window order.** Resolve the effective input context in this order:
@@ -468,6 +499,21 @@ provider bodies, base64, prompts, or raw model output. Repeat for every release
 artifact, deployment, selector, and native platform claimed. A provider
 rejection/quarantine claim requires a deliberately induced closed
 media-specific rejection; a successful media run cannot stand in for it.
+
+**MOD-A14C — Declared reasoning subset and explicit context.** Configure two
+version-2 profiles with differently ordered reasoning subsets and defaults.
+Verify the public catalog preserves each exact subset/default and exposes no
+endpoint, deployment, API-selector, or credential fields. For the selected
+profile, try an unsupported process or command-line startup effort, an
+unsupported live change, a snapshot containing a valid but now-unsupported
+durable effort, and an adapter request that bypasses the engine with an
+unsupported effort. Each fails at its owning boundary, with no metadata/status
+mutation, replay, or provider call; every declared effort succeeds at the same
+boundaries. Repeat the durable cases with each recognized value surrounded by
+more than 32 bytes of legal JSON whitespace; the declared value restores and
+the undeclared value fails identically. Finally, construct a non-Sol engine with a zero input-context limit
+and verify it fails, then supply the standalone application's explicit
+128,000-token limit and verify request pressure is governed by that ceiling.
 
 **MOD-A15 — Output limits.** Verify every row of MOD-093, then apply a server maximum below the default, the 8K reservation rollout, invalid/negative/too-large environment overrides, and legacy thinking. Verify clamping order and the one-token thinking margin.
 

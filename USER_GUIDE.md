@@ -7,7 +7,7 @@ AgentX is a local software-engineering agent. It sends your requests and selecte
 AgentX requires:
 
 - Go 1.26 or newer to compile and install the binary.
-- Access to the configured Azure OpenAI deployment.
+- Access to every Azure OpenAI deployment you configure.
 - A private `auth.json` in the AgentX application home.
 - VS Code 1.95 or newer for the editor extension.
 
@@ -44,9 +44,9 @@ but cannot yet establish or prove owner-only DACL protection. Before full
 command-line parsing, `auth.json` must exist even for malformed input,
 `--help`, `--version`, and `--mcp-server`.
 Informational and standalone MCP invocations check that the file exists but do
-not construct a model client. A model-backed invocation strictly validates the
-file before it discovers extensions, creates a persistent session, or makes a
-network request.
+not construct a model client. A model-backed invocation and the standalone
+provider-discovery operation strictly validate the complete file before any
+extension discovery, persistent session creation, or network request.
 
 The default layout begins as:
 
@@ -59,45 +59,198 @@ The default layout begins as:
 When `AGENTX_HOME` selects another location, substitute that effective path for
 `~/.agentx` in the examples below.
 
-Create `~/.agentx/auth.json` with this exact versioned,
-provider-discriminated shape:
+Create `~/.agentx/auth.json` with this exact versioned provider-profile shape:
 
 ```json
 {
-  "version": 1,
-  "provider": "azure_openai",
-  "azure_openai": {
-    "endpoint": "https://your-resource.openai.azure.com",
-    "model": "gpt-5.6-sol",
-    "deployment": "gpt-5.6-sol",
-    "api_key": "replace-with-your-secret",
-    "api_version": "preview"
-  }
+  "version": 2,
+  "providers": [
+    {
+      "id": "sol-5.6",
+      "type": "azure_openai",
+      "default": true,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "high"
+        }
+      },
+      "azure_openai": {
+        "endpoint": "https://your-resource.openai.azure.com",
+        "model": "gpt-5.6-sol",
+        "deployment": "gpt-5.6-sol",
+        "api_key": "replace-with-your-secret",
+        "api_version": "preview"
+      }
+    }
+  ]
 }
 ```
 
 The complete file must be valid UTF-8 JSON no larger than 64 KiB. `version`
-must be the integer `1`, and `provider` must be
-`"azure_openai"`. The `azure_openai` object must contain all five shown string
-fields. `endpoint` is the Azure OpenAI resource URL, `model` is AgentX's
+must be the integer `2`, and `providers` must be a nonempty array containing at
+most 32 entries. The old version-1 `provider`/`azure_openai` object is no longer
+supported and is not migrated automatically; rewrite it as a version-2
+`providers` array before upgrading AgentX.
+
+Each provider entry requires exactly `id`, `type`, `capabilities`, and
+`azure_openai`; `default` is the only optional member. IDs are unique, exact
+startup selectors of 1–64 ASCII letters, digits, dots, underscores, or
+hyphens, and must start with a letter or digit. The only supported `type` is
+currently `"azure_openai"`. `capabilities` contains exactly `reasoning`, whose
+nonempty `efforts` array contains unique values drawn from `none`, `low`,
+`medium`, `high`, `xhigh`, and `max`. Its `default_effort` must be one of those
+declared values. The `azure_openai` object contains exactly the five shown
+string fields. `endpoint` is the Azure OpenAI resource URL, `model` is AgentX's
 logical model identity, `deployment` is the Azure deployment sent to the
 Responses API, `api_key` is the subscription key, and `api_version` is the
 Azure API version selector. Endpoint, model, deployment, and API key must be
-nonempty; an empty API-version string selects the default v1 route. Unknown or
-duplicate fields, trailing JSON, unsupported versions/providers, wrong types,
-and missing required values are rejected.
+nonempty; an empty API-version string selects the default v1 route without a
+query. Exact nonempty selectors `v1` and `preview` retain the v1 route and are
+sent literally in the query; every other nonempty selector uses the versioned
+route and is likewise sent literally. AgentX never treats `preview` as a
+request to discover or substitute the provider's latest preview. Unknown or
+duplicate fields at any depth, trailing JSON, unsupported versions or provider
+types, wrong types, repeated IDs or efforts, and missing required values are
+rejected.
+
+The reasoning capability fields are operator declarations, not results of an
+Azure capability probe. AgentX treats the declared ordered subset as
+authoritative for local validation and discovery, but it does not contact each
+deployment to prove support. Configure only values the corresponding endpoint
+actually accepts and update the profile when that deployment changes.
+
+A single provider is always selected when no selector is supplied; it does not
+need `default`. With several providers, either set `"default": true` on
+exactly one entry or invoke AgentX with an exact `--provider ID`. With no
+selector and no configured default, startup fails and explains how to add the
+`"default": true` field to one provider. More than one configured default is
+invalid. An explicit provider selector overrides the configured default, but a
+request failure never causes AgentX to switch to another entry automatically.
+
+Query the registry before selecting a provider:
+
+```sh
+agentx --list-providers
+agentx --list-providers --output-format json
+```
+
+The useful standalone grammar is
+`agentx --list-providers [--output-format text|json]`. The required selector
+and optional output option may occur in either order and each may occur only
+once. A final bare `--` option terminator is accepted, but discovery accepts no
+prompt or other option, including `--help` or `--version`. The text form is
+intended for people. The JSON form emits one newline-terminated object for
+clients such as a VS Code extension host. Discovery strictly validates every
+configured profile but deliberately selects none, so a valid registry with
+several providers and no default can still be enumerated. It does not inspect
+a workspace, create a session or transcript, load extensions, or contact a
+model endpoint.
+
+The auth document's required `version: 2` and the discovery response's
+`version: 1` identify different schemas; discovery version 1 is not the old,
+unsupported auth-file version 1. The public JSON descriptor uses camelCase
+compatibility fields and has this exact shape (object member order is not
+significant):
+
+```json
+{
+  "version": 1,
+  "providers": [
+    {
+      "value": "sol-5-6",
+      "id": "sol-5-6",
+      "providerType": "azure_openai",
+      "model": "gpt-5.6-sol",
+      "displayName": "sol-5-6 (gpt-5.6-sol)",
+      "description": "Deployment-backed model endpoint configured by AgentX-home auth.json",
+      "default": true,
+      "selected": false,
+      "supportsEffort": true,
+      "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "high",
+      "reasoning": {
+        "supported": true,
+        "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+        "defaultEffort": "high"
+      }
+    }
+  ]
+}
+```
+
+Each item describes a configured endpoint profile; it is not a literal URL.
+The capability arrays repeat the operator declaration from `auth.json`, not
+remote introspection. The response never exposes the Azure URL, deployment,
+API-version selector, API key, route binding, credential path, or headers.
+Automation must buffer stdout and accept it only when the process exits `0`
+and the top-level `version` is integer `1`. Discard buffered stdout on every
+nonzero exit; in particular, do not try to parse a prefix retained after an
+output-writer failure.
+
+For example, this file selects Sol normally while retaining a separately
+addressable Terra endpoint:
+
+```json
+{
+  "version": 2,
+  "providers": [
+    {
+      "id": "sol-5-6",
+      "type": "azure_openai",
+      "default": true,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "high"
+        }
+      },
+      "azure_openai": {
+        "endpoint": "https://sol-resource.openai.azure.com",
+        "model": "gpt-5.6-sol",
+        "deployment": "sol-5-6",
+        "api_key": "replace-with-sol-secret",
+        "api_version": "preview"
+      }
+    },
+    {
+      "id": "terra-5-6",
+      "type": "azure_openai",
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["low", "medium", "high", "xhigh"],
+          "default_effort": "medium"
+        }
+      },
+      "azure_openai": {
+        "endpoint": "https://terra-resource.openai.azure.com",
+        "model": "gpt-5.6-terra",
+        "deployment": "terra-5-6",
+        "api_key": "replace-with-terra-secret",
+        "api_version": "preview"
+      }
+    }
+  ]
+}
+```
+
+Use only effort values actually supported by each deployment. The examples
+describe the schema, not a capability probe or an Azure deployment guarantee.
 
 The endpoint must be an absolute HTTPS URL without user information, a query,
 or a fragment. Model and deployment values are each limited to 256 UTF-8
 bytes. The API key is limited to 16 KiB and cannot contain whitespace or unsafe
 control/formatting characters. A nonempty API version is limited to 128 UTF-8
 bytes. Model, deployment, and API-version values likewise reject unsafe
-control/formatting characters.
+control/formatting characters. Endpoint, model, deployment, and API-version
+values also reject surrounding whitespace instead of silently changing the
+provider-visible routing identity.
 
 `auth.json` is the sole model credential source. Keep it outside repositories,
-never replace the placeholder with a secret in committed examples, and do not
-paste its contents into prompts or diagnostics. Rotate the key if it is ever
-exposed or committed.
+never replace the placeholders with secrets in committed examples, and do not
+paste its contents into prompts or diagnostics. AgentX places every configured
+API key in its output-redaction set, but sends only the selected provider's key
+to its configured endpoint. Rotate a key if it is ever exposed or committed.
 
 On Unix-like systems, make the directories owner-only and the file readable
 and writable only by its owner:
@@ -251,8 +404,11 @@ content, render, OCR, convert, or claim to sanitize arbitrary PDF semantics.
 The current provider qualification is Azure/OpenAI Responses with logical
 model exactly `gpt-5.6-sol` and `api_version` exactly empty, `v1`, or
 `preview`. Other providers/models/selectors are text-only and media fails
-before network I/O. AgentX maps qualified images to Responses `input_image`
-data URLs and PDFs to `input_file` data URLs, following the official
+before network I/O. Do not infer media support from an Azure provider type or
+declared reasoning capabilities. Configured non-sol endpoints remain text-only
+unless their exact profile is separately qualified. AgentX maps qualified
+images to Responses `input_image` data URLs and PDFs to `input_file` data URLs,
+following the official
 [Azure Responses API input
 schema](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses).
 Loopback tests verify exact JSON construction. Azure deployment modality
@@ -278,9 +434,10 @@ content.
 
 #### Upload attachments over stream JSON
 
-A stream-JSON client must wait for `system/init` or a successful `initialize`
-response and inspect `input_capabilities.attachments`. Absence means text-only;
-do not infer support from the AgentX version. The qualified capability is:
+A stream-JSON client must wait for `system/init` or a successful fieldless
+`initialize` response and inspect `input_capabilities.attachments`. Absence
+means text-only; do not infer support from the AgentX version. The qualified
+capability is:
 
 ```json
 {
@@ -461,16 +618,42 @@ or NDJSON result.
 
 ### Control reasoning and turn limits
 
-The default reasoning effort is `high`. Supported values are `none`, `low`, `medium`, `high`, `xhigh`, and `max`:
+Reasoning capabilities belong to each provider profile. AgentX starts with the
+selected profile's `capabilities.reasoning.default_effort`, then applies a
+nonempty `AGENTX_REASONING_EFFORT`, and finally an explicit `--effort`. The
+result must be listed in that same profile's `capabilities.reasoning.efforts`;
+AgentX rejects an unsupported value locally instead of sending it to another
+endpoint. The interactive `/effort` command uses the same selected-profile
+list.
 
 ```sh
-agentx --effort medium
-agentx --print --effort xhigh --max-turns 20 "investigate this failure"
+agentx --provider terra-5-6
+agentx --provider terra-5-6 --effort medium
+agentx --provider sol-5-6 --print --effort xhigh --max-turns 20 \
+  "investigate this failure"
 ```
 
-The configured model is deployment-backed. A `--model` value must match
-`azure_openai.model` in `auth.json`; AgentX will not silently route a different
-logical model name to the deployment.
+`--provider` matches the exact provider `id` and selects its endpoint,
+deployment, model, key, and capabilities. A `--model` value, when supplied,
+must match the selected provider's `azure_openai.model`; it is a consistency
+check and never silently reroutes to a different endpoint. Provider selection
+is startup-bound, so switch profiles by starting a new AgentX process with a
+different `--provider ID`.
+
+For programmatic selection, first run:
+
+```sh
+agentx --list-providers --output-format json
+```
+
+Choose `providers[].value` (identical to `providers[].id`) and pass it verbatim
+to `--provider`. Discovery reports `selected:false` for every entry because it
+does not start a model-backed process. Apply the exit-status and response-
+version checks from [Configure authentication](#configure-authentication)
+before using any returned ID. On the subsequent structured session,
+`system/init` reports only the selected profile. A fieldless correlated
+`initialize` control request returns the complete provider catalog and marks
+exactly the chosen profile selected.
 
 ### Choose a permission mode
 
@@ -533,6 +716,24 @@ agentx --resume SESSION_ID --fork-session
 - `--no-session-persistence` uses a temporary, nonresumable headless session:
   it writes no transcript, cannot combine with resume/continue/fork, and does
   not load or expose project memory.
+
+Resume, continue, and fork are bound to the profile that created the durable
+records. AgentX repeats the provider ID, type, logical model, and an opaque
+fingerprint of the noncredential route (normalized endpoint route, deployment,
+and exact API selector) on every transcript event and validates them before
+replay, fork publication, attachment restoration, or provider I/O. Rotating
+only that profile's API key preserves the fingerprint and remains resumable;
+the key is neither stored nor recoverable from it. Selecting another provider
+fails with the recorded `--provider ID` as remediation. Changing the recorded
+profile's type, model, endpoint route, deployment, or API selector also fails
+closed until the original routing is restored. An unbound legacy session
+cannot be guessed onto the current default.
+
+`--continue` first selects the latest eligible session in the current
+workspace; it does not search for the latest session matching the currently
+selected provider. If that latest session belongs to another profile, restart
+with the provider ID named by the binding error or resume a different session
+explicitly.
 
 ### List and delete native sessions
 
@@ -679,6 +880,24 @@ The extension's session picker contains sessions previously observed by that ext
 
 ### Configure the extension
 
+At process startup, the AgentX binary's `system/init` event publishes only the
+selected provider ID and type, logical model, and operator-declared reasoning
+capabilities. A fieldless correlated `initialize` control request returns the
+complete safe `providers` catalog, including selected and effective-default
+state for every profile. The catalog gives an editor host enough metadata to
+validate a prospective selection but never includes API keys, endpoint URLs,
+deployments, or API-version selectors. Provider switching is not a live
+control: a host starts a new AgentX process with `--provider ID`.
+
+Before starting that process, an extension host can invoke
+`agentx --list-providers --output-format json`. This prelaunch query works even
+when multiple profiles have no default and returns the same provider
+descriptor schema used by structured initialization, with no profile selected.
+It performs no model request and emits no credential or Azure routing fields.
+This is a binary discovery API available to VS Code integrations; it does not
+by itself mean the currently installed companion extension exposes a provider
+picker or setting.
+
 Open **AgentX: Open Settings** to change:
 
 | Setting | Purpose |
@@ -700,7 +919,12 @@ Open **AgentX: Open Settings** to change:
 | `agentx.maxRenderedTextBytes` | Bound text retained for a rendered message or tool payload. |
 | `agentx.completionNotifications` | Control completed-turn notifications. |
 
-Startup settings apply to the next AgentX process. Start a new chat after changing restart-bound settings.
+Startup settings apply to the next AgentX process. Start a new chat after
+changing one of those restart-bound settings. The documented settings above do
+not currently include an `agentx.provider` selector; do not put endpoint URLs,
+deployments, or credentials into an invented editor setting. Provider-aware
+hosts should use the discovery protocol and pass the selected ID as the exact
+`--provider` launch argument.
 
 ### Diagnose extension problems
 
@@ -745,7 +969,8 @@ the remote workspace extension host. Install the binary and create
   qualification remains outstanding.
 - Provider OAuth, delegated agents and teams, cloud handoff, and automatic binary updates are unavailable.
 - The VS Code extension does not provide a complete session-history browser.
-- Reasoning effort, permission mode, output style, allow/deny rules, bare mode, and trust loading are restart-bound in VS Code.
+- Provider selection, reasoning effort, permission mode, output style,
+  allow/deny rules, bare mode, and trust loading are restart-bound in VS Code.
 - MCP support is stdio-only in the current runtime profile.
 
 For implementation boundaries and exact compatibility status, see the repo-local [runtime architecture](.codex/skills/coding-directives/references/runtime-architecture.md), [runtime conformance profile](.codex/skills/coding-directives/references/runtime-conformance.md), and the standalone extension's [VS Code host protocol](https://github.com/greenpau/agentx-vscode-extension/blob/main/docs/PROTOCOL.md).

@@ -10,6 +10,20 @@ Callers must preserve the same authority boundaries as the root application:
 - Route model-requested effects through tool validation, permission, sandbox, hook, and result-normalization contracts; public visibility is never authorization.
 - Do not derive trust, policy bypass, protected paths, provider credentials, or executable extension configuration directly from untrusted input.
 - Treat configuration, MCP environments, transcripts, task output, and diagnostic data as potentially sensitive. Do not reflect, log, or serialize credentials; `config.Azure.APIKey` is deliberately excluded from JSON.
+- Use `config.LoadProviderRegistry` or `config.LoadProviderRegistryAtRoot` for
+  trusted-host preselection of provider profiles. Their descriptors omit Azure
+  routing and credentials, but callers must still apply the returned complete
+  `CredentialSanitizer` to the fully framed output. Use `config.Load` only when
+  selecting and constructing one model-backed runtime profile.
+- Do not confuse `ProviderRegistry.MarshalJSON` with the external discovery
+  wire protocol. The package-native projection has no top-level protocol
+  version and emits `ProviderDescriptor` fields such as `type` and
+  `reasoning.default_effort`; it is useful only inside a trusted Go composition
+  that preserves the sanitizer boundary. External tools and editor hosts use
+  `agentx --list-providers --output-format json`, whose standalone public
+  schema is version `1` and whose closed descriptors use compatibility fields
+  such as `providerType`, `supportedReasoningEfforts`, and
+  `reasoning.defaultEffort`. Neither projection contains literal endpoint URLs.
 - Hold the documented session lock while mutating durable session state, and preserve package-specific shutdown and cleanup ordering.
 - Treat heuristic scanners as defense in depth, not as proof that arbitrary content is safe.
 

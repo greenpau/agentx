@@ -24,7 +24,7 @@ func Builtins(host Host) (*Registry, error) {
 		{"resume", "continue", "Resume a durable session", "[session]", false, false, true},
 		{"rewind", "", "Rewind projected conversation state", "[message]", false, false, false},
 		{"branch", "fork", "Fork the active session", "[message]", false, false, true},
-		{"model", "", "Show or select the logical model", "[name]", false, false, true},
+		{"model", "", "Show or assert the selected logical model", "[name]", false, false, true},
 		{"effort", "thinking", "Show or select reasoning effort", "[level]", false, false, true},
 		{"permissions", "permission", "Show or select permission mode", "[mode]", false, false, true},
 		{"plan", "", "Enter or leave plan mode", "[on|off]", false, false, true},

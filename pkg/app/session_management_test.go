@@ -750,6 +750,7 @@ func TestSessionDeleteRacesActualResumeForkAndList(t *testing.T) {
 		ctx,
 		workspace,
 		cli.Options{Resume: sessionID, Bare: true},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("acquire actual resumed session: %v", err)
@@ -796,6 +797,7 @@ func TestSessionDeleteRacesActualResumeForkAndList(t *testing.T) {
 				SessionID:   "ses_active_race_child",
 				Bare:        true,
 			},
+			nil,
 		)
 		forkErr = err
 		if forkLayout.lock != nil {
@@ -937,7 +939,7 @@ func assertSessionSelectionBlockedByDeletion(
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			layout, _, err := resolveSessionLayout(ctx, workspace, test.options)
+			layout, _, err := resolveSessionLayout(ctx, workspace, test.options, nil)
 			if err == nil {
 				if layout.lock != nil {
 					_ = layout.lock.Close()

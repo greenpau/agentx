@@ -1,10 +1,11 @@
 # API request, stream, and retry contract
 
-This document defines client construction, request metadata, stream health, non-streaming fallback, retry classification, capacity behavior, cancellation, and terminal normalization. `NET-*` and `RETRY-*` identifiers are normative.
+This document defines client construction, request metadata, stream health, non-streaming fallback, retry classification, capacity behavior, cancellation, and terminal normalization. `NET-*` and `RETRY-*` identifiers are normative target contracts; source presence in this reference is not evidence that every path is installed in the standalone Go runtime.
 
 ## Contents
 
 - [Client construction and headers](#client-construction-and-headers)
+- [Current standalone profile](#current-standalone-profile)
 - [Streaming lifecycle](#streaming-lifecycle)
 - [Non-streaming fallback](#non-streaming-fallback)
 - [Retry loop](#retry-loop)
@@ -14,6 +15,27 @@ This document defines client construction, request metadata, stream health, non-
 - [Result and error normalization](#result-and-error-normalization)
 - [Acceptance scenarios](#acceptance-scenarios)
 - [Non-normative provenance](#non-normative-provenance)
+
+## Current standalone profile
+
+The standalone Azure/OpenAI Responses adapter currently implements streaming,
+an idle watchdog, and bounded retries of the same selected provider's
+byte-identical request before the first provider event. Ordinary exponential
+delay starts at 500 ms with up to 25% jitter and caps at 32 seconds; a valid
+`Retry-After` may exceed that per-delay cap only when it fits within the
+two-minute total retry window. Cancellation, protocol errors, media rejection,
+and failures after the first provider event do not retry. Retry observations
+are safe stderr WARN diagnostics, not `system/api_retry` SDK records.
+
+The current profile does **not** install `NET-020`–`NET-024` non-streaming
+fallback, `RETRY-010`–`RETRY-012` source-aware 529/model fallback,
+`RETRY-020`–`RETRY-021` fast-mode recovery, `RETRY-030`–`RETRY-032` persistent
+unattended retry, stale-pool replacement, or the `NET-034` specialized Azure
+API-version-mismatch classifier. A version rejection therefore follows the
+ordinary bounded status/header policy; it never changes the selected provider
+or route and never rewrites `auth.json`. Treat those unavailable sections and
+their acceptance scenarios as target behavior until the runtime conformance
+profile and executable evidence mark them operational.
 
 ## Client construction and headers
 
@@ -36,7 +58,7 @@ client-app identifier, and client request ID.
 
 `NET-006` — Cache the session-stable portion of tool schemas by canonical tool name plus behavior-bearing input schema. Per-request defer/cache overlays copy rather than mutate the cached base.
 
-`NET-007` — Resolve provider route family before sending. For Azure, the empty API-version selector uses `route_family=azure_v1` without a version query; a nonempty configured selector uses `route_family=azure_versioned` and is sent literally after local validation. Values such as `preview` are literal configuration, not latest-version aliases. DEBUG may record that closed route-family enum, `version_source=default|configured`, and a one-based attempt number together with request correlation. It never records the exact configured API version, endpoint, deployment, URL/query, headers, body, or credential. Route selection is deterministic for the attempt and is not silently rewritten after a provider rejection.
+`NET-007` — Resolve provider route family before sending. For Azure, the empty API-version selector uses `route_family=azure_v1` without a version query. Exact configured selectors `v1` and `preview` retain `route_family=azure_v1`; every other nonempty configured selector uses `route_family=azure_versioned`. Every nonempty selector is sent literally after local validation. The two v1-route aliases do not make `preview` an alias for a latest provider version. DEBUG may record that closed route-family enum, `version_source=default|configured`, and a one-based attempt number together with request correlation. It never records the exact configured API version, endpoint, deployment, URL/query, headers, body, or credential. Route selection is deterministic for the attempt and is not silently rewritten after a provider rejection.
 
 `NET-008` — Native media is admitted only after provider/model/API-selector
 qualification and complete request preflight. Admission and recovery may ask
@@ -189,7 +211,7 @@ presentation paths.
 
 **NET-A06 — Stale connection recovery.** `ECONNRESET` under the gate disables keep-alive, rebuilds client, and retries without changing logical request identity.
 
-**NET-A07 — Azure API-version mismatch.** Configure Azure with the literal API-version value `preview`; the provider returns status 400 with `x-should-retry:true` and the exact message `Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later`. Verify the specialized classifier wins, exactly one request occurs, and there is no credential refresh, client rebuild for the mismatch, streaming or model fallback, or `auth.json` mutation. One normalized `error_class=provider_configuration` error contains the safe provider request ID and may contain the strictly validated provider minimum as remediation. INFO retains the terminal error. DEBUG additionally identifies `route_family=azure_versioned`, `version_source=configured`, `attempt=1`, and `retry_decision=do_not_retry`, but contains neither the exact configured value nor endpoint, deployment, URL/query, headers, body, or API key. Repeat with the exact template but a malformed minimum; retain the specialized nonretry classification with generic remediation and no minimum token. A wording variant, an over-2-KiB message, and the valid sentence embedded as a substring retain ordinary provider-error classification.
+**NET-A07 — Azure API-version mismatch.** Configure Azure with the literal API-version value `preview`; the provider returns status 400 with `x-should-retry:true` and the exact message `Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later`. Verify the specialized classifier wins, exactly one request occurs, and there is no credential refresh, client rebuild for the mismatch, streaming or model fallback, or `auth.json` mutation. One normalized `error_class=provider_configuration` error contains the safe provider request ID and may contain the strictly validated provider minimum as remediation. INFO retains the terminal error. DEBUG additionally identifies `route_family=azure_v1`, `version_source=configured`, `attempt=1`, and `retry_decision=do_not_retry`, but contains neither the exact configured value nor endpoint, deployment, URL/query, headers, body, or API key. Repeat with the exact template but a malformed minimum; retain the specialized nonretry classification with generic remediation and no minimum token. A wording variant, an over-2-KiB message, and the valid sentence embedded as a substring retain ordinary provider-error classification.
 
 **NET-A08 — Azure browser user agent.** Construct the standalone Go Azure
 client without a test-only user-agent override and issue one request. Its

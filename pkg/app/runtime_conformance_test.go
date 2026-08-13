@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,10 +10,125 @@ import (
 	"testing"
 
 	"github.com/greenpau/agentx/pkg/cli"
+	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/extensions"
 	"github.com/greenpau/agentx/pkg/mcp"
 	"github.com/greenpau/agentx/pkg/platform"
+	"github.com/greenpau/agentx/pkg/protocol"
+	"github.com/greenpau/agentx/pkg/redact"
+	"github.com/greenpau/agentx/pkg/transcript"
 )
+
+func TestSnapshotProviderBindingFailsClosedBeforeReplay(t *testing.T) {
+	_, authPath := configureTestAgentXHome(t, "https://example.test", "gpt-5.6-sol", "deployment", "binding-test-key", "preview")
+	runtimeConfig, err := config.Load(authPath, nil, config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matching := protocol.SessionMetadata{
+		ProviderID: runtimeConfig.SelectedProvider.ID, ProviderType: runtimeConfig.SelectedProvider.Type,
+		ProviderBinding: runtimeConfig.ProviderBinding(), Model: runtimeConfig.SelectedProvider.Model,
+	}
+	snapshot := func(metadata protocol.SessionMetadata) transcript.Snapshot {
+		return transcript.Snapshot{Events: []protocol.Event{{Session: metadata}}}
+	}
+	if err := validateSnapshotProviderBinding(snapshot(matching), runtimeConfig); err != nil {
+		t.Fatalf("matching provider binding was rejected: %v", err)
+	}
+
+	differentProvider := matching
+	differentProvider.ProviderID = "terra-west"
+	if err := validateSnapshotProviderBinding(snapshot(differentProvider), runtimeConfig); err == nil || !strings.Contains(err.Error(), "--provider terra-west") {
+		t.Fatalf("different provider binding error = %v", err)
+	}
+	bindingErr := validateSnapshotProviderBinding(snapshot(differentProvider), runtimeConfig)
+	protected := redactOperationalError(bindingErr, redact.New("terra-west").Apply)
+	if strings.Contains(protected.Error(), "terra-west") {
+		t.Fatalf("provider remediation exposed a cross-provider credential: %q", protected)
+	}
+	differentRoute := matching
+	differentRoute.ProviderBinding = strings.Repeat("0", 64)
+	if err := validateSnapshotProviderBinding(snapshot(differentRoute), runtimeConfig); err == nil || !strings.Contains(err.Error(), "was changed in auth.json") {
+		t.Fatalf("changed route binding error = %v", err)
+	}
+	if err := validateSnapshotProviderBinding(snapshot(protocol.SessionMetadata{}), runtimeConfig); err == nil || !strings.Contains(err.Error(), "cannot be resumed safely") {
+		t.Fatalf("legacy unbound snapshot error = %v", err)
+	}
+}
+
+func TestPhysicalTranscriptProviderBindingFailsBeforeRecoveryIsolation(t *testing.T) {
+	_, authPath := configureTestAgentXHome(t, "https://example.test", "gpt-5.6-sol", "deployment", "physical-binding-test-key", "preview")
+	runtimeConfig, err := config.Load(authPath, nil, config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matching := protocol.SessionMetadata{
+		ProviderID: runtimeConfig.SelectedProvider.ID, ProviderType: runtimeConfig.SelectedProvider.Type,
+		ProviderBinding: runtimeConfig.ProviderBinding(), Model: runtimeConfig.SelectedProvider.Model,
+	}
+	event, err := protocol.NewMessageEvent("ses_physical_binding", "turn_binding", protocol.RoleUser, protocol.TextBlock("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Sequence = 1
+	event.Session = matching
+	encode := func(candidate protocol.Event) []byte {
+		raw, marshalErr := json.Marshal(candidate)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return append(raw, '\n')
+	}
+	validator := runtimeTranscriptJSONValidator(runtimeConfig.CredentialSanitizer())
+	if err := validator(encode(event)); err != nil {
+		t.Fatalf("matching physical record was rejected: %v", err)
+	}
+
+	partial := event
+	partial.Session.ProviderBinding = ""
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(path, encode(partial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transcript.ReadFile(t.Context(), path, transcript.ReadOptions{
+		ExpectedSessionID: event.SessionID, ValidateRecord: validator,
+	}); err == nil || !strings.Contains(err.Error(), "validate existing transcript record") {
+		t.Fatalf("partial physical binding was isolated instead of rejected: %v", err)
+	}
+	malformedType := strings.Replace(
+		string(encode(event)),
+		`"provider_id":"`+matching.ProviderID+`"`,
+		`"provider_id":42`,
+		1,
+	)
+	if malformedType == string(encode(event)) {
+		t.Fatal("malformed provider-binding fixture was not constructed")
+	}
+	if err := os.WriteFile(path, []byte(malformedType), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transcript.ReadFile(t.Context(), path, transcript.ReadOptions{
+		ExpectedSessionID: event.SessionID, ValidateRecord: validator,
+	}); err == nil || !strings.Contains(err.Error(), "validate existing transcript record") {
+		t.Fatalf("malformed physical binding was isolated instead of rejected: %v", err)
+	}
+
+	mismatched := event
+	mismatched.ID = "evt_mismatched_provider"
+	mismatched.Sequence = 2
+	mismatched.Session.ProviderID = "other-provider"
+	if err := validator(encode(mismatched)); err != nil {
+		t.Fatalf("complete physical binding must reach snapshot comparison: %v", err)
+	}
+	if err := validateSnapshotProviderBinding(transcript.Snapshot{
+		Events: []protocol.Event{event, mismatched},
+	}, runtimeConfig); err == nil || !strings.Contains(err.Error(), "--provider other-provider") {
+		t.Fatalf("mixed physical bindings were not rejected with selector remediation: %v", err)
+	}
+	if exposed := validator(encode(partial)).Error(); strings.Contains(exposed, runtimeConfig.Azure.APIKey) {
+		t.Fatalf("provider-binding error exposed credential: %q", exposed)
+	}
+}
 
 func TestBareModeExcludesOrdinaryUserFilesystemExtensions(t *testing.T) {
 	workspace := t.TempDir()
@@ -192,7 +308,7 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		t.Setenv("AGENTX_HOME", state)
-		if _, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_project_link"}); err == nil {
+		if _, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_project_link"}, nil); err == nil {
 			t.Fatal("symlinked projects component was accepted")
 		}
 		if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
@@ -213,7 +329,7 @@ func TestStateAndSessionDirectoriesRejectDirectSymlinks(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		t.Setenv("AGENTX_HOME", state)
-		if _, _, err := resolveSessionLayout(t.Context(), workspace, cli.Options{Resume: sessionID, NoSessionPersistence: true}); err == nil {
+		if _, _, err := resolveSessionLayout(t.Context(), workspace, cli.Options{Resume: sessionID, NoSessionPersistence: true}, nil); err == nil {
 			t.Fatal("direct resumed-session symlink was accepted")
 		}
 		if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
@@ -226,7 +342,7 @@ func TestTemporarySessionCleanupRejectsPostConstructionReplacement(t *testing.T)
 	temporaryRoot := t.TempDir()
 	t.Setenv("TMPDIR", temporaryRoot)
 	t.Setenv("AGENTX_HOME", filepath.Join(t.TempDir(), "state"))
-	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_temp_identity", NoSessionPersistence: true})
+	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{SessionID: "ses_temp_identity", NoSessionPersistence: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +377,7 @@ func TestNonpersistentSessionDoesNotMaterializeWorkspaceState(t *testing.T) {
 	t.Setenv("AGENTX_HOME", applicationRoot)
 	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{
 		SessionID: "ses_nonpersistent_no_home_child", NoSessionPersistence: true,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +406,7 @@ func TestBarePersistentSessionDoesNotMaterializeProjectMemory(t *testing.T) {
 	t.Setenv("AGENTX_HOME", applicationRoot)
 	layout, _, err := resolveSessionLayout(t.Context(), t.TempDir(), cli.Options{
 		SessionID: "ses_bare_no_memory", Bare: true,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +434,7 @@ func TestSessionLayoutReusesFrozenApplicationHome(t *testing.T) {
 
 	layout, _, err := resolveSessionLayout(ctx, t.TempDir(), cli.Options{
 		SessionID: "ses_frozen_home", Bare: true,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -129,16 +129,17 @@ type AzureOptions struct {
 // Responses API. Its credential fields are private, and String/GoString redact
 // them to prevent accidental diagnostic disclosure.
 type AzureClient struct {
-	endpoint       url.URL
-	logicalModel   string
-	deployment     string
-	apiKey         string
-	credentialSet  *redact.Set
-	apiVersion     string
-	effort         string
-	requestTimeout time.Duration
-	watchdog       time.Duration
-	maxRetries     int
+	endpoint                  url.URL
+	logicalModel              string
+	deployment                string
+	apiKey                    string
+	credentialSet             *redact.Set
+	apiVersion                string
+	effort                    string
+	supportedReasoningEfforts []string
+	requestTimeout            time.Duration
+	watchdog                  time.Duration
+	maxRetries                int
 
 	httpClient               *http.Client
 	retryBase                time.Duration
@@ -199,6 +200,13 @@ func (e *azureRequestCompositionError) Format(state fmt.State, verb rune) {
 func NewAzureClient(configuration config.Azure, options AzureOptions) (*AzureClient, error) {
 	if err := configuration.Validate(); err != nil {
 		return nil, fmt.Errorf("construct Azure model client: %w", err)
+	}
+	supportedReasoningEfforts, err := normalizeAzureSupportedReasoningEfforts(configuration.SupportedReasoningEfforts)
+	if err != nil {
+		return nil, fmt.Errorf("construct Azure model client: %w: supported reasoning efforts are invalid", config.ErrInvalid)
+	}
+	if !azureReasoningEffortSupported(configuration.ReasoningEffort, supportedReasoningEfforts) {
+		return nil, fmt.Errorf("construct Azure model client: %w: reasoning effort is unsupported by the configured endpoint", config.ErrInvalid)
 	}
 	attachmentCapability, err := attachment.CapabilityFor(options.AttachmentLimits)
 	if err != nil {
@@ -293,36 +301,37 @@ func NewAzureClient(configuration config.Azure, options AzureOptions) (*AzureCli
 	}
 	endpoint := *configuration.Endpoint
 	client := &AzureClient{
-		endpoint:                 endpoint,
-		logicalModel:             configuration.ModelName,
-		deployment:               configuration.Deployment,
-		apiKey:                   configuration.APIKey,
-		credentialSet:            credentialSet,
-		apiVersion:               configuration.APIVersion,
-		effort:                   configuration.ReasoningEffort,
-		requestTimeout:           configuration.RequestTimeout,
-		watchdog:                 configuration.StreamWatchdog,
-		maxRetries:               configuration.MaxRetries,
-		httpClient:               options.HTTPClient,
-		retryBase:                options.RetryBase,
-		retryMaximum:             options.RetryMaximum,
-		retryWindow:              options.RetryWindow,
-		maximumEventBytes:        options.MaximumEventBytes,
-		maximumErrorBytes:        options.MaximumErrorBytes,
-		maximumResponseBytes:     options.MaximumResponseBytes,
-		maximumResponseEvents:    options.MaximumResponseEvents,
-		maximumResponseItems:     options.MaximumResponseItems,
-		maximumToolCalls:         options.MaximumToolCalls,
-		maximumCallArgumentBytes: options.MaximumCallArgumentBytes,
-		userAgent:                options.UserAgent,
-		now:                      options.Now,
-		jitter:                   options.Jitter,
-		sleep:                    options.Sleep,
-		onRetry:                  options.OnRetry,
-		attachmentCapability:     attachmentCapability,
-		maximumRequestMediaItems: options.MaximumRequestMediaItems,
-		maximumEncodedMediaBytes: options.MaximumEncodedMediaBytes,
-		maximumRequestBytes:      options.MaximumRequestBytes,
+		endpoint:                  endpoint,
+		logicalModel:              configuration.ModelName,
+		deployment:                configuration.Deployment,
+		apiKey:                    configuration.APIKey,
+		credentialSet:             credentialSet,
+		apiVersion:                configuration.APIVersion,
+		effort:                    configuration.ReasoningEffort,
+		supportedReasoningEfforts: supportedReasoningEfforts,
+		requestTimeout:            configuration.RequestTimeout,
+		watchdog:                  configuration.StreamWatchdog,
+		maxRetries:                configuration.MaxRetries,
+		httpClient:                options.HTTPClient,
+		retryBase:                 options.RetryBase,
+		retryMaximum:              options.RetryMaximum,
+		retryWindow:               options.RetryWindow,
+		maximumEventBytes:         options.MaximumEventBytes,
+		maximumErrorBytes:         options.MaximumErrorBytes,
+		maximumResponseBytes:      options.MaximumResponseBytes,
+		maximumResponseEvents:     options.MaximumResponseEvents,
+		maximumResponseItems:      options.MaximumResponseItems,
+		maximumToolCalls:          options.MaximumToolCalls,
+		maximumCallArgumentBytes:  options.MaximumCallArgumentBytes,
+		userAgent:                 options.UserAgent,
+		now:                       options.Now,
+		jitter:                    options.Jitter,
+		sleep:                     options.Sleep,
+		onRetry:                   options.OnRetry,
+		attachmentCapability:      attachmentCapability,
+		maximumRequestMediaItems:  options.MaximumRequestMediaItems,
+		maximumEncodedMediaBytes:  options.MaximumEncodedMediaBytes,
+		maximumRequestBytes:       options.MaximumRequestBytes,
 	}
 	requestEndpoint := client.requestEndpoint()
 	if err := client.validateRequestMetadata(&requestEndpoint, client.requestHeaders(), "construct Azure model client"); err != nil {
@@ -391,6 +400,40 @@ func (c *AzureClient) Format(state fmt.State, verb rune) {
 	}
 }
 
+func normalizeAzureSupportedReasoningEfforts(efforts []string) ([]string, error) {
+	if len(efforts) == 0 {
+		return nil, nil
+	}
+	normalized := make([]string, 0, len(efforts))
+	seen := make(map[string]struct{}, len(efforts))
+	for _, effort := range efforts {
+		if !validEffort(effort) {
+			return nil, errors.New("supported reasoning efforts contain an invalid value")
+		}
+		if _, exists := seen[effort]; exists {
+			return nil, errors.New("supported reasoning efforts contain a duplicate value")
+		}
+		seen[effort] = struct{}{}
+		normalized = append(normalized, effort)
+	}
+	return normalized, nil
+}
+
+func azureReasoningEffortSupported(effort string, supported []string) bool {
+	if !validEffort(effort) {
+		return false
+	}
+	if len(supported) == 0 {
+		return true
+	}
+	for _, candidate := range supported {
+		if effort == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 // Stream starts a stateless, streaming Responses API request. Transport and
 // retry ownership transfer to the returned stream on success.
 func (c *AzureClient) Stream(ctx context.Context, request Request) (Stream, error) {
@@ -407,8 +450,8 @@ func (c *AzureClient) Stream(ctx context.Context, request Request) (Stream, erro
 	if effort == "" {
 		effort = c.effort
 	}
-	if !validEffort(effort) {
-		return nil, fmt.Errorf("start Azure response: %w: unsupported reasoning effort %q", ErrProtocol, effort)
+	if !azureReasoningEffortSupported(effort, c.supportedReasoningEfforts) {
+		return nil, fmt.Errorf("start Azure response: %w: reasoning effort is unsupported by the configured endpoint", ErrProtocol)
 	}
 	wireRequest, err := c.projectRequest(ctx, request, effort)
 	if err != nil {

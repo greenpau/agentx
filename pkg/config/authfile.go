@@ -9,18 +9,40 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/greenpau/agentx/pkg/redact"
 )
 
 const (
-	authFileSchemaVersion             = 1
+	authFileSchemaVersion             = 2
 	authFileProviderAzureOpenAI       = "azure_openai"
 	maxCredentialFileBytes      int64 = 64 << 10
+	maxAuthFileProviders              = 32
+	// Invalid JSON may contain more api_key members than a valid registry. Keep
+	// the diagnostic-protection prepass bounded independently of the schema.
+	maxAuthFileCredentialCandidates = 4096
 )
 
 type authFileDocument struct {
-	Version     int
-	Provider    string
-	AzureOpenAI azureOpenAIAuth
+	Version   int
+	Providers []authFileProvider
+}
+
+type authFileProvider struct {
+	ID           string
+	Type         string
+	Default      bool
+	Capabilities authFileCapabilities
+	AzureOpenAI  azureOpenAIAuth
+}
+
+type authFileCapabilities struct {
+	Reasoning authFileReasoning
+}
+
+type authFileReasoning struct {
+	Efforts       []string
+	DefaultEffort string
 }
 
 type azureOpenAIAuth struct {
@@ -194,7 +216,88 @@ func parseAuthFile(data []byte) (authFileDocument, error) {
 	if len(data) == 0 || int64(len(data)) > maxCredentialFileBytes || !utf8.Valid(data) {
 		return authFileDocument{}, invalidAuthFile("auth file contains malformed JSON")
 	}
+	candidates, bounded := collectAuthFileCredentialCandidates(data)
+	if !bounded {
+		// No partial set is safe: an omitted candidate could occur in any later
+		// diagnostic framing. Preserve only the error category.
+		return authFileDocument{}, &credentialSafeConfigError{}
+	}
+	document, err := parseAuthFileDocument(data)
+	if err != nil {
+		return authFileDocument{}, protectConfigurationError(redact.New(candidates...), err)
+	}
+	return document, nil
+}
 
+// collectAuthFileCredentialCandidates walks JSON tokens without recursion and
+// records every string-valued api_key member, including duplicate or misplaced
+// members. Strict validation still owns acceptance; this prepass exists only
+// so a later parser diagnostic cannot collide with already observable secret
+// material. A malformed tail ends collection because no later token is
+// structurally observable to the decoder.
+func collectAuthFileCredentialCandidates(data []byte) ([]string, bool) {
+	type container struct {
+		kind         json.Delim
+		expectingKey bool
+		captureValue bool
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	stack := make([]container, 0, 8)
+	candidates := make([]string, 0, maxAuthFileProviders)
+	completeParentValue := func() {
+		if len(stack) == 0 {
+			return
+		}
+		parent := &stack[len(stack)-1]
+		if parent.kind == '{' && !parent.expectingKey {
+			parent.expectingKey = true
+			parent.captureValue = false
+		}
+	}
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return candidates, true
+		}
+		switch value := token.(type) {
+		case json.Delim:
+			switch value {
+			case '{':
+				stack = append(stack, container{kind: value, expectingKey: true})
+			case '[':
+				stack = append(stack, container{kind: value})
+			case '}', ']':
+				if len(stack) == 0 {
+					return candidates, true
+				}
+				stack = stack[:len(stack)-1]
+				completeParentValue()
+			}
+		case string:
+			if len(stack) > 0 {
+				current := &stack[len(stack)-1]
+				if current.kind == '{' && current.expectingKey {
+					current.expectingKey = false
+					current.captureValue = value == "api_key"
+					continue
+				}
+				if current.kind == '{' && current.captureValue {
+					if len(candidates) >= maxAuthFileCredentialCandidates {
+						return nil, false
+					}
+					candidates = append(candidates, value)
+				}
+			}
+			completeParentValue()
+		default:
+			completeParentValue()
+		}
+	}
+}
+
+func parseAuthFileDocument(data []byte) (authFileDocument, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	token, err := decoder.Token()
@@ -207,7 +310,7 @@ func parseAuthFile(data []byte) (authFileDocument, error) {
 	}
 
 	var document authFileDocument
-	seen := make(map[string]struct{}, 3)
+	seen := make(map[string]struct{}, 2)
 	for decoder.More() {
 		token, err = decoder.Token()
 		if err != nil {
@@ -231,12 +334,8 @@ func parseAuthFile(data []byte) (authFileDocument, error) {
 			if err := json.Unmarshal(raw, &document.Version); err != nil {
 				return authFileDocument{}, invalidAuthFile("auth file version must be an integer")
 			}
-		case "provider":
-			if !decodeStrictJSONString(raw, &document.Provider) {
-				return authFileDocument{}, invalidAuthFile("auth file provider must be a string")
-			}
-		case "azure_openai":
-			document.AzureOpenAI, err = parseAzureOpenAIAuth(raw)
+		case "providers":
+			document.Providers, err = parseAuthFileProviders(raw)
 			if err != nil {
 				return authFileDocument{}, err
 			}
@@ -254,7 +353,7 @@ func parseAuthFile(data []byte) (authFileDocument, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return authFileDocument{}, invalidAuthFile("auth file contains trailing JSON data")
 	}
-	for _, required := range []string{"version", "provider", "azure_openai"} {
+	for _, required := range []string{"version", "providers"} {
 		if _, ok := seen[required]; !ok {
 			return authFileDocument{}, invalidAuthFile("auth file is missing a required object member")
 		}
@@ -262,10 +361,261 @@ func parseAuthFile(data []byte) (authFileDocument, error) {
 	if document.Version != authFileSchemaVersion {
 		return authFileDocument{}, invalidAuthFile("auth file uses an unsupported schema version")
 	}
-	if document.Provider != authFileProviderAzureOpenAI {
-		return authFileDocument{}, invalidAuthFile("auth file uses an unsupported provider")
+	if len(document.Providers) == 0 {
+		return authFileDocument{}, invalidAuthFile("auth file providers must contain at least one provider")
 	}
 	return document, nil
+}
+
+func parseAuthFileProviders(data []byte) ([]authFileProvider, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, invalidAuthFile("auth file providers contain malformed JSON")
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '[' {
+		return nil, invalidAuthFile("auth file providers must be an array")
+	}
+	providers := make([]authFileProvider, 0)
+	for decoder.More() {
+		if len(providers) >= maxAuthFileProviders {
+			return nil, invalidAuthFile(fmt.Sprintf("auth file providers exceed the limit of %d", maxAuthFileProviders))
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, invalidAuthFile("auth file providers contain malformed JSON")
+		}
+		provider, err := parseAuthFileProvider(raw)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	if token, err = decoder.Token(); err != nil {
+		return nil, invalidAuthFile("auth file providers contain malformed JSON")
+	} else if delimiter, ok = token.(json.Delim); !ok || delimiter != ']' {
+		return nil, invalidAuthFile("auth file providers contain malformed JSON")
+	}
+	if len(providers) == 0 {
+		return nil, invalidAuthFile("auth file providers must contain at least one provider")
+	}
+	return providers, nil
+}
+
+func parseAuthFileProvider(data []byte) (authFileProvider, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '{' {
+		return authFileProvider{}, invalidAuthFile("auth file provider entries must be objects")
+	}
+
+	var provider authFileProvider
+	seen := make(map[string]struct{}, 5)
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+		}
+		key, ok := token.(string)
+		if !ok {
+			return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return authFileProvider{}, invalidAuthFile("auth file contains a duplicate object member")
+		}
+		seen[key] = struct{}{}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+		}
+		switch key {
+		case "id":
+			if !decodeStrictJSONString(raw, &provider.ID) {
+				return authFileProvider{}, invalidAuthFile("auth file provider id must be a string")
+			}
+		case "type":
+			if !decodeStrictJSONString(raw, &provider.Type) {
+				return authFileProvider{}, invalidAuthFile("auth file provider type must be a string")
+			}
+		case "default":
+			trimmed := bytes.TrimSpace(raw)
+			if !bytes.Equal(trimmed, []byte("true")) && !bytes.Equal(trimmed, []byte("false")) {
+				return authFileProvider{}, invalidAuthFile("auth file provider default must be a boolean")
+			}
+			provider.Default = bytes.Equal(trimmed, []byte("true"))
+		case "capabilities":
+			provider.Capabilities, err = parseAuthFileCapabilities(raw)
+			if err != nil {
+				return authFileProvider{}, err
+			}
+		case "azure_openai":
+			provider.AzureOpenAI, err = parseAzureOpenAIAuth(raw)
+			if err != nil {
+				return authFileProvider{}, err
+			}
+		default:
+			return authFileProvider{}, invalidAuthFile("auth file contains an unsupported object member")
+		}
+	}
+	if token, err = decoder.Token(); err != nil {
+		return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+	} else if delimiter, ok = token.(json.Delim); !ok || delimiter != '}' {
+		return authFileProvider{}, invalidAuthFile("auth file provider entry contains malformed JSON")
+	}
+	for _, required := range []string{"id", "type", "capabilities", "azure_openai"} {
+		if _, ok := seen[required]; !ok {
+			return authFileProvider{}, invalidAuthFile("auth file provider entry is missing a required object member")
+		}
+	}
+	if provider.Type != authFileProviderAzureOpenAI {
+		return authFileProvider{}, invalidAuthFile("auth file uses an unsupported provider type")
+	}
+	return provider, nil
+}
+
+func parseAuthFileCapabilities(data []byte) (authFileCapabilities, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '{' {
+		return authFileCapabilities{}, invalidAuthFile("auth file capabilities must be an object")
+	}
+	var capabilities authFileCapabilities
+	seen := make(map[string]struct{}, 1)
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+		}
+		key, ok := token.(string)
+		if !ok {
+			return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return authFileCapabilities{}, invalidAuthFile("auth file contains a duplicate object member")
+		}
+		seen[key] = struct{}{}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+		}
+		if key != "reasoning" {
+			return authFileCapabilities{}, invalidAuthFile("auth file contains an unsupported object member")
+		}
+		capabilities.Reasoning, err = parseAuthFileReasoning(raw)
+		if err != nil {
+			return authFileCapabilities{}, err
+		}
+	}
+	if token, err = decoder.Token(); err != nil {
+		return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+	} else if delimiter, ok = token.(json.Delim); !ok || delimiter != '}' {
+		return authFileCapabilities{}, invalidAuthFile("auth file capabilities contain malformed JSON")
+	}
+	if _, ok := seen["reasoning"]; !ok {
+		return authFileCapabilities{}, invalidAuthFile("auth file capabilities are missing required reasoning capabilities")
+	}
+	return capabilities, nil
+}
+
+func parseAuthFileReasoning(data []byte) (authFileReasoning, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '{' {
+		return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities must be an object")
+	}
+	var reasoning authFileReasoning
+	seen := make(map[string]struct{}, 2)
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+		}
+		key, ok := token.(string)
+		if !ok {
+			return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return authFileReasoning{}, invalidAuthFile("auth file contains a duplicate object member")
+		}
+		seen[key] = struct{}{}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+		}
+		switch key {
+		case "efforts":
+			reasoning.Efforts, err = parseAuthFileStringArray(raw, "reasoning efforts")
+			if err != nil {
+				return authFileReasoning{}, err
+			}
+		case "default_effort":
+			if !decodeStrictJSONString(raw, &reasoning.DefaultEffort) {
+				return authFileReasoning{}, invalidAuthFile("auth file reasoning default_effort must be a string")
+			}
+		default:
+			return authFileReasoning{}, invalidAuthFile("auth file contains an unsupported object member")
+		}
+	}
+	if token, err = decoder.Token(); err != nil {
+		return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+	} else if delimiter, ok = token.(json.Delim); !ok || delimiter != '}' {
+		return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities contain malformed JSON")
+	}
+	for _, required := range []string{"efforts", "default_effort"} {
+		if _, ok := seen[required]; !ok {
+			return authFileReasoning{}, invalidAuthFile("auth file reasoning capabilities are missing a required object member")
+		}
+	}
+	if len(reasoning.Efforts) == 0 {
+		return authFileReasoning{}, invalidAuthFile("auth file reasoning efforts must contain at least one effort")
+	}
+	return reasoning, nil
+}
+
+func parseAuthFileStringArray(data []byte, field string) ([]string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, invalidAuthFile("auth file " + field + " contain malformed JSON")
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '[' {
+		return nil, invalidAuthFile("auth file " + field + " must be an array")
+	}
+	values := make([]string, 0, 6)
+	for decoder.More() {
+		if len(values) >= 6 {
+			return nil, invalidAuthFile("auth file " + field + " exceed their limit")
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, invalidAuthFile("auth file " + field + " contain malformed JSON")
+		}
+		var value string
+		if !decodeStrictJSONString(raw, &value) {
+			return nil, invalidAuthFile("auth file " + field + " must contain only strings")
+		}
+		values = append(values, value)
+	}
+	if token, err = decoder.Token(); err != nil {
+		return nil, invalidAuthFile("auth file " + field + " contain malformed JSON")
+	} else if delimiter, ok = token.(json.Delim); !ok || delimiter != ']' {
+		return nil, invalidAuthFile("auth file " + field + " contain malformed JSON")
+	}
+	return values, nil
 }
 
 func parseAzureOpenAIAuth(data []byte) (azureOpenAIAuth, error) {

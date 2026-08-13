@@ -8,11 +8,12 @@
 4. [Option families](#option-families)
 5. [Validation rules](#validation-rules)
 6. [Native session-management path](#native-session-management-path)
-7. [Initialization ordering](#initialization-ordering)
-8. [Output and exit behavior](#output-and-exit-behavior)
-9. [Failure behavior](#failure-behavior)
-10. [Acceptance scenarios](#acceptance-scenarios)
-11. [Non-normative provenance](#non-normative-provenance)
+7. [Provider-registry discovery path](#provider-registry-discovery-path)
+8. [Initialization ordering](#initialization-ordering)
+9. [Output and exit behavior](#output-and-exit-behavior)
+10. [Failure behavior](#failure-behavior)
+11. [Acceptance scenarios](#acceptance-scenarios)
+12. [Non-normative provenance](#non-normative-provenance)
 
 ## Early dispatch
 
@@ -96,7 +97,8 @@ The externally meaningful option grammar includes:
 | Interaction | print, bare/simple presentation, input format, output format, verbose streaming, partial events, hook events |
 | Session | continue, resume, fork, explicit session ID, resume at message, rewind files, disable persistence |
 | Native management | list sessions, delete one revision, workspace, bounded page size, opaque page token |
-| Model/limits | primary and fallback model, effort/thinking, max turns, max budget, structured-output schema/retry limit |
+| Provider discovery | list every validated provider descriptor before selection |
+| Model/limits | exact provider ID, selected-provider model assertion, effort/thinking, fallback model, max turns, max budget, structured-output schema/retry limit |
 | Prompt context | replace system prompt or file, append system prompt or file, setting sources, extra directories |
 | Capabilities | base/allowed/disallowed tools, permission mode, permission-prompt tool, agents, plugins, plugin directories, MCP configs |
 | Files | input/downloaded files and session-token requirements |
@@ -120,6 +122,37 @@ Output formats:
   standalone Go profile because SDK URL and verbose modes are unavailable.
 - **CLI-012 — Prompt source exclusivity.** A direct replacement system prompt conflicts with replacement-from-file; append text conflicts with append-from-file. File read errors identify the failing source before execution.
 - **CLI-013 — Model fallback.** Fallback model must differ from the primary model.
+- **CLI-029 — Provider selection and model assertion.** `--provider <id>`
+  selects one provider from the strict `auth.json` v2 registry by an exact,
+  case-sensitive ID match and may occur only once. Repeated selectors fail as
+  a usage error before provider selection, including identical values. It never
+  trims the selector, searches model names,
+  or changes endpoint fields. Without the option, a singleton registry is its
+  effective default even when its object omits `default`; a multi-provider
+  registry selects its one `"default": true` object. Multiple providers with
+  no default fail with an instructional error that tells the operator to add
+  `"default": true` to exactly one provider or invoke `--provider <id>`;
+  multiple declared defaults are invalid configuration. Resolve the provider
+  before interpreting `--model`: that option is only an assertion that the
+  selected provider's deployment-backed logical model matches, not another
+  provider selector or a model override. An explicit `--effort` must be a
+  member of the selected provider's advertised reasoning efforts.
+- **CLI-030 — Provider-neutral exclusions.** Native session management and the
+  standalone `--mcp-server` tool host construct no model provider and reject
+  every explicit `--provider` occurrence along with their other forbidden
+  conversation options. They do not resolve the default registry entry merely
+  to service a provider-neutral operation.
+- **CLI-031 — Provider-registry discovery.** `--list-providers` is a standalone
+  local inspection mode that accepts only optional `--output-format text|json`.
+  It rejects prompts, `--provider`, model/effort/session/permission/tool/
+  extension/MCP options, stream formats, native session-management selectors,
+  and every other explicit root option. It strictly loads and normalizes the
+  complete registry under `AUTH-048` but returns before provider selection,
+  workspace inspection, semantic-session construction, transcript access,
+  extension discovery, project-memory creation, or provider transport. Its
+  absence from model/session construction is not permission to inspect a
+  malformed or insecure credential file: strict registry and credential-file
+  checks still fail closed.
 - **CLI-014 — Session identity.** Explicit session ID conflicts with continue/resume unless forking. Validate identifier format and absence before creating a new session, except when a trusted server-side SDK transport supplies its own tagged identity.
 - **CLI-015 — Resume/rewind.** Resume-at and file rewind require the corresponding resume/session context and a valid message checkpoint. Rewind-only exits after reporting its result.
 - **CLI-016 — File authorization.** Downloading session files requires the corresponding session token/authorization.
@@ -163,6 +196,47 @@ Output formats:
   correlation, permission-response and interrupt races, cancellation, timeout,
   result ordering, and shutdown settlement.
 
+## Provider-registry discovery path
+
+`--list-providers` branches after full option validation and the strict
+descriptor-relative registry read, but before every workspace- or
+session-backed service. Text output is one bounded human-readable inventory.
+JSON output is exactly one newline-terminated object:
+
+```json
+{
+  "version": 1,
+  "providers": [
+    {
+      "value": "sol-east",
+      "id": "sol-east",
+      "providerType": "azure_openai",
+      "model": "gpt-5.6-sol",
+      "displayName": "sol-east (gpt-5.6-sol)",
+      "description": "Deployment-backed model endpoint configured by AgentX-home auth.json",
+      "default": true,
+      "selected": false,
+      "supportsEffort": true,
+      "supportedReasoningEfforts": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "reasoning": {
+        "supported": true,
+        "efforts": ["low", "medium", "high"],
+        "defaultEffort": "high"
+      }
+    }
+  ]
+}
+```
+
+The element grammar is `WIRE-024`; the wrapper and no-selection semantics are
+`WIRE-026`. A valid multi-provider registry with no default succeeds and
+reports every `default:false`; a singleton reports its effective
+`default:true`. Discovery never reports `selected:true`. A strict-registry,
+projection, or framing failure emits no JSON bytes. A writer failure returns
+nonzero without retry or fallback and may retain a prefix already accepted by
+the writer. Text and JSON use the complete registry credential guard.
+
 ## Initialization ordering
 
 For ordinary noninteractive execution:
@@ -171,8 +245,13 @@ For ordinary noninteractive execution:
    run the full CLI parser. Help/version dispatch and ordinary option validation
    follow parsing. Model-backed execution completes ordinary validation before
    the strict `AUTH-044`/`AUTH-045` read and provider construction.
+   Provider discovery instead performs the strict `AUTH-048` read and returns
+   its catalog before workspace or semantic-session construction.
 2. Apply explicitly supplied setting sources early enough to affect initialization.
 3. Initialize configuration, identity, network and policy without rendering dialogs.
+   For model-backed execution, resolve the exact provider under `CLI-029` and
+   freeze its provider ID, type, deployment binding, model, and reasoning
+   capabilities before session construction or structured initialization.
 4. On configuration error, write a clean error to stderr and shut down with status 1.
 5. Establish permission context before assembling tools.
 6. Complete setup before any cwd-dependent work.
@@ -245,6 +324,31 @@ message or provider request is admitted.
 16. Use `--attachment` with the standalone MCP host, native session
 management, a slash command, and a text-only provider/model profile. Each fails
 explicitly without silently pasting a path into model text.
+17. Load one provider without `default`, two providers with exactly one
+`default:true`, and two providers without a default. Verify the first provider
+is exposed as the effective default, the declared default is selected in the
+second case, and the third case fails before provider construction with
+instructions to add `"default": true` to exactly one provider or use
+`--provider <id>`.
+18. Select a nondefault provider by its exact ID, then repeat with different
+case, surrounding whitespace, an unknown ID, a different provider's model in
+`--model`, and an effort outside the selected capability set. Only the exact
+ID plus the selected provider's logical model and supported effort succeeds;
+`--model` never changes the selected provider.
+19. Combine `--provider` with native session list/delete and with
+`--mcp-server`. Verify each provider-neutral path reports a usage conflict
+before auth registry parsing or provider construction.
+20. Configure several valid providers with no default and invoke
+`--list-providers --output-format json` from redirected stdout. Verify it does
+not infer a headless turn, emits one version-1 object with every provider in
+source order and all `selected:false`, performs no workspace/session/network
+initialization, and exits zero. Invoke the same registry without discovery and
+verify ordinary startup still requires a default or explicit selector.
+21. Combine provider discovery with a prompt, `--provider`, `--effort`, native
+session management, standalone MCP, `--cwd`, and stream JSON. Verify each is a
+usage failure with empty stdout. Repeat with malformed configuration, multiple
+defaults, and a credential-colliding final projection; verify nonzero strict
+failure and no partial catalog.
 
 ## Non-normative provenance
 

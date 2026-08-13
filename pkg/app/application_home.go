@@ -249,6 +249,24 @@ func (home *applicationHome) loadRuntimeConfig(environ []string, overrides confi
 	return runtimeConfig, errors.Join(loadErr, closeErr, verifyErr)
 }
 
+// loadProviderRegistry validates the complete application-home auth registry
+// without selecting or constructing a provider. It retains the same
+// descriptor-pinned read and post-read identity verification as model-backed
+// startup, while leaving endpoint choice to a later process invocation.
+func (home *applicationHome) loadProviderRegistry() (config.ProviderRegistry, error) {
+	if err := home.verify(); err != nil {
+		return config.ProviderRegistry{}, err
+	}
+	root, err := home.root.OpenRoot()
+	if err != nil {
+		return config.ProviderRegistry{}, fmt.Errorf("open AgentX home for provider discovery: %w", err)
+	}
+	registry, loadErr := config.LoadProviderRegistryAtRoot(root, home.authPath)
+	closeErr := root.Close()
+	verifyErr := home.verify()
+	return registry, errors.Join(loadErr, closeErr, verifyErr)
+}
+
 func (home *applicationHome) protectedPaths(additional []string) []string {
 	paths := make([]string, 0, len(additional)+2)
 	if home != nil && home.root != nil {

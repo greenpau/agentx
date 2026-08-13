@@ -4,7 +4,7 @@
 
 - [Runtime boundary](#runtime-boundary)
 - [Component ownership](#component-ownership)
-- [Application home and Azure `gpt-5.6-sol` mapping](#application-home-and-azure-gpt-56-sol-mapping)
+- [Application home and Azure provider registry](#application-home-and-azure-provider-registry)
 - [Turn and tool ordering](#turn-and-tool-ordering)
 - [Permissions and deliberate hardening](#permissions-and-deliberate-hardening)
 - [Transcript and recovery](#transcript-and-recovery)
@@ -24,6 +24,9 @@ main.go
   → provider-free native session inventory/deletion
        → normalized absolute workspace and runtime-owned session manager
        → bounded text or one-object JSON result
+  → provider-registry discovery
+       → strict full-registry validation and complete credential union
+       → bounded text or one-object JSON catalog with no selected profile
   → otherwise strict model credential parsing, provider, platform, and session construction
   → immutable extension and capability snapshots
   → prompt/context projection
@@ -65,7 +68,7 @@ precise partial and unavailable boundaries live in
 | `pkg/cli` | Early flags and cross-option validation after the mandatory application-home bootstrap but before credential parsing or terminal initialization. |
 | `pkg/signals` | Early continuous OS signal acquisition, conflict-checked surface-specific semantic SIGINT routing, globally first-request-wins shutdown state, and one joined exact-once force/failsafe gate. |
 | `pkg/testing` | Test-profile-only capabilities, including the always-ask `TestingPermission` end-to-end permission probe; production registries omit them. |
-| `pkg/config` | Strict versioned `auth.json` parsing, Azure normalization, model/effort validation, and redaction. |
+| `pkg/config` | Strict version-2 `auth.json` provider-registry parsing, complete-profile normalization, deterministic provider/default selection, endpoint-specific reasoning validation, session binding, and full-registry credential redaction. |
 | `pkg/childenv` | Credential-safe child-process environment projection and explicit per-provider environment scoping. |
 | `pkg/identity` | Typed identifier generation, canonical parsing, validation, and wire-safe conversion. |
 | `pkg/attachment` | Explicit path and correlated stream import, byte/magic validation and normalization, immutable private manifests/blobs, upload reservations, and orphan collection. |
@@ -89,7 +92,7 @@ precise partial and unavailable boundaries live in
 
 The `pkg/` tree is importable, but it is presently a trusted-host composition surface rather than a frozen SDK. Importers must retain the validation, authorization, credential-handling, locking, and lifecycle invariants described here and in [pkg/README.md](../../../../pkg/README.md).
 
-## Application home and Azure `gpt-5.6-sol` mapping
+## Application home and Azure provider registry
 
 The application home uses a nonblank `AGENTX_HOME`; otherwise it uses
 `<user-home>/.agentx`. This is the sole supported override. A nonblank value
@@ -109,9 +112,22 @@ Help, version, and standalone MCP stop if it is absent but do not parse it.
 Native session inventory and deletion preserve the same frozen-home and
 `auth.json`-presence bootstrap, then branch before credential parsing,
 provider/model construction, semantic session creation, workspace-partition
-creation, project memory, extensions, and MCP.
-Model-backed surfaces strictly accept only the version-1 `azure_openai` schema
-from that file under `AUTH-045`; it is their sole model credential source.
+creation, project memory, extensions, and MCP. Provider-registry discovery is
+a separate prelaunch branch: it performs the complete strict credential-file
+read, validates and normalizes every entry, freezes the full key union, and
+publishes only the credential-free descriptor catalog. It deliberately does
+not select a singleton/default/explicit provider, so a valid multi-provider
+registry with no declared default remains queryable. It returns before
+workspace normalization, client/model construction, session placement,
+transcript access, project memory, extensions, or MCP.
+Model-backed surfaces strictly accept only the version-2 provider registry
+under `AUTH-045`–`AUTH-047`; the old singular version-1 object is unsupported,
+and this file is their sole model credential source. Every entry is validated
+before exact explicit, singleton, or unique-default selection. Requests never
+fall back across entries. Public initialization exposes only credential-free
+provider identity and reasoning capability descriptors, while the runtime
+freezes every configured provider key into one complete credential union and
+binds durable sessions to the selected nonsecret routing tuple.
 Supported POSIX platforms enforce effective-user ownership and private mode
 bits. Windows model-backed startup is unavailable until native owner/DACL
 inspection can authorize reading the credential file. The selected home and
@@ -128,12 +144,11 @@ descriptor.
 The semantic model identity is `azure_openai.model`; Azure receives
 `azure_openai.deployment` in the `model` field. Requests use `api-key`,
 `stream:true`, and `store:false`. An empty `azure_openai.api_version` uses
-`/openai/v1/responses` without a query. The current compatibility
-implementation also places symbolic `v1` and `preview` on that v1 path but
-sends the configured value literally as the `api-version` query. A dated Azure
-API version uses `/openai/responses` with the same literal query. This source
-behavior is intentionally reported separately from the desired `NET-007`
-route-family contract in the conformance profile.
+`/openai/v1/responses` without a query. Exact `v1` and `preview` retain that v1
+path and are sent literally as the `api-version` query. Every other nonempty
+selector uses `/openai/responses` and is likewise sent literally. This
+implements `NET-007`; no selector is interpreted as latest or silently
+rewritten.
 
 The provider boundary retains stable Go items across recursive calls:
 
@@ -268,6 +283,17 @@ revision tokens are opaque. The shared session manager, rather than the CLI
 renderer or VS Code presentation cache, owns filesystem enumeration and
 mutation.
 
+The additive `--list-providers` mode is a provider-neutral prelaunch query,
+not a model-backed headless turn or duplex SDK control. It accepts only text or
+one versioned JSON object, validates the same complete registry as startup,
+and publishes all provider IDs, types, logical models, effective-default
+states, and reasoning declarations in source order with every
+`selected:false`. The full configured credential union guards the complete
+physical projection, but the result contains no endpoint URL, deployment,
+API-version selector, key, route binding, authentication object, or credential
+path. A caller uses one returned ID as an exact `--provider` argument for a
+new process.
+
 The live reader continues while a turn runs so permission/control responses cannot deadlock behind model execution. Control waiters register before emission. User messages enter a bounded stable-priority queue; a typed record and all committed attachment references are completely validated and reserved before a `now` record cancels the current turn, then it runs as the next serialized workload, while `next` and `later` wait. This is queued-turn preemption, not injection of new context into an in-flight recursive model/tool turn. Duplicate UUIDs are silent unless replay acknowledgement is enabled, in which case a schema-valid replay user record with the complete bounded manifest—including opaque content-addressed storage identity but no bytes or paths—is emitted without execution. Interrupt returns a correlated control response and cancels the active turn; accepted tool IDs still settle before idle. Public records use the closed SDK discriminator union rather than wrapping internal protocol events. Initialize-time hook/MCP/prompt/agent/schema injection, historical assistant replay, and live environment/model/permission-mode mutation are explicit unsupported control outcomes.
 
 ### VS Code workspace adapter
@@ -276,7 +302,17 @@ The extension declares workspace-host placement and starts one AgentX process pe
 
 Activation and view rendering are allowed in Restricted Mode so the user can see the disabled reason, but every route that could launch AgentX or consume workspace-defined launch configuration is guarded by VS Code Workspace Trust. After trust, the resolver selects an explicit machine-scoped binary path, a target-specific bundled binary, or the extension-host `PATH`, validates the supported `0.1.x` compatibility window, and spawns without a shell. Startup-only model effort, permission mode, extension-loading, allow/deny rules, and session-selection options become discrete argument entries; they are never presented as live mutations.
 
-The host waits for `system/init`, sends a correlated empty `initialize` control, then projects the returned dynamic capability inventory. It decodes bounded UTF-8 NDJSON across arbitrary chunks and keeps structured stdout separate from bounded, credential-redacted stderr diagnostics. Known records are validated before state mutation; unknown well-formed record types become bounded diagnostics rather than guessed behavior. User UUIDs remain stable across an accepted write, and tool cards pair only by `tool_use_id`.
+Before launch, an editor may invoke `--list-providers --output-format json` to
+obtain the no-selection catalog even when the registry has no default, choose
+one stable ID, and start a separate AgentX process with `--provider ID`. The
+host then waits for `system/init`, sends a correlated empty `initialize`
+control, and projects the returned dynamic capability inventory with exactly
+the process-frozen profile selected. It decodes bounded UTF-8 NDJSON across
+arbitrary chunks and keeps structured stdout separate from bounded,
+credential-redacted stderr diagnostics. Known records are validated before
+state mutation; unknown well-formed record types become bounded diagnostics
+rather than guessed behavior. User UUIDs remain stable across an accepted
+write, and tool cards pair only by `tool_use_id`.
 
 Permission and question requests remain AgentX controls. The extension correlates each response by `request_id`, supports allow once, complete-input replacement and allow, deny, and deny-and-stop, and deliberately offers no permanent approval because the current wire profile cannot persist a permission update. Editor context is explicit untrusted metadata containing workspace-relative paths, ranges, and bounded diagnostics; file content is not silently pasted, so inspection still crosses AgentX path and permission checks.
 
@@ -322,9 +358,9 @@ Availability is represented across independent axes: compiled inclusion, runtime
 
 | Domain | Current profile |
 | --- | --- |
-| Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts strictly parse its version-1 document as their sole model credential source. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
-| Azure Responses + `gpt-5.6-sol` | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. Native PNG/JPEG/conservative-PDF request construction is configuration-qualified for empty/`v1`/`preview` selectors and loopback-tested. One current-worktree profile passed representative live positive-path checks; every release artifact and claimed deployment/selector/platform still requires its own complete `MOD-A14B` run. |
-| Headless text and aggregate JSON | Operational over the shared engine, including repeatable selected-path PNG/JPEG/PDF input and attachment-only turns; separate additive session list/delete flags use a provider-free text or one-object JSON management adapter. |
+| Application-home bootstrap and authentication | Operational: a nonblank `AGENTX_HOME`, otherwise `~/.agentx`; this is the sole supported override. One physical home plus `sessions/` is frozen before full CLI parsing; every invocation requires `auth.json`, including malformed input, while model-backed starts and provider discovery strictly parse its version-2 registry as their sole model credential source. All entries validate before deterministic model-backed selection; discovery skips selection and accepts a valid no-default registry. Every provider key joins the complete runtime credential union, and durable sessions fail closed across provider/routing changes. POSIX ownership/mode enforcement is operational; Windows credential loading is unavailable without native DACL verification. |
+| Azure Responses provider registry | Operational on supported POSIX platforms when the required application-home `auth.json` is private and schema-valid. Multiple Azure endpoints and logical models are addressable through exact provider IDs, with one selected for the process and no cross-provider fallback. Reasoning subsets are operator-declared and enforced through restore and transport. Native PNG/JPEG/conservative-PDF request construction remains qualified only for logical model `gpt-5.6-sol` with empty/`v1`/`preview` selectors and is loopback-tested. One current-worktree profile passed representative live positive-path checks; every release artifact and claimed deployment/selector/platform still requires its own complete `MOD-A14B` run. |
+| Headless text and aggregate JSON | Operational over the shared engine, including repeatable selected-path PNG/JPEG/PDF input and attachment-only turns; separate additive session list/delete flags use a provider-free text or one-object JSON management adapter. `--list-providers` uses a still-earlier strict-registry text or one-object JSON adapter and constructs no workspace, session, provider client, or semantic engine. |
 | Local diagnostic logging | Operational: credential-filtered JSON records use stderr; routine turn start/success records are DEBUG, WARN/ERROR conditions remain eligible at the default INFO threshold, and `-d`/`--debug` adds bounded turn-correlated lifecycle records plus session, model-iteration, stream, retry, capability, usage, timing, and terminal metadata without payload content. Retry warnings carry session and model identity. With persistence enabled, durable lifecycle evidence remains in the transcript independently of logger level whenever append and flush succeed. |
 | Bidirectional NDJSON | Partial: capability-negotiated version-1 bounded attachment import, typed messages, correlated controls, and atomic priority queues are operational; in-flight prompt/context injection and several live initialization/mutation controls are unavailable. |
 | VS Code workspace extension | Partial: Activity Bar chat, streaming, tool/result projection, permissions/questions, workspace-scoped sessions, editor references, Restricted Mode gating, diagnostics, and target VSIX packaging are operational. The runtime CLI now owns authoritative inventory/deletion, but this change does not integrate it into or modify the extension's lossy presentation cache; attachments, authoritative inventory/history replay in the extension, live runtime mutation, remote AgentX transport, IDE MCP/LSP bridging, and native qualification of every packaged platform are unavailable. |

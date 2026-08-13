@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -98,18 +99,23 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if err != nil {
 		return nil, err
 	}
-	runtimeConfig, err := home.loadRuntimeConfig(os.Environ(), config.Overrides{Model: options.CLI.Model, ReasoningEffort: options.CLI.Effort})
+	runtimeConfig, err := home.loadRuntimeConfig(os.Environ(), config.Overrides{Provider: options.CLI.Provider, Model: options.CLI.Model, ReasoningEffort: options.CLI.Effort})
 	if err != nil {
-		if runtimeConfig.Azure.APIKey != "" {
-			err = redactOperationalError(err, runtimeConfig.Azure.Redact)
+		if !runtimeConfig.CredentialSanitizer().Empty() {
+			err = redactOperationalError(err, runtimeConfig.Redact)
 		}
 		return nil, err
 	}
-	sanitize := runtimeConfig.Azure.Redact
-	credentialSet := redact.New(runtimeConfig.Azure.APIKey)
+	sanitize := runtimeConfig.Redact
+	credentialSet := runtimeConfig.CredentialSanitizer()
 	defer func() { resultErr = redactOperationalError(resultErr, sanitize) }()
 
-	layout, sourceSnapshot, err := resolveSessionLayout(ctx, options.Workspace, options.CLI)
+	providerTranscriptValidator := runtimeTranscriptJSONValidator(
+		runtimeConfig.CredentialSanitizer(),
+	)
+	layout, sourceSnapshot, err := resolveSessionLayout(
+		ctx, options.Workspace, options.CLI, providerTranscriptValidator,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +144,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if err != nil {
 		return nil, err
 	}
-	credentialSet, err = runtimeCredentialSanitizer(runtimeConfig.Azure.APIKey, runtimeExt.mcpCredentialConfigs)
+	credentialSet, err = runtimeCredentialSanitizerSet(runtimeConfig.CredentialSanitizer(), runtimeExt.mcpCredentialConfigs)
 	if err != nil {
 		closeErr := runtimeExt.mcp.Close()
 		if closeErr != nil {
@@ -156,6 +162,16 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		return nil, errors.Join(err, runtimeExt.mcp.Close())
 	}
 	sanitize = credentialSet.Apply
+	if sourceSnapshot != nil {
+		// Validate the initial owned snapshot only after the complete provider,
+		// MCP, and frozen-hook credential union can protect a diagnostic containing
+		// the recorded selector. This still precedes model-client construction and
+		// every replay, fork copy/publication, or model-provider request. Forks are
+		// reloaded and revalidated under the source lock below before copying.
+		if err := validateSnapshotProviderBinding(*sourceSnapshot, runtimeConfig); err != nil {
+			return nil, errors.Join(err, runtimeExt.mcp.Close())
+		}
+	}
 	logger := observability.NewLogger(observability.LoggerConfig{
 		Writer:      options.Stderr,
 		Debug:       options.CLI.Debug,
@@ -173,6 +189,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	}()
 	observability.Log(logger, zapcore.DebugLevel, "session construction started",
 		zap.String("session_id", string(layout.sessionID)),
+		zap.String("provider", runtimeConfig.SelectedProvider.ID),
 		zap.String("model", runtimeConfig.Azure.ModelName),
 		zap.String("surface", surfaceName(options.CLI)),
 		zap.Bool("persistent", !options.CLI.NoSessionPersistence),
@@ -216,15 +233,21 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	}
 	inputMedia, inputMediaEnabled := provider.InputMediaCapability()
 	validateJSON := credentialJSONValidator(credentialSet)
+	validateTranscriptJSON := runtimeTranscriptJSONValidator(credentialSet)
 	var store *transcript.Store
 	if !options.CLI.NoSessionPersistence {
-		metadata := protocol.SessionMetadata{WorkingDirectory: options.Workspace, Entrypoint: "main.go", Surface: surfaceName(options.CLI), ProductVersion: ProductVersion()}
+		metadata := protocol.SessionMetadata{
+			WorkingDirectory: options.Workspace, Entrypoint: "main.go", Surface: surfaceName(options.CLI),
+			ProductVersion: ProductVersion(), ProviderID: runtimeConfig.SelectedProvider.ID,
+			ProviderType: runtimeConfig.SelectedProvider.Type, Model: runtimeConfig.SelectedProvider.Model,
+			ProviderBinding: runtimeConfig.ProviderBinding(),
+		}
 		if options.CLI.ForkSession && sourceSnapshot != nil {
 			metadata.ParentSessionID = sourceSnapshot.SessionID
 		}
 		store, err = transcript.Open(ctx, transcript.Config{
 			Path: layout.transcriptPath, SessionID: layout.sessionID,
-			SessionMetadata: metadata, SyncOnAppend: true, ValidateRecord: validateJSON,
+			SessionMetadata: metadata, SyncOnAppend: true, ValidateRecord: validateTranscriptJSON,
 		})
 		if err != nil {
 			return nil, errors.Join(err, runtimeExt.mcp.Close())
@@ -257,7 +280,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 				ctx,
 				layout,
 				sourceSnapshot.SessionID,
-				validateJSON,
+				validateTranscriptJSON,
 			)
 		}
 		if err != nil {
@@ -274,6 +297,12 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 				fmt.Errorf("session %s has no durable history", sourceSnapshot.SessionID),
 				runtimeExt.mcp.Close(),
 			)
+		}
+		if err := validateSnapshotProviderBinding(validated, runtimeConfig); err != nil {
+			if store != nil {
+				_ = store.Close()
+			}
+			return nil, errors.Join(err, runtimeExt.mcp.Close())
 		}
 		sourceSnapshot = &validated
 	}
@@ -419,7 +448,15 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	if store != nil {
 		semanticStore = store
 	}
-	query, err := engine.New(engine.Config{SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName, ReasoningEffort: runtimeConfig.Azure.ReasoningEffort, Instructions: sanitize(system.String()), MaxTurns: options.CLI.MaxTurns, MaxOutputTokens: engine.DefaultMaxOutputTokens, Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink, Sanitize: sanitize, CredentialSanitizer: credentialSet, Attachments: attachmentStore, Logger: logger})
+	query, err := engine.New(engine.Config{
+		SessionID: layout.sessionID, Model: runtimeConfig.Azure.ModelName,
+		ReasoningEffort:           runtimeConfig.Azure.ReasoningEffort,
+		SupportedReasoningEfforts: append([]string(nil), runtimeConfig.Azure.SupportedReasoningEfforts...),
+		Instructions:              sanitize(system.String()), MaxTurns: options.CLI.MaxTurns,
+		MaxOutputTokens: engine.DefaultMaxOutputTokens, InputContextTokens: engine.DefaultInputContextTokens,
+		Provider: provider, Capabilities: capabilities, Transcript: semanticStore, Sink: options.Sink,
+		Sanitize: sanitize, CredentialSanitizer: credentialSet, Attachments: attachmentStore, Logger: logger,
+	})
 	if err != nil {
 		return nil, closeExtensionFailure(err)
 	}
@@ -444,11 +481,16 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 			if err != nil {
 				return nil, closeExtensionFailure(err)
 			}
-			if err := completeForkPublication(layout); err != nil {
-				return nil, closeExtensionFailure(err)
-			}
 		}
 		if err := query.Restore(snapshot); err != nil {
+			if errors.Is(err, engine.ErrUnsupportedRestoredReasoningEffort) {
+				// Restore errors are engine-owned and already credential-safe, but the
+				// engine's sealed error type is intentionally opaque to the general
+				// operational-error projector. Re-project this package-owned class as a
+				// constant diagnostic so resume/fork failures remain actionable without
+				// inspecting or exposing any durable value.
+				err = errors.New("session reasoning effort is unsupported by the selected provider; select a provider that supports every recorded effort or start a new session")
+			}
 			return nil, closeExtensionFailure(err)
 		}
 		attachmentOwners, err = attachmentPromptOwners(snapshot.Events)
@@ -458,12 +500,20 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		if _, err := attachmentStore.Collect(ctx, attachmentIDs(snapshot.Events)); err != nil {
 			return nil, closeExtensionFailure(errors.New("reconcile durable attachment storage"))
 		}
+		if options.CLI.ForkSession {
+			// Publication is the final fork commit point. A provider/reasoning restore
+			// failure or attachment reconciliation failure must leave the marker in
+			// place so inventory cannot expose a destination that never started.
+			if err := completeForkPublication(layout); err != nil {
+				return nil, closeExtensionFailure(err)
+			}
+		}
 	} else {
 		if _, err := attachmentStore.Collect(ctx, nil); err != nil {
 			return nil, closeExtensionFailure(errors.New("reconcile new attachment storage"))
 		}
 	}
-	services, err := buildRuntimeServices(options, runtimeExt, query, func() int { return len(tasks.List()) }, skillScope, memoryStore, sandboxRunner)
+	services, err := buildRuntimeServices(options, runtimeExt, query, runtimeConfig.SelectedProvider, func() int { return len(tasks.List()) }, skillScope, memoryStore, sandboxRunner)
 	if err != nil {
 		return nil, closeExtensionFailure(err)
 	}
@@ -488,7 +538,7 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 		if options.CLI.Resume != "" || options.CLI.Continue || options.CLI.ForkSession {
 			source = "resume"
 		}
-		aggregate, hookErr := runtimeExt.runner.Dispatch(ctx, runtimeExt.hooks, extensions.HookInput{SessionID: string(layout.sessionID), TranscriptPath: result.transcriptPath(), CWD: options.Workspace, PermissionMode: string(mode), Event: extensions.HookSessionStart, Fields: map[string]any{"source": source, "model": runtimeConfig.Azure.ModelName}})
+		aggregate, hookErr := runtimeExt.runner.Dispatch(ctx, runtimeExt.hooks, extensions.HookInput{SessionID: string(layout.sessionID), TranscriptPath: result.transcriptPath(), CWD: options.Workspace, PermissionMode: string(mode), Event: extensions.HookSessionStart, Fields: map[string]any{"source": source, "provider": runtimeConfig.SelectedProvider.ID, "provider_type": runtimeConfig.SelectedProvider.Type, "model": runtimeConfig.Azure.ModelName}})
 		if hookErr != nil || !aggregate.Continue {
 			return nil, errors.Join(fallbackError(hookErr, aggregate.Reason, "session-start hook stopped startup"), result.Close())
 		}
@@ -502,6 +552,93 @@ func buildSession(ctx context.Context, options buildOptions) (_ *runtimeSession,
 	retainLayout = true
 	retainAttachmentStore = true
 	return result, nil
+}
+
+func validateSnapshotProviderBinding(snapshot transcript.Snapshot, runtimeConfig config.Runtime) error {
+	want := runtimeConfig.SelectedProvider
+	wantBinding := runtimeConfig.ProviderBinding()
+	for _, event := range snapshot.Events {
+		metadata := event.Session
+		if !sessionMetadataHasProviderBinding(metadata) {
+			return errors.New("session predates provider binding metadata and cannot be resumed safely; start a new session")
+		}
+		if err := protocol.ValidateSessionProviderBinding(metadata); err != nil {
+			return errors.New("session has incomplete or invalid provider binding metadata and cannot be resumed safely; start a new session")
+		}
+		if metadata.ProviderID != want.ID {
+			return fmt.Errorf(
+				"session is bound to provider %q; restart with --provider %s",
+				metadata.ProviderID, metadata.ProviderID,
+			)
+		}
+		if metadata.ProviderType != want.Type || metadata.Model != want.Model {
+			return fmt.Errorf("session provider %q no longer has its recorded type and model", want.ID)
+		}
+		if metadata.ProviderBinding != wantBinding {
+			return fmt.Errorf("session provider %q was changed in auth.json; restore its endpoint, deployment, model, type, and API version before resuming", want.ID)
+		}
+	}
+	return nil
+}
+
+func sessionMetadataHasProviderBinding(metadata protocol.SessionMetadata) bool {
+	return metadata.ProviderID != "" || metadata.ProviderType != "" ||
+		metadata.ProviderBinding != "" || metadata.Model != ""
+}
+
+// runtimeTranscriptJSONValidator composes complete-frame credential inspection
+// with a provider-binding check that runs before transcript recovery is allowed
+// to isolate schema-invalid records. The validator accepts both one physical
+// Event and the final recovered Snapshot projection used by transcript.ReadFile.
+func runtimeTranscriptJSONValidator(credentials *redact.Set) func([]byte) error {
+	validateCredentials := credentialJSONValidator(credentials)
+	return func(raw []byte) error {
+		if err := validateCredentials(raw); err != nil {
+			return err
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+			return errors.New("transcript provider binding could not be safely inspected")
+		}
+		validateMetadata := func(metadata protocol.SessionMetadata) error {
+			if !sessionMetadataHasProviderBinding(metadata) {
+				// The protocol deliberately keeps an all-empty legacy tuple parseable.
+				// It cannot be isolated as schema-invalid, so snapshot policy below can
+				// return the actionable "start a new session" diagnostic.
+				return nil
+			}
+			if err := protocol.ValidateSessionProviderBinding(metadata); err != nil {
+				return errors.New("transcript record has invalid provider binding metadata")
+			}
+			return nil
+		}
+		if _, isEvent := object["kind"]; isEvent {
+			var event struct {
+				Session protocol.SessionMetadata `json:"session"`
+			}
+			if err := json.Unmarshal(raw, &event); err != nil {
+				return errors.New("transcript provider binding could not be safely inspected")
+			}
+			return validateMetadata(event.Session)
+		}
+		if _, isSnapshot := object["events"]; isSnapshot {
+			var snapshot struct {
+				Events []struct {
+					Session protocol.SessionMetadata `json:"session"`
+				} `json:"events"`
+			}
+			if err := json.Unmarshal(raw, &snapshot); err != nil {
+				return errors.New("transcript provider binding could not be safely inspected")
+			}
+			for _, event := range snapshot.Events {
+				if err := validateMetadata(event.Session); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return errors.New("transcript provider binding projection is unsupported")
+	}
 }
 
 func (r *runtimeSession) Close() error {
@@ -793,7 +930,7 @@ func (layout sessionLayout) removeTemporary() error {
 	return layout.sessionOwner.RemoveAll()
 }
 
-func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Options) (layout sessionLayout, source *transcript.Snapshot, resultErr error) {
+func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Options, validateRecord func([]byte) error) (layout sessionLayout, source *transcript.Snapshot, resultErr error) {
 	var heldLock *sessionlock.Lock
 	var temporaryOwner *platform.OwnedDirectory
 	defer func() {
@@ -1040,7 +1177,9 @@ func resolveSessionLayout(ctx context.Context, workspace string, opts cli.Option
 		} else if err := heldLock.Verify(); err != nil {
 			return sessionLayout{}, nil, fmt.Errorf("verify resumed session %s lock: %w", sourceID, err)
 		}
-		snapshot, readErr := transcript.ReadFile(ctx, sourcePath, transcript.ReadOptions{ExpectedSessionID: protocol.SessionID(sourceID)})
+		snapshot, readErr := transcript.ReadFile(ctx, sourcePath, transcript.ReadOptions{
+			ExpectedSessionID: protocol.SessionID(sourceID), ValidateRecord: validateRecord,
+		})
 		readErr = errors.Join(readErr, sourceOwner.Verify())
 		var sourceUnlockErr error
 		if sourceLock != nil {

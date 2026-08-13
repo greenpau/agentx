@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,7 +41,9 @@ func (sdkWireCapabilities) Execute(context.Context, []engine.CapabilityCall) []e
 func newSDKWireSession(t *testing.T) *runtimeSession {
 	t.Helper()
 	query, err := engine.New(engine.Config{
-		SessionID: "ses_sdk_wire", Model: "gpt-5.6-sol", Provider: sdkWireProvider{}, Capabilities: sdkWireCapabilities{},
+		SessionID: "ses_sdk_wire", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		SupportedReasoningEfforts: []string{"low", "medium", "high"},
+		Provider:                  sdkWireProvider{}, Capabilities: sdkWireCapabilities{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,10 +55,45 @@ func newSDKWireSession(t *testing.T) *runtimeSession {
 	return &runtimeSession{
 		engine: query, registry: registry, workspace: "/work/project",
 		config: config.Runtime{
-			Azure:      config.Azure{ModelName: "gpt-5.6-sol"},
+			Azure:            config.Azure{ModelName: "gpt-5.6-sol", ReasoningEffort: "high", SupportedReasoningEfforts: []string{"low", "medium", "high"}},
+			SelectedProvider: config.ProviderDescriptor{ID: "sol-east", Type: "azure_openai", Model: "gpt-5.6-sol", Default: true, Selected: true, Reasoning: config.ReasoningCapabilities{Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high"}},
+			Providers: []config.ProviderDescriptor{
+				{ID: "sol-east", Type: "azure_openai", Model: "gpt-5.6-sol", Default: true, Selected: true, Reasoning: config.ReasoningCapabilities{Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high"}},
+				{ID: "terra-west", Type: "azure_openai", Model: "gpt-5.6-terra", Reasoning: config.ReasoningCapabilities{Efforts: []string{"medium", "high"}, DefaultEffort: "medium"}},
+			},
 			Provenance: map[string]config.Source{"AZURE_OPENAI_SUBSCRIPTION_KEY": config.SourceFile},
 		},
 	}
+}
+
+func newSDKDuplicateModelSession(t *testing.T) *runtimeSession {
+	t.Helper()
+	session := newSDKWireSession(t)
+	defaultProvider := config.ProviderDescriptor{
+		ID: "sol-east", Type: "azure_openai", Model: "gpt-5.6-sol", Default: true,
+		Reasoning: config.ReasoningCapabilities{Efforts: []string{"none", "low"}, DefaultEffort: "low"},
+	}
+	selectedProvider := config.ProviderDescriptor{
+		ID: "sol-west", Type: "azure_openai", Model: "gpt-5.6-sol", Selected: true,
+		Reasoning: config.ReasoningCapabilities{Efforts: []string{"medium", "high"}, DefaultEffort: "high"},
+	}
+	terraProvider := config.ProviderDescriptor{
+		ID: "terra-north", Type: "azure_openai", Model: "gpt-5.6-terra",
+		Reasoning: config.ReasoningCapabilities{Efforts: []string{"high", "xhigh", "max"}, DefaultEffort: "xhigh"},
+	}
+	session.config.Azure = config.Azure{
+		Endpoint:                  &url.URL{Scheme: "https", Host: "endpoint-routing-sentinel.invalid", Path: "/private-route"},
+		ModelName:                 selectedProvider.Model,
+		Deployment:                "deployment-routing-sentinel",
+		APIKey:                    "api-key-secret-sentinel",
+		APIVersion:                "api-version-routing-sentinel",
+		ReasoningEffort:           selectedProvider.Reasoning.DefaultEffort,
+		SupportedReasoningEfforts: append([]string(nil), selectedProvider.Reasoning.Efforts...),
+	}
+	session.config.SelectedProvider = selectedProvider
+	session.config.Providers = []config.ProviderDescriptor{defaultProvider, selectedProvider, terraProvider}
+	session.config.AuthFile = "/private/auth-file-routing-sentinel.json"
+	return session
 }
 
 func TestInputQueueIsCountAndByteBounded(t *testing.T) {
@@ -255,13 +294,13 @@ func TestSDKInitCarriesRequiredConfiguredModelMetadata(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
 		t.Fatal(err)
 	}
-	if record["type"] != "system" || record["subtype"] != "init" || record["model"] != "gpt-5.6-sol" || record["permissionMode"] != "default" {
+	if record["type"] != "system" || record["subtype"] != "init" || record["model"] != "gpt-5.6-sol" || record["provider"] != "sol-east" || record["provider_type"] != "azure_openai" || record["permissionMode"] != "default" {
 		t.Fatalf("init identity = %#v", record)
 	}
 	if record["apiKeySource"] != "user" || record["agentx_version"] != ProductVersion() || record["cwd"] != "/work/project" || record["session_id"] != "ses_sdk_wire" {
 		t.Fatalf("init metadata = %#v", record)
 	}
-	for _, key := range []string{"tools", "mcp_servers", "slash_commands", "output_style", "skills", "plugins", "uuid"} {
+	for _, key := range []string{"tools", "mcp_servers", "slash_commands", "output_style", "skills", "plugins", "uuid", "reasoning_capabilities"} {
 		if _, exists := record[key]; !exists {
 			t.Fatalf("init missing %s: %#v", key, record)
 		}
@@ -322,14 +361,166 @@ func TestInitializeControlUsesCorrelatedPublishedResponseShape(t *testing.T) {
 	if err := json.Unmarshal(response["response"], &payload); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"commands", "agents", "output_style", "available_output_styles", "models", "account", "pid"} {
+	for _, key := range []string{"commands", "agents", "output_style", "available_output_styles", "models", "providers", "account", "pid"} {
 		if _, exists := payload[key]; !exists {
 			t.Fatalf("initialize payload missing %s: %#v", key, payload)
 		}
 	}
 	account, ok := payload["account"].(map[string]any)
-	if !ok || account["apiKeySource"] != "user" || account["apiProvider"] != "foundry" {
+	if !ok || account["apiKeySource"] != "user" || account["apiProvider"] != "foundry" ||
+		account["provider"] != "sol-east" || account["providerType"] != "azure_openai" {
 		t.Fatalf("initialize account = %#v", payload["account"])
+	}
+	models, ok := payload["models"].([]any)
+	if !ok || len(models) != 1 {
+		t.Fatalf("initialize models = %#v", payload["models"])
+	}
+	selectedModel, ok := models[0].(map[string]any)
+	if !ok || selectedModel["value"] != "gpt-5.6-sol" || selectedModel["provider"] != "sol-east" ||
+		selectedModel["supportsEffort"] != true {
+		t.Fatalf("selected model descriptor = %#v", models[0])
+	}
+	providers, ok := payload["providers"].([]any)
+	if !ok || len(providers) != 2 {
+		t.Fatalf("initialize providers = %#v", payload["providers"])
+	}
+	first, ok := providers[0].(map[string]any)
+	if !ok || first["id"] != "sol-east" || first["model"] != "gpt-5.6-sol" || first["selected"] != true || first["defaultReasoningEffort"] != "high" {
+		t.Fatalf("first provider descriptor = %#v", providers[0])
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{`"endpoint"`, `"deployment"`, `"api_version"`, `"api_key"`} {
+		if strings.Contains(string(encodedPayload), forbidden) {
+			t.Fatalf("initialize provider catalog exposed %q: %s", forbidden, encodedPayload)
+		}
+	}
+}
+
+func TestSDKProviderCatalogDistinguishesDuplicateModelsAndOmitsRoutingSecrets(t *testing.T) {
+	session := newSDKDuplicateModelSession(t)
+	payload, err := sdkInitializeResponse(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, ok := payload["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models type = %T", payload["models"])
+	}
+	providers, ok := payload["providers"].([]map[string]any)
+	if !ok {
+		t.Fatalf("providers type = %T", payload["providers"])
+	}
+	if len(models) != 1 || models[0]["value"] != "gpt-5.6-sol" || models[0]["provider"] != "sol-west" ||
+		models[0]["providerType"] != "azure_openai" || models[0]["supportsEffort"] != true ||
+		!reflect.DeepEqual(models[0]["supportedReasoningEfforts"], []string{"medium", "high"}) ||
+		models[0]["defaultReasoningEffort"] != "high" {
+		t.Fatalf("selected logical-model compatibility descriptor = %#v", models)
+	}
+	want := []struct {
+		id            string
+		model         string
+		isDefault     bool
+		selected      bool
+		efforts       []string
+		defaultEffort string
+	}{
+		{id: "sol-east", model: "gpt-5.6-sol", isDefault: true, efforts: []string{"none", "low"}, defaultEffort: "low"},
+		{id: "sol-west", model: "gpt-5.6-sol", selected: true, efforts: []string{"medium", "high"}, defaultEffort: "high"},
+		{id: "terra-north", model: "gpt-5.6-terra", efforts: []string{"high", "xhigh", "max"}, defaultEffort: "xhigh"},
+	}
+	if len(providers) != len(want) {
+		t.Fatalf("provider catalog length = %d, want %d: %#v", len(providers), len(want), providers)
+	}
+	selectedCount := 0
+	defaultCount := 0
+	for index, expected := range want {
+		descriptor := providers[index]
+		if descriptor["value"] != expected.id || descriptor["id"] != expected.id ||
+			descriptor["providerType"] != "azure_openai" || descriptor["model"] != expected.model ||
+			descriptor["default"] != expected.isDefault || descriptor["selected"] != expected.selected {
+			t.Fatalf("descriptor %d identity = %#v, want %#v", index, descriptor, expected)
+		}
+		if descriptor["supportsEffort"] != true || !reflect.DeepEqual(descriptor["supportedReasoningEfforts"], expected.efforts) ||
+			descriptor["defaultReasoningEffort"] != expected.defaultEffort {
+			t.Fatalf("descriptor %d flat reasoning = %#v", index, descriptor)
+		}
+		reasoning, ok := descriptor["reasoning"].(map[string]any)
+		if !ok || reasoning["supported"] != true || !reflect.DeepEqual(reasoning["efforts"], expected.efforts) ||
+			reasoning["defaultEffort"] != expected.defaultEffort {
+			t.Fatalf("descriptor %d nested reasoning = %#v", index, descriptor["reasoning"])
+		}
+		if expected.selected {
+			selectedCount++
+		}
+		if expected.isDefault {
+			defaultCount++
+		}
+	}
+	if selectedCount != 1 || defaultCount != 1 {
+		t.Fatalf("selected/default counts = %d/%d", selectedCount, defaultCount)
+	}
+	if providers[0]["model"] != providers[1]["model"] || providers[0]["value"] == providers[1]["value"] ||
+		providers[0]["value"] == providers[0]["model"] || providers[1]["value"] == providers[1]["model"] {
+		t.Fatalf("duplicate logical models were not distinguished by provider ID: %#v", providers[:2])
+	}
+	account, ok := payload["account"].(map[string]any)
+	if !ok || account["provider"] != "sol-west" || account["apiProvider"] != "foundry" || account["providerType"] != "azure_openai" {
+		t.Fatalf("selected account = %#v", payload["account"])
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sentinel := range []string{
+		"endpoint-routing-sentinel.invalid", "private-route", "deployment-routing-sentinel",
+		"api-key-secret-sentinel", "api-version-routing-sentinel", "auth-file-routing-sentinel",
+	} {
+		if bytes.Contains(encoded, []byte(sentinel)) {
+			t.Fatalf("initialize payload exposed routing/credential sentinel %q: %s", sentinel, encoded)
+		}
+	}
+	for _, member := range []string{
+		`"endpoint":`, `"deployment":`, `"api_version":`, `"apiVersion":`, `"api_key":`, `"apiKey":`,
+		`"subscription_key":`, `"subscriptionKey":`, `"provider_binding":`, `"providerBinding":`,
+		`"auth_file":`, `"authFile":`,
+	} {
+		if bytes.Contains(encoded, []byte(member)) {
+			t.Fatalf("initialize payload exposed forbidden member %q: %s", member, encoded)
+		}
+	}
+}
+
+func TestSDKInitEmitsOnlySelectedProviderIdentityAndReasoning(t *testing.T) {
+	session := newSDKDuplicateModelSession(t)
+	var output bytes.Buffer
+	if err := encodeSDKInit(surface.NewEncoder(&output), session, cli.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["provider"] != "sol-west" || record["provider_type"] != "azure_openai" || record["model"] != "gpt-5.6-sol" {
+		t.Fatalf("selected init identity = %#v", record)
+	}
+	reasoning, ok := record["reasoning_capabilities"].(map[string]any)
+	if !ok || reasoning["supported"] != true || reasoning["defaultEffort"] != "high" ||
+		!reflect.DeepEqual(reasoning["efforts"], []any{"medium", "high"}) {
+		t.Fatalf("selected init reasoning = %#v", record["reasoning_capabilities"])
+	}
+	for _, forbidden := range []string{
+		"sol-east", "terra-north", "endpoint-routing-sentinel.invalid", "private-route",
+		"deployment-routing-sentinel", "api-key-secret-sentinel", "api-version-routing-sentinel",
+		"auth-file-routing-sentinel", `"providers"`, `"endpoint"`, `"deployment"`,
+		`"api_version"`, `"api_key"`, `"provider_binding"`, `"auth_file"`,
+	} {
+		if strings.Contains(output.String(), forbidden) {
+			t.Fatalf("system/init exposed unselected or private value %q: %s", forbidden, output.String())
+		}
 	}
 }
 
@@ -600,6 +791,42 @@ func TestAggregateJSONUsesThePublishedSDKResultUnion(t *testing.T) {
 		if _, present := record[key]; !present {
 			t.Fatalf("aggregate result missing %s: %#v", key, record)
 		}
+	}
+}
+
+func TestSDKResultReportsEffectiveEngineTokenLimits(t *testing.T) {
+	outcome := engine.Outcome{
+		SessionID: "ses_effective_limits", Status: protocol.TurnResultSuccess,
+		Usage:              protocol.Usage{Model: "gpt-5.6-terra"},
+		InputContextTokens: 400_000, MaxOutputTokens: 48_000,
+	}
+	record, err := sdkResultRecord(outcome, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, ok := record["modelUsage"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelUsage type = %T", record["modelUsage"])
+	}
+	usage, ok := models["gpt-5.6-terra"].(map[string]any)
+	if !ok {
+		t.Fatalf("model usage = %#v", models)
+	}
+	if usage["contextWindow"] != 400_000 || usage["maxOutputTokens"] != 48_000 {
+		t.Fatalf("effective model limits = %#v", usage)
+	}
+
+	legacy := outcome
+	legacy.InputContextTokens = 0
+	legacy.MaxOutputTokens = 0
+	record, err = sdkResultRecord(legacy, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage = record["modelUsage"].(map[string]any)["gpt-5.6-terra"].(map[string]any)
+	if usage["contextWindow"] != engine.DefaultInputContextTokens ||
+		usage["maxOutputTokens"] != engine.DefaultMaxOutputTokens {
+		t.Fatalf("legacy model-limit fallback = %#v", usage)
 	}
 }
 

@@ -54,6 +54,16 @@ func runProcess(args []string, stdin io.Reader, stdout, stderr io.Writer, forceE
 		fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
 		return 1
 	}
+	// Registry discovery is a finite, provider-neutral configuration read. Keep
+	// it ahead of process signal ownership so editor probes cannot construct
+	// session lifecycle machinery merely to inspect static endpoint metadata.
+	if options, parseErr := cli.Parse(args); parseErr == nil && options.ProviderDiscoveryRequested() {
+		err = agentapp.Run(ctx, args, stdin, stdout, stderr)
+		if err != nil {
+			fmt.Fprintln(stderr, agentapp.TerminalSafeText(err.Error()))
+		}
+		return agentapp.ExitCode(err)
+	}
 	shutdownState := signals.NewProcessShutdown(forceExit, signals.DefaultFailsafe)
 	ctx = signals.WithProcessShutdown(ctx, shutdownState)
 	interruptOwner := signals.InterruptOwnedByProcess

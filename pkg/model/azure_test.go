@@ -739,6 +739,86 @@ func TestAzureReasoningReplayAlwaysIncludesSummaryArray(t *testing.T) {
 	}
 }
 
+func TestAzureEnforcesConfiguredReasoningEffortSubset(t *testing.T) {
+	endpoint, err := url.Parse("http://127.0.0.1:1/openai/v1/responses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseConfiguration := func() config.Azure {
+		return config.Azure{
+			Endpoint: endpoint, ModelName: "gpt-5.6-sol", Deployment: "configured-deployment",
+			APIKey: testAPIKey, APIVersion: "2026-07-01-preview", ReasoningEffort: "high",
+			RequestTimeout: 2 * time.Second, StreamWatchdog: time.Second,
+			UnsafeAllowInsecureLoopbackForTesting: true,
+		}
+	}
+	for _, test := range []struct {
+		name      string
+		supported []string
+		effort    string
+	}{
+		{name: "invalid capability", supported: []string{"high", "ultra"}, effort: "high"},
+		{name: "duplicate capability", supported: []string{"high", "high"}, effort: "high"},
+		{name: "default outside subset", supported: []string{"low", "medium"}, effort: "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configuration := baseConfiguration()
+			configuration.SupportedReasoningEfforts = test.supported
+			configuration.ReasoningEffort = test.effort
+			client, err := NewAzureClient(configuration, AzureOptions{})
+			if client != nil || !errors.Is(err, config.ErrInvalid) {
+				t.Fatalf("invalid reasoning capability configuration: client=%v err=%v", client, err)
+			}
+		})
+	}
+
+	var calls atomic.Int32
+	captured := make(chan map[string]any, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		captured <- body
+		writeCompleted(writer, "resp_reasoning_subset")
+	}))
+	defer server.Close()
+	serverEndpoint, err := url.Parse(server.URL + "/openai/v1/responses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	supported := []string{"low", "high"}
+	configuration := baseConfiguration()
+	configuration.Endpoint = serverEndpoint
+	configuration.SupportedReasoningEfforts = supported
+	client, err := NewAzureClient(configuration, AzureOptions{HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	supported[0], supported[1] = "xhigh", "max"
+	stream, err := client.Stream(t.Context(), Request{
+		Input: []Item{TextMessage(RoleUser, "hi")}, Reasoning: Reasoning{Effort: "low"},
+	})
+	if err != nil {
+		t.Fatalf("start supported effort request: %v", err)
+	}
+	if _, err := Drain(stream); err != nil {
+		t.Fatal(err)
+	}
+	assertNestedValue(t, <-captured, []string{"reasoning", "effort"}, "low")
+
+	stream, err = client.Stream(t.Context(), Request{
+		Input: []Item{TextMessage(RoleUser, "hi")}, Reasoning: Reasoning{Effort: "xhigh"},
+	})
+	if stream != nil || !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "unsupported by the configured endpoint") {
+		t.Fatalf("effort outside subset: stream=%v err=%v", stream, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("unsupported effort reached provider: calls=%d", calls.Load())
+	}
+}
+
 func TestAzureReasoningNoneOmitsEncryptedInclude(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body map[string]any

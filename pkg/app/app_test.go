@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,9 +121,25 @@ type failAfterWriter struct {
 }
 
 type testAuthFileDocument struct {
-	Version     int                     `json:"version"`
-	Provider    string                  `json:"provider"`
-	AzureOpenAI testAzureOpenAIAuthFile `json:"azure_openai"`
+	Version   int                    `json:"version"`
+	Providers []testAuthFileProvider `json:"providers"`
+}
+
+type testAuthFileProvider struct {
+	ID           string                   `json:"id"`
+	Type         string                   `json:"type"`
+	Default      bool                     `json:"default,omitempty"`
+	Capabilities testAuthFileCapabilities `json:"capabilities"`
+	AzureOpenAI  testAzureOpenAIAuthFile  `json:"azure_openai"`
+}
+
+type testAuthFileCapabilities struct {
+	Reasoning testAuthFileReasoning `json:"reasoning"`
+}
+
+type testAuthFileReasoning struct {
+	Efforts       []string `json:"efforts"`
+	DefaultEffort string   `json:"default_effort"`
 }
 
 type testAzureOpenAIAuthFile struct {
@@ -147,6 +166,26 @@ func testProviderContext(t *testing.T, server *httptest.Server) context.Context 
 	return context.WithValue(t.Context(), modelHTTPClientContextKey{}, server.Client())
 }
 
+func testProviderContextForServers(t *testing.T, servers ...*httptest.Server) context.Context {
+	t.Helper()
+	if len(servers) == 0 {
+		t.Fatal("at least one TLS provider test server is required")
+	}
+	roots := x509.NewCertPool()
+	for index, server := range servers {
+		if server == nil || server.Certificate() == nil {
+			t.Fatalf("TLS provider test server %d is unavailable", index)
+		}
+		roots.AddCert(server.Certificate())
+	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}}
+	t.Cleanup(transport.CloseIdleConnections)
+	return context.WithValue(t.Context(), modelHTTPClientContextKey{}, &http.Client{Transport: transport})
+}
+
 func configureTestAuthFilePresence(t *testing.T) {
 	t.Helper()
 	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
@@ -161,17 +200,24 @@ func configureTestAuthFilePresence(t *testing.T) {
 
 func writeTestAuthFile(t *testing.T, agentxHome, endpoint, model, deployment, apiKey, apiVersion string) string {
 	t.Helper()
-	if err := os.MkdirAll(agentxHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	document := testAuthFileDocument{
-		Version:  1,
-		Provider: "azure_openai",
+	return writeTestAuthRegistry(t, agentxHome, []testAuthFileProvider{{
+		ID: "test-provider", Type: "azure_openai", Default: true,
+		Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{
+			Efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, DefaultEffort: "high",
+		}},
 		AzureOpenAI: testAzureOpenAIAuthFile{
 			Endpoint: endpoint, Model: model, Deployment: deployment,
 			APIKey: apiKey, APIVersion: apiVersion,
 		},
+	}})
+}
+
+func writeTestAuthRegistry(t *testing.T, agentxHome string, providers []testAuthFileProvider) string {
+	t.Helper()
+	if err := os.MkdirAll(agentxHome, 0o700); err != nil {
+		t.Fatal(err)
 	}
+	document := testAuthFileDocument{Version: 2, Providers: providers}
 	data, err := json.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
@@ -578,6 +624,402 @@ func TestHeadlessAzureVerticalSlice(t *testing.T) {
 	}
 	if combined := output.String() + diagnostics.String(); strings.Contains(combined, authAPIKey) {
 		t.Fatal("auth-file credential leaked")
+	}
+}
+
+func TestHeadlessSelectsExactConfiguredProviderEndpointAndCapabilities(t *testing.T) {
+	const (
+		solKey     = "opaque-sol-credential"
+		terraKey   = "opaque-terra-credential"
+		solModel   = "gpt-5.6-sol"
+		terraModel = "gpt-5.6-terra"
+	)
+	type observedRequest struct {
+		path, key, deployment, effort string
+	}
+	var (
+		observedMu sync.Mutex
+		observed   []observedRequest
+	)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Model     string `json:"model"`
+			Reasoning struct {
+				Effort string `json:"effort"`
+			} `json:"reasoning"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		observedMu.Lock()
+		observed = append(observed, observedRequest{
+			path: request.URL.Path, key: request.Header.Get("api-key"),
+			deployment: body.Model, effort: body.Reasoning.Effort,
+		})
+		observedMu.Unlock()
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_provider\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+		fmt.Fprint(writer, "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_provider\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+		fmt.Fprint(writer, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_provider\",\"output_index\":0,\"content_index\":0,\"delta\":\"selected\"}\n\n")
+		fmt.Fprintf(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_provider\",\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_provider\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"selected\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n", body.Model)
+	}))
+	defer server.Close()
+
+	providers := []testAuthFileProvider{
+		{
+			ID: "sol-east", Type: "azure_openai", Default: true,
+			Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"high", "xhigh"}, DefaultEffort: "high"}},
+			AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: server.URL + "/sol", Model: solModel, Deployment: "sol-wire", APIKey: solKey, APIVersion: "preview"},
+		},
+		{
+			ID: "terra-west", Type: "azure_openai",
+			Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"medium", "high"}, DefaultEffort: "medium"}},
+			AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: server.URL + "/terra", Model: terraModel, Deployment: "terra-wire", APIKey: terraKey, APIVersion: "preview"},
+		},
+	}
+	home := filepath.Join(t.TempDir(), "agentx-home")
+	writeTestAuthRegistry(t, home, providers)
+	t.Setenv("AGENTX_HOME", home)
+	workspace := t.TempDir()
+	base := []string{"--print", "--bare", "--no-session-persistence", "--cwd", workspace}
+	providerContext := testProviderContext(t, server)
+	for _, invocation := range []struct {
+		args []string
+	}{
+		{args: append(append([]string(nil), base...), "default provider")},
+		{args: append(append([]string(nil), base...), "--provider", "terra-west", "--model", terraModel, "--effort", "high", "explicit provider")},
+	} {
+		var output, diagnostics bytes.Buffer
+		if err := Run(providerContext, invocation.args, strings.NewReader(""), &output, &diagnostics); err != nil {
+			t.Fatalf("Run(%v): %v diagnostics=%q", invocation.args, err, diagnostics.String())
+		}
+		if output.String() != "selected\n" {
+			t.Fatalf("Run(%v) output = %q", invocation.args, output.String())
+		}
+	}
+	providers[0].Default = false
+	writeTestAuthRegistry(t, home, providers)
+	var missingDefaultOutput, missingDefaultDiagnostics bytes.Buffer
+	missingDefaultErr := Run(providerContext, append(append([]string(nil), base...), "must not call a provider"), strings.NewReader(""), &missingDefaultOutput, &missingDefaultDiagnostics)
+	if missingDefaultErr == nil || !strings.Contains(missingDefaultErr.Error(), `"default": true`) || !strings.Contains(missingDefaultErr.Error(), "--provider <id>") {
+		t.Fatalf("missing-default error = %v", missingDefaultErr)
+	}
+	if missingDefaultOutput.Len() != 0 || strings.Contains(missingDefaultDiagnostics.String(), solKey) || strings.Contains(missingDefaultDiagnostics.String(), terraKey) {
+		t.Fatalf("missing-default output was unsafe: stdout=%q stderr=%q", missingDefaultOutput.String(), missingDefaultDiagnostics.String())
+	}
+
+	observedMu.Lock()
+	defer observedMu.Unlock()
+	want := []observedRequest{
+		{path: "/sol/openai/v1/responses", key: solKey, deployment: "sol-wire", effort: "high"},
+		{path: "/terra/openai/v1/responses", key: terraKey, deployment: "terra-wire", effort: "high"},
+	}
+	if !reflect.DeepEqual(observed, want) {
+		t.Fatalf("provider requests = %#v, want %#v", observed, want)
+	}
+}
+
+func TestHeadlessSelectedProviderFailureNeverFallsBackAcrossRegistry(t *testing.T) {
+	const (
+		defaultID        = "sol-default"
+		nondefaultID     = "terra-explicit"
+		defaultModel     = "gpt-5.6-sol"
+		nondefaultModel  = "gpt-5.6-terra"
+		defaultKey       = "opaque-default-provider-credential"
+		nondefaultKey    = "opaque-nondefault-provider-credential"
+		defaultWireModel = "sol-default-wire-deployment"
+		otherWireModel   = "terra-explicit-wire-deployment"
+		apiVersion       = "2026-07-01-preview"
+		failureCode      = "terminal_selected_failure"
+		fallbackText     = "fallback-was-used"
+	)
+	tests := []struct {
+		name             string
+		failureDefault   bool
+		explicitProvider string
+	}{
+		{name: "declared default fails", failureDefault: true},
+		{name: "explicit nondefault fails", explicitProvider: nondefaultID},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var defaultRequests, nondefaultRequests atomic.Int32
+			assertRequest := func(
+				t *testing.T,
+				request *http.Request,
+				wantKey, wantDeployment, wantEffort string,
+			) {
+				t.Helper()
+				if request.Method != http.MethodPost || request.URL.Path != "/openai/responses" ||
+					request.URL.Query().Get("api-version") != apiVersion {
+					t.Errorf("selected provider route = %s %s with version-present=%t", request.Method, request.URL.Path, request.URL.Query().Has("api-version"))
+				}
+				if request.Header.Get("api-key") != wantKey || request.Header.Get("Authorization") != "" {
+					t.Error("selected provider request did not use its isolated registry credential")
+				}
+				var body struct {
+					Model     string `json:"model"`
+					Store     bool   `json:"store"`
+					Stream    bool   `json:"stream"`
+					Reasoning struct {
+						Effort string `json:"effort"`
+					} `json:"reasoning"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Errorf("decode selected provider request: %v", err)
+					return
+				}
+				if body.Model != wantDeployment || body.Store || !body.Stream || body.Reasoning.Effort != wantEffort {
+					t.Errorf("selected provider request body used the wrong deployment, stream policy, or effort")
+				}
+			}
+			writeFailure := func(writer http.ResponseWriter) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("x-request-id", "req-selected-terminal")
+				writer.Header().Set("x-should-retry", "false")
+				writer.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprintf(writer, `{"error":{"code":%q,"message":"selected provider terminated","type":"server_error"}}`, failureCode)
+			}
+			writeSuccess := func(writer http.ResponseWriter, deployment string) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_fallback\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+				fmt.Fprint(writer, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_fallback\",\"output_index\":0,\"content_index\":0,\"delta\":\"fallback-was-used\"}\n\n")
+				fmt.Fprintf(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_fallback\",\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"msg_fallback\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":%q}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n", deployment, fallbackText)
+			}
+
+			defaultServer := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				defaultRequests.Add(1)
+				assertRequest(t, request, defaultKey, defaultWireModel, "high")
+				if test.failureDefault {
+					writeFailure(writer)
+					return
+				}
+				writeSuccess(writer, defaultWireModel)
+			}))
+			defer defaultServer.Close()
+			nondefaultServer := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				nondefaultRequests.Add(1)
+				assertRequest(t, request, nondefaultKey, otherWireModel, "medium")
+				if !test.failureDefault {
+					writeFailure(writer)
+					return
+				}
+				writeSuccess(writer, otherWireModel)
+			}))
+			defer nondefaultServer.Close()
+
+			home := filepath.Join(t.TempDir(), "agentx-home")
+			writeTestAuthRegistry(t, home, []testAuthFileProvider{
+				{
+					ID: defaultID, Type: "azure_openai", Default: true,
+					Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"high"}, DefaultEffort: "high"}},
+					AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: defaultServer.URL, Model: defaultModel, Deployment: defaultWireModel, APIKey: defaultKey, APIVersion: apiVersion},
+				},
+				{
+					ID: nondefaultID, Type: "azure_openai",
+					Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"medium"}, DefaultEffort: "medium"}},
+					AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: nondefaultServer.URL, Model: nondefaultModel, Deployment: otherWireModel, APIKey: nondefaultKey, APIVersion: apiVersion},
+				},
+			})
+			t.Setenv("AGENTX_HOME", home)
+			args := []string{
+				"--print", "--bare", "--no-session-persistence", "--output-format", "json",
+				"--cwd", t.TempDir(),
+			}
+			if test.explicitProvider != "" {
+				args = append(args, "--provider", test.explicitProvider)
+			}
+			args = append(args, "selected route must terminate")
+
+			var output, diagnostics bytes.Buffer
+			err := Run(
+				testProviderContextForServers(t, defaultServer, nondefaultServer),
+				args,
+				strings.NewReader(""),
+				&output,
+				&diagnostics,
+			)
+			if err == nil {
+				t.Fatalf("selected provider failure = %v, want terminal provider error", err)
+			}
+			var result map[string]any
+			if decodeErr := json.Unmarshal(output.Bytes(), &result); decodeErr != nil {
+				t.Fatalf("decode aggregate terminal result: %v; output=%q", decodeErr, output.String())
+			}
+			if result["type"] != "result" || result["subtype"] != "error_during_execution" ||
+				result["is_error"] != true || result["stop_reason"] != "provider_error" ||
+				result["num_turns"] != float64(1) {
+				t.Fatalf("aggregate terminal result = %#v", result)
+			}
+			if _, exists := result["result"]; exists {
+				t.Fatalf("failed selected provider produced success result: %#v", result)
+			}
+			if projected, ok := result["errors"].([]any); !ok || len(projected) != 1 {
+				t.Fatalf("failed selected provider omitted its sealed terminal error: %#v", result)
+			}
+			combined := err.Error() + output.String() + diagnostics.String()
+			if strings.Contains(combined, fallbackText) {
+				t.Fatalf("unselected provider fallback became observable: %s", combined)
+			}
+			for _, privateValue := range []string{
+				defaultKey, nondefaultKey, defaultServer.URL, nondefaultServer.URL,
+				defaultWireModel, otherWireModel, apiVersion,
+			} {
+				if strings.Contains(combined, privateValue) {
+					t.Fatal("provider credential or private route metadata leaked through terminal failure")
+				}
+			}
+			if test.failureDefault {
+				if defaultRequests.Load() != 1 || nondefaultRequests.Load() != 0 {
+					t.Fatalf("default failure requests = default:%d nondefault:%d, want 1:0", defaultRequests.Load(), nondefaultRequests.Load())
+				}
+			} else if defaultRequests.Load() != 0 || nondefaultRequests.Load() != 1 {
+				t.Fatalf("explicit failure requests = default:%d nondefault:%d, want 0:1", defaultRequests.Load(), nondefaultRequests.Load())
+			}
+		})
+	}
+}
+
+func TestHeadlessConcurrentExplicitProvidersRemainRouteIsolated(t *testing.T) {
+	const apiVersion = "2026-07-01-preview"
+	type providerCase struct {
+		id, model, deployment, key, effort, output string
+		requests                                   atomic.Int32
+		server                                     *httptest.Server
+		workspace                                  string
+	}
+	providers := []*providerCase{
+		{
+			id: "sol-concurrent", model: "gpt-5.6-sol", deployment: "sol-concurrent-wire",
+			key: "opaque-sol-concurrent-credential", effort: "xhigh", output: "sol-isolated",
+		},
+		{
+			id: "terra-concurrent", model: "gpt-5.6-terra", deployment: "terra-concurrent-wire",
+			key: "opaque-terra-concurrent-credential", effort: "low", output: "terra-isolated",
+		},
+	}
+	arrived := make(chan string, len(providers))
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseAll()
+	writeCompletion := func(writer http.ResponseWriter, provider *providerCase) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(writer, "data: {\"type\":\"response.created\",\"response\":{\"id\":%q,\"status\":\"in_progress\",\"output\":[]}}\n\n", "resp_"+provider.id)
+		fmt.Fprintf(writer, "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":%q,\"status\":\"in_progress\",\"output\":[]}}\n\n", "resp_"+provider.id)
+		fmt.Fprintf(writer, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":%q,\"output_index\":0,\"content_index\":0,\"delta\":%q}\n\n", "msg_"+provider.id, provider.output)
+		fmt.Fprintf(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":%q,\"model\":%q,\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":%q,\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":%q}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n", "resp_"+provider.id, provider.deployment, "msg_"+provider.id, provider.output)
+	}
+	for _, provider := range providers {
+		provider := provider
+		provider.server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			provider.requests.Add(1)
+			if request.Method != http.MethodPost || request.URL.Path != "/openai/responses" ||
+				request.URL.Query().Get("api-version") != apiVersion {
+				t.Errorf("provider %s used an unexpected method or route", provider.id)
+			}
+			if request.Header.Get("api-key") != provider.key || request.Header.Get("Authorization") != "" {
+				t.Errorf("provider %s used another profile's credential", provider.id)
+			}
+			var body struct {
+				Model     string `json:"model"`
+				Reasoning struct {
+					Effort string `json:"effort"`
+				} `json:"reasoning"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Errorf("decode provider %s request: %v", provider.id, err)
+				return
+			}
+			if body.Model != provider.deployment || body.Reasoning.Effort != provider.effort {
+				t.Errorf("provider %s used another profile's deployment or effort", provider.id)
+			}
+			select {
+			case arrived <- provider.id:
+			case <-request.Context().Done():
+				return
+			}
+			select {
+			case <-release:
+			case <-request.Context().Done():
+				return
+			}
+			writeCompletion(writer, provider)
+		}))
+		defer provider.server.Close()
+		provider.workspace = t.TempDir()
+	}
+
+	home := filepath.Join(t.TempDir(), "agentx-home")
+	writeTestAuthRegistry(t, home, []testAuthFileProvider{
+		{
+			ID: providers[0].id, Type: "azure_openai", Default: true,
+			Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"high", providers[0].effort}, DefaultEffort: "high"}},
+			AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: providers[0].server.URL, Model: providers[0].model, Deployment: providers[0].deployment, APIKey: providers[0].key, APIVersion: apiVersion},
+		},
+		{
+			ID: providers[1].id, Type: "azure_openai",
+			Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{Efforts: []string{"none", providers[1].effort}, DefaultEffort: "none"}},
+			AzureOpenAI:  testAzureOpenAIAuthFile{Endpoint: providers[1].server.URL, Model: providers[1].model, Deployment: providers[1].deployment, APIKey: providers[1].key, APIVersion: apiVersion},
+		},
+	})
+	t.Setenv("AGENTX_HOME", home)
+	providerContext := testProviderContextForServers(t, providers[0].server, providers[1].server)
+	type runResult struct {
+		provider    *providerCase
+		output      string
+		diagnostics string
+		err         error
+	}
+	results := make(chan runResult, len(providers))
+	for _, provider := range providers {
+		provider := provider
+		go func() {
+			var output, diagnostics bytes.Buffer
+			err := Run(providerContext, []string{
+				"--print", "--bare", "--no-session-persistence",
+				"--provider", provider.id, "--model", provider.model, "--effort", provider.effort,
+				"--cwd", provider.workspace, "concurrent isolated route",
+			}, strings.NewReader(""), &output, &diagnostics)
+			results <- runResult{provider: provider, output: output.String(), diagnostics: diagnostics.String(), err: err}
+		}()
+	}
+
+	seen := make(map[string]bool, len(providers))
+	for range providers {
+		select {
+		case id := <-arrived:
+			seen[id] = true
+		case <-time.After(5 * time.Second):
+			t.Fatal("concurrent provider requests did not both reach their selected routes")
+		}
+	}
+	for _, provider := range providers {
+		if !seen[provider.id] {
+			t.Fatalf("provider %s did not reach its selected route", provider.id)
+		}
+	}
+	releaseAll()
+	for range providers {
+		select {
+		case result := <-results:
+			if result.err != nil || result.output != result.provider.output+"\n" || result.diagnostics != "" {
+				t.Fatalf("provider %s result = output:%q diagnostics:%q error:%v", result.provider.id, result.output, result.diagnostics, result.err)
+			}
+			combined := result.output + result.diagnostics
+			for _, provider := range providers {
+				if strings.Contains(combined, provider.key) {
+					t.Fatal("concurrent provider credential leaked")
+				}
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("concurrent provider invocation did not settle")
+		}
+	}
+	for _, provider := range providers {
+		if provider.requests.Load() != 1 {
+			t.Fatalf("provider %s requests = %d, want exactly one", provider.id, provider.requests.Load())
+		}
 	}
 }
 

@@ -152,10 +152,14 @@ Resolve the initial cwd to a canonical path and normalize Unicode to NFC when po
 
 When no explicit override is active, append-system text is always last. In proactive/internal modes, a custom agent instruction may append to the default rather than replacing it; gate this behavior explicitly.
 
-The standalone Go default product prompt begins with the exact generic identity
-phrase `You are AI agent,` and must not identify the assistant as AgentX. This
-wording applies only to the default source selected at step 5; an explicit
-override retains its supplied identity text.
+The standalone Go default product prompt begins with the exact generic sentence
+`You are AI agent, a terminal-first software-engineering agent.` and must not
+identify the assistant as AgentX. When the default later describes model
+transport, it names the selected profile's configured logical model rather
+than a hard-coded Sol model and does not disclose provider IDs, endpoint or
+deployment routing, API selectors, or credentials. This wording applies only
+to the default source selected at step 5; an explicit override retains its
+supplied identity text.
 
 **SC-064 — Custom-prompt context.** A custom system prompt suppresses the ordinary generated system context but does not suppress user/project instruction context.
 
@@ -221,9 +225,12 @@ A provider-advertised output cap of at least 4,096 may override family data. Max
 **SC-A10 — Unregister/reconnect accounting.** During one active API call, unregister the callback, advance past 30 seconds, and verify neither timer output nor idle output occurs. Register a replacement callback without another start and verify the retained positive aggregate rearms the active timer. A manual signal obeys the environment gate, cleanup reports the one active reason and elapsed age once, and final stop reaches zero without resetting the historical oldest timestamp.
 
 **SC-A11 — Generic default agent identity.** Build the standalone Go default
-prompt without an explicit override. It begins with `You are AI agent,` and
-does not contain `You are AgentX`. Repeat with an explicit override containing
-its own identity and verify prompt precedence preserves the override unchanged.
+prompt for a selected non-Sol logical model without an explicit override. It
+begins with the exact sentence from `SC-063`, names that selected logical model
+where transport is described, contains neither `You are AgentX` nor a stale
+`gpt-5.6-sol`, and reveals no provider-routing field. Repeat with an explicit
+override containing its own identity and verify prompt precedence preserves the
+override unchanged.
 
 ## Non-normative provenance
 

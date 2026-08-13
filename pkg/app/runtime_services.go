@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/greenpau/agentx/pkg/attachment"
+	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/distributed"
 	"github.com/greenpau/agentx/pkg/engine"
 	"github.com/greenpau/agentx/pkg/extensions"
@@ -100,7 +101,7 @@ func memoryEntriesJSON(store *memory.Store, entries []memory.Entry) (string, err
 	return projection, nil
 }
 
-func buildRuntimeServices(opts buildOptions, runtimeExt runtimeExtensions, query *engine.Engine, tasksCount func() int, scope *skillPermissionScope, memoryStore *memory.Store, sandboxRunner *sandbox.Runner) (runtimeServices, error) {
+func buildRuntimeServices(opts buildOptions, runtimeExt runtimeExtensions, query *engine.Engine, provider config.ProviderDescriptor, tasksCount func() int, scope *skillPermissionScope, memoryStore *memory.Store, sandboxRunner *sandbox.Runner) (runtimeServices, error) {
 	profile := platform.DetectProfile(func() ([]byte, error) { return os.ReadFile("/proc/version") })
 	states := evaluateFeatureProfile(opts.CLI.TrustWorkspace, runtimeExt)
 	base := observability.Snapshot{
@@ -109,7 +110,7 @@ func buildRuntimeServices(opts buildOptions, runtimeExt runtimeExtensions, query
 		Platform:       observability.Fact{Value: string(profile), Source: observability.SourceRuntime},
 		Installation:   observability.Fact{Value: runtime.GOOS + "/" + runtime.GOARCH, Source: observability.SourceBuild},
 		Model:          observability.Fact{Value: query.Status().Model, Source: observability.SourceProvider},
-		Provider:       observability.Fact{Value: "azure_openai", Source: observability.SourceProvider},
+		Provider:       observability.Fact{Value: provider.ID + " (" + provider.Type + ")", Source: observability.SourceProvider},
 		Authentication: observability.Fact{Value: "configured (redacted)", Source: observability.SourceProvider},
 		Policy:         observability.Fact{Value: "permission_mode=" + fallback(opts.CLI.PermissionMode, "default"), Source: observability.SourceFlag},
 		Sandbox:        observability.Fact{Value: sandboxHealth(sandboxRunner), Source: observability.SourceRuntime},
@@ -119,7 +120,7 @@ func buildRuntimeServices(opts buildOptions, runtimeExt runtimeExtensions, query
 	}
 	doctor := observability.NewDoctor(observability.DoctorConfig{}, base)
 	_ = doctor.Register("model_runtime", func(context.Context) observability.Check {
-		return observability.Check{Name: "model_runtime", Status: observability.HealthOK, Summary: "configured model matches the immutable production profile", Source: observability.SourceRuntime}
+		return observability.Check{Name: "model_runtime", Status: observability.HealthOK, Summary: "configured model matches the selected immutable provider profile", Source: observability.SourceRuntime}
 	})
 	_ = doctor.Register("task_runtime", func(context.Context) observability.Check {
 		return observability.Check{Name: "task_runtime", Status: observability.HealthOK, Summary: fmt.Sprintf("%d durable task records", tasksCount()), Source: observability.SourceRuntime}
@@ -301,6 +302,12 @@ func (r *runtimeSession) submitMessage(ctx context.Context, message protocol.Mes
 	if promptID != "" && r.engine.HasPromptID(promptID) {
 		return r.engine.SubmitMessage(ctx, message, promptID)
 	}
+	status := r.engine.Status()
+	failure := engine.Outcome{
+		SessionID: status.SessionID, PromptID: promptID, Status: protocol.TurnResultError,
+		Usage: status.Usage, InputContextTokens: status.InputContextTokens,
+		MaxOutputTokens: status.MaxOutputTokens,
+	}
 	if r.services.scope != nil {
 		r.services.scope.Reset()
 	}
@@ -339,7 +346,7 @@ func (r *runtimeSession) submitMessage(ctx context.Context, message protocol.Mes
 				zap.String("stage", "user_prompt_hook"),
 				zap.String("error_message", safeOperationalErrorText(redactOperationalError(err, r.sanitize))),
 			)
-			return engine.Outcome{}, fmt.Errorf("user prompt hook: %w", err)
+			return failure, fmt.Errorf("user prompt hook: %w", err)
 		}
 		if aggregate.Decision == extensions.HookDecisionDeny || !aggregate.Continue {
 			observability.Log(r.logger, zapcore.DebugLevel, "turn admission failed",
@@ -348,7 +355,7 @@ func (r *runtimeSession) submitMessage(ctx context.Context, message protocol.Mes
 				zap.String("decision", string(aggregate.Decision)),
 				zap.Bool("continue", aggregate.Continue),
 			)
-			return engine.Outcome{}, errors.New(fallback(aggregate.Reason, "user prompt hook stopped the turn"))
+			return failure, errors.New(fallback(aggregate.Reason, "user prompt hook stopped the turn"))
 		}
 		if len(aggregate.Contexts) > 0 {
 			message.Content = append(message.Content, protocol.TextBlock(

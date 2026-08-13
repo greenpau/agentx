@@ -15,6 +15,12 @@ It is non-normative execution evidence for one tested profile, not a source
 mapping, universal provider claim, release-artifact attestation, or replacement
 for `MOD-A14B` on another deployment.
 
+For the current worktree's sanitized multi-provider registry, discovery,
+reasoning, tool-continuation, continuity, privacy, and cleanup run, read
+[multi-provider-production-qualification.md](references/multi-provider-production-qualification.md).
+It is likewise environment- and artifact-scoped evidence rather than a
+provider capability probe, universal deployment claim, or release attestation.
+
 ## Audit workflow
 
 1. When application source changes, run `ruby .codex/skills/implementation-conformance-audit/scripts/build_source_coverage.rb` to refresh [source-coverage.tsv](references/source-coverage.tsv).

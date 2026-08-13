@@ -79,6 +79,8 @@ Each recognized fast path owns all remaining tokens and does not fall through to
 | `--init` | hidden flag |
 | `--init-only` | hidden flag |
 | `--maintenance` | hidden flag |
+| `--mcp-server` | flag selecting the standalone provider-neutral core-capability host |
+| `--list-providers` | flag selecting strict provider-registry discovery |
 | `--mcp-debug` | deprecated flag alias behavior, not a new transport option |
 | `--hard-fail` | hidden, feature-gated flag |
 
@@ -131,8 +133,9 @@ accepted as a boolean spelling.
 
 | Spelling | Arity / domain |
 | --- | --- |
-| `--model <model>` | string |
-| `--effort <level>` | case-insensitive `low`, `medium`, `high`, or `max`; stored lowercase |
+| `--provider <id>` | one required nonempty exact provider-registry ID |
+| `--model <model>` | selected provider's logical-model assertion; never a provider selector or override |
+| `--effort <level>` | `none`, `low`, `medium`, `high`, `xhigh`, or `max`; must belong to the selected provider's declared subset |
 | `--agent <agent>` | string |
 | `--betas <betas...>` | variadic strings |
 | `--fallback-model <model>` | string |
@@ -211,8 +214,45 @@ every explicitly supplied ordinary conversation, model, permission, tool,
 extension, MCP, persistence, structured-input, or SDK option. This check uses
 option occurrence, not only the normalized value, so explicit defaults such as
 `--input-format text` and `--max-turns 100`, empty-valued conversation options,
-and explicit `--print` still conflict. A revision or pagination option without
-its selector is also a usage error.
+explicit `--provider`, and explicit `--print` still conflict. A revision or
+pagination option without its selector is also a usage error.
+
+`CLIG-034` — `--provider` consumes exactly one value in either
+`--provider <id>` or `--provider=<id>` form. A missing or empty value is a usage
+error, and the selector may occur only once; repeated selectors are rejected
+before provider selection even when their values are identical. Preserve the
+bytes supplied by the caller for strict configuration
+validation: do not trim whitespace, fold case, interpret the value as a model,
+or perform a prefix/fuzzy match. Provider IDs themselves are stable,
+case-sensitive `auth.json` identities. Provider resolution follows `CLI-029`:
+an explicit exact match wins over the declared default; otherwise a singleton
+is the effective default or a multi-provider registry requires exactly one
+declared default. `--model` is evaluated only after this resolution and can
+assert only the selected provider's logical model.
+
+`CLIG-035` — The standalone `--mcp-server` host and both `CLIG-033` native
+session-management forms are provider-neutral exclusion modes. They reject an
+explicit `--provider` occurrence, including one whose normalized value would
+otherwise be empty, and return before provider selection or construction. A
+model-backed interactive, print, aggregate JSON, or stream-JSON invocation may
+use the selector.
+
+`CLIG-036` — The standalone provider-registry discovery grammar is:
+
+```text
+agentx --list-providers [--output-format text|json]
+```
+
+`--list-providers` is a boolean selector, rejects an inline value, and may
+occur only once. It accepts no positional token and no explicit root option
+other than one optional, nonrepeated `--output-format`; absence of that option
+means text. It is mutually exclusive with native session management,
+standalone MCP, and every conversation/provider/session/workspace/permission/
+tool/extension/SDK option. Before the first standalone `--`, its token is never
+consumed as the missing value of an earlier scalar option. After `--`, the same
+spelling is literal prompt text when discovery was not already selected.
+Discovery does not infer `--print`, acquire stdin, or select a provider merely
+because stdout is redirected. Its versioned JSON projection is `WIRE-026`.
 
 ## Conditional and internal root options
 
@@ -366,6 +406,27 @@ SSH's help stub is `agentx ssh <host> [dir] [--permission-mode <mode>] [--danger
 Preserve `A,B` in occurrence order and infer headless mode for both. Reject a
 missing/empty path, session-management and standalone-MCP combinations, and a
 slash-prefixed prompt carrying attachments.
+13. Invoke `--provider terra-west` and `--provider=terra-west`; verify both
+select the same exact registry ID. Repeat with an empty value, changed case,
+surrounding whitespace, an unknown ID, and a model name; verify none is
+silently normalized or matched as a provider. Repeat the selector in separate,
+inline, and mixed forms and verify a usage error before runtime construction.
+14. Omit `--provider` for a singleton registry, a multi-provider registry with
+one declared default, and a multi-provider registry with no default. Verify
+the first two resolve deterministically and the third fails with the
+instruction to add `"default": true` to exactly one provider or pass an exact
+provider ID.
+15. Select a nondefault provider and assert its model with `--model`; repeat
+with another provider's model and verify assertion failure without reselection.
+Combine `--provider` with `--mcp-server`, session list, and session deletion;
+verify every provider-neutral form rejects it before provider construction.
+16. Invoke `--list-providers` with terminal and redirected stdout, with explicit
+text and JSON output, and with a multi-provider/no-default registry. Verify the
+selector never infers a model turn and all valid forms preserve the complete
+registry. Repeat the selector, pass an inline boolean value, place it where a
+scalar value is missing, and combine it with a prompt, `--provider`, `--cwd`,
+session management, MCP, or stream JSON. Verify each fails through the stable
+usage channel before discovery output or runtime construction.
 
 ## Non-normative provenance
 

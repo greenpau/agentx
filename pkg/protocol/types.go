@@ -125,6 +125,10 @@ const (
 // can be restamped with destination ownership. It contains no credentials.
 type SessionMetadata struct {
 	ParentSessionID     SessionID `json:"parent_session_id,omitempty"`
+	ProviderID          string    `json:"provider_id,omitempty"`
+	ProviderType        string    `json:"provider_type,omitempty"`
+	ProviderBinding     string    `json:"provider_binding,omitempty"`
+	Model               string    `json:"model,omitempty"`
 	WorkingDirectory    string    `json:"working_directory,omitempty"`
 	Entrypoint          string    `json:"entrypoint,omitempty"`
 	Surface             string    `json:"surface,omitempty"`

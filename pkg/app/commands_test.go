@@ -2,16 +2,82 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/config"
+	"github.com/greenpau/agentx/pkg/engine"
 	"github.com/greenpau/agentx/pkg/extensions"
 	"github.com/greenpau/agentx/pkg/mcp"
+	"github.com/greenpau/agentx/pkg/model"
 	"github.com/greenpau/agentx/pkg/task"
+	"github.com/greenpau/agentx/pkg/tool"
 )
+
+type commandTestProvider struct{}
+
+func (commandTestProvider) Stream(context.Context, model.Request) (model.Stream, error) {
+	return nil, context.Canceled
+}
+
+type commandTestCapabilities struct{}
+
+func (commandTestCapabilities) Schemas() []model.Tool { return nil }
+func (commandTestCapabilities) Execute(context.Context, []engine.CapabilityCall) []engine.CapabilityResult {
+	return nil
+}
+
+func mustEmptyToolRegistry(t *testing.T) *tool.Registry {
+	t.Helper()
+	registry, err := tool.NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
+func mustCommandEngine(t *testing.T, logicalModel, effort string, supported []string) *engine.Engine {
+	t.Helper()
+	query, err := engine.New(engine.Config{
+		SessionID: "ses_command_status", Model: logicalModel, ReasoningEffort: effort,
+		SupportedReasoningEfforts: supported, InputContextTokens: engine.DefaultInputContextTokens,
+		Provider: commandTestProvider{}, Capabilities: commandTestCapabilities{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return query
+}
+
+func TestStatusExposesSelectedProviderReasoningCapabilities(t *testing.T) {
+	runtime := &runtimeSession{
+		config: config.Runtime{SelectedProvider: config.ProviderDescriptor{
+			ID: "terra-west", Type: "azure_openai", Model: "gpt-5.6-terra",
+			Reasoning: config.ReasoningCapabilities{Efforts: []string{"medium", "high"}, DefaultEffort: "medium"},
+		}},
+		workspace: "/workspace", registry: mustEmptyToolRegistry(t), services: runtimeServices{},
+		engine: mustCommandEngine(t, "gpt-5.6-terra", "medium", []string{"medium", "high"}),
+	}
+	result, err := runtime.RunLocalCommand(t.Context(), "status", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status["provider"] != "terra-west" || status["provider_type"] != "azure_openai" || status["model"] != "gpt-5.6-terra" {
+		t.Fatalf("provider status = %#v", status)
+	}
+	efforts, ok := status["supported_reasoning_efforts"].([]any)
+	if !ok || len(efforts) != 2 || efforts[0] != "medium" || efforts[1] != "high" {
+		t.Fatalf("reasoning capabilities = %#v", status["supported_reasoning_efforts"])
+	}
+}
 
 func TestLocalCommandSupportedArgumentSurface(t *testing.T) {
 	manager := mcp.NewManager(nil)

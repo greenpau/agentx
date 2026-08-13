@@ -170,10 +170,36 @@ Every ordinary session record carries a session identifier and UUID unless speci
 **Initialization system event**
 
 - `type=system`, `subtype=init`.
-- API key source, product version, cwd, tool names, MCP server name/status pairs, model, permission mode, slash-command names, output style, skill names, plugin descriptors, UUID and session ID.
+- API key source, product version, cwd, tool names, MCP server name/status pairs,
+  selected model, provider ID, provider type, selected-provider reasoning
+  capabilities, permission mode, slash-command names, output style, skill
+  names, plugin descriptors, UUID and session ID.
 - Optional agent names, API betas and fast-mode state.
 - Optional `input_capabilities`. Its absence means text-only and clients must
   not attempt attachment import or references.
+
+**WIRE-023 — Selected provider initialization.** Every model-backed
+`system/init` identifies the process-frozen selection with `provider` (the
+exact stable registry ID), `provider_type`, and `model`. It also carries the
+selected descriptor's declaration as:
+
+```json
+{
+  "reasoning_capabilities": {
+    "supported": true,
+    "efforts": ["low", "medium", "high"],
+    "defaultEffort": "high"
+  }
+}
+```
+
+`efforts` preserves configured order, `defaultEffort` is a member of that
+array, and `supported` is true exactly when the array is nonempty. These fields
+repeat the operator's `auth.json` declaration; they are not remote endpoint
+introspection. They describe the selected profile's locally accepted controls
+without disclosing network routing or credentials. The event does not include
+the unselected catalog; clients obtain that through a fieldless correlated
+`initialize` request.
 
 For the native qualified attachment profile, both `system/init` and the
 successful `initialize` response contain this exact capability shape (object
@@ -276,7 +302,6 @@ Each permission denial records tool name, tool-use ID and effective tool input.
 | `system/compact_boundary` | trigger `manual/auto`, pre-compaction token count, optional preserved-segment head/anchor/tail IDs for resume relinking |
 | `system/status` | status `compacting` or null; optional permission mode |
 | `system/post_turn_summary` | summarized UUID, status category, title/detail/description, recent action, needed action, noteworthy flag and artifact URLs |
-| `system/api_retry` | attempt, maximum retries, delay, nullable HTTP status and normalized error category |
 | `system/local_command_output` | output content |
 | `system/hook_started` | hook ID, name and event |
 | `system/hook_progress` | hook identity plus stdout, stderr and combined output |
@@ -294,6 +319,10 @@ Each permission denial records tool name, tool-use ID and effective tool input.
 | `prompt_suggestion` | predicted next prompt |
 | `streamlined_text` | internal text-only assistant projection |
 | `streamlined_tool_use_summary` | internal cumulative tool summary projection |
+
+The standalone Go profile does not emit `system/api_retry` records. Bounded
+provider retries are observable only through credential-safe stderr WARN
+diagnostics; structured stdout remains protocol-clean.
 
 - **WIRE-004 — Idle authority.** `session_state_changed=idle` is emitted only after a held result and finite background task loop have drained.
 - **WIRE-005 — Compact relinking.** When preserved segment metadata exists, resume logic splices that exact segment around the named anchor rather than treating the summary as the whole prior context.
@@ -340,14 +369,22 @@ Cancellation:
 
 ## Control operations
 
+The current standalone inbound dispatcher implements `initialize`,
+`interrupt`, `get_context_usage`, `mcp_status`, `set_model`,
+`set_permission_mode`, and `set_max_thinking_tokens`. `can_use_tool` travels in
+the opposite direction as an AgentX-originated permission request. Other rows
+below describe shared/reference operations that require a profile which
+explicitly installs them; the standalone dispatcher returns a correlated
+generic unsupported-control error instead of silently accepting one.
+
 | Subtype | Request | Response/behavior |
 | --- | --- | --- |
-| `initialize` | optional hooks, SDK MCP names, JSON schema, replacement/append system prompts, agent definitions, suggestion and progress-summary flags | commands, agents, current/available output styles, models, account, optional PID and fast-mode state |
+| `initialize` | no operation fields; any hook, MCP, schema, prompt, agent, suggestion, progress-summary, or other field is rejected | commands, empty agents, current/available output styles, selected logical-model compatibility descriptor, ordered `providers` catalog, selected-provider account identity, PID, and optional input capabilities |
 | `interrupt` | no fields | abort active turn; immediately enqueue correlated success with no payload; ordinary terminal result follows separately when a turn was active; keep input/process open |
 | `can_use_tool` | exact closed request in `WIRE-PERM-020..023` | exact decision and compatibility parser in `WIRE-PERM-040..053` |
-| `set_permission_mode` | mode; optional internal plan marker | update subsequent permission behavior and emit status as needed |
-| `set_model` | optional model identifier | update subsequent turns |
-| `set_max_thinking_tokens` | nullable maximum | update thinking budget |
+| `set_permission_mode` | any payload | correlated error: live permission-mode mutation is unavailable; start a new session with `--permission-mode` |
+| `set_model` | optional model identifier | correlated error: provider and model are process-fixed; restart with `--provider <id>` |
+| `set_max_thinking_tokens` | nullable maximum | correlated error: provider-declared reasoning effort is not a mutable thinking-token budget |
 | `mcp_status` | none | current MCP server statuses |
 | `get_context_usage` | none | categories, tokens, colors/deferred flags, totals, maximum and display grid data |
 | `rewind_files` | user message ID, optional dry-run | can-rewind, optional error/files/insertions/deletions |
@@ -367,6 +404,130 @@ Cancellation:
 Effective setting sources are ordered low to high priority: user, project, local, flag, policy; later sources override earlier ones. Runtime-applied model/effort may differ from the disk merge because environment and session defaults also participate.
 
 Implementations may expose newer transport-specific controls such as end-session, OAuth/channel/auth/title/side-question or remote-control operations. Add them only as explicitly versioned schema members; do not silently accept untyped control objects.
+
+**WIRE-024 — Complete safe provider catalog.** A successful fieldless `initialize`
+response adds `providers`, containing every configured provider exactly once
+in original `auth.json` order regardless of which one was selected. Each
+element has this public shape:
+
+```json
+{
+  "value": "sol-east",
+  "id": "sol-east",
+  "providerType": "azure_openai",
+  "model": "gpt-5.6-sol",
+  "displayName": "sol-east (gpt-5.6-sol)",
+  "description": "Deployment-backed model endpoint configured by AgentX-home auth.json",
+  "default": true,
+  "selected": true,
+  "supportsEffort": true,
+  "supportedReasoningEfforts": ["low", "medium", "high"],
+  "defaultReasoningEffort": "high",
+  "reasoning": {
+    "supported": true,
+    "efforts": ["low", "medium", "high"],
+    "defaultEffort": "high"
+  }
+}
+```
+
+`value` and `id` are both the stable provider ID. `default` is the effective
+resolution state, so a singleton reports true even if its source object
+omitted the flag. Exactly one descriptor is selected. The selected descriptor
+may differ from the default when an explicit selector chose a nondefault
+provider. Reasoning arrays preserve declared order and their default is a
+member. `supportsEffort`/`reasoning.supported` are derived from the array and
+the flat and nested effort fields agree. These are operator-declared
+capabilities copied from the strict registry, not results of provider probing.
+
+The pre-existing `models` member remains a one-element compatibility array for
+the selected logical model. Its `value` and `displayName` remain that logical
+model name; additive `provider`, `providerType`, flat effort fields, and nested
+`reasoning` identify the frozen profile and its exact declaration. A client
+that needs endpoint-profile selection or the complete registry uses
+`providers`, never a logical model name. The selected model projection is not
+duplicated once per endpoint and therefore does not become ambiguous when two
+provider entries share one model.
+
+The catalog is a credential-free discovery projection. It never includes an
+endpoint, deployment, API version or other API selector, subscription/API key,
+credential source value, provider binding, credential path, request header,
+or provider-specific authentication object. If public metadata would collide
+with credential material, initialization fails before any such catalog can be
+encoded; it never substitutes a partially redacted or incomplete catalog. The
+human `description` phrase "model endpoint" names the configured profile's
+role; it is not an endpoint-URL field.
+
+**WIRE-025 — Restart-bound provider selection.** Provider selection and its
+logical model are frozen before structured initialization. There is no
+`set_provider` control, and `set_model` cannot reinterpret a provider ID or
+switch a deployment. A client uses a `providers` catalog element's `value` as
+the exact argument to a new `agentx --provider <id>` process. Resuming durable state also
+requires the recorded provider ID, type, model, and opaque route binding to
+match; selecting another descriptor does not mutate an existing session. An
+inbound `set_provider` request is therefore an unknown subtype and receives the
+generic correlated `unsupported control request "set_provider"` error; unlike
+`set_model`, it has no subtype-specific restart message.
+
+**WIRE-026 — Prelaunch provider discovery.** The standalone
+`--list-providers --output-format json` operation emits one ordinary JSON
+document rather than entering the duplex NDJSON protocol:
+
+```json
+{
+  "version": 1,
+  "providers": [
+    {
+      "value": "sol-east",
+      "id": "sol-east",
+      "providerType": "azure_openai",
+      "model": "gpt-5.6-sol",
+      "displayName": "sol-east (gpt-5.6-sol)",
+      "description": "Deployment-backed model endpoint configured by AgentX-home auth.json",
+      "default": true,
+      "selected": false,
+      "supportsEffort": true,
+      "supportedReasoningEfforts": ["low", "medium", "high"],
+      "defaultReasoningEffort": "high",
+      "reasoning": {
+        "supported": true,
+        "efforts": ["low", "medium", "high"],
+        "defaultEffort": "high"
+      }
+    }
+  ]
+}
+```
+
+`version` is integer `1`. `providers` contains every strict-registry entry
+exactly once in `auth.json` order and each element has the complete closed
+public shape and field meanings from `WIRE-024`. Discovery makes no process
+selection, so every element has `selected:false`; a singleton still reports
+its effective `default:true`, while a valid multi-provider registry with no
+declared default reports every `default:false`. The operation succeeds without
+a default because its purpose is to let a caller choose an exact provider ID
+before starting the model-backed process.
+
+The discovery response version and auth-file version belong to different
+protocols: this public document is version `1`, while its input is the strict
+version-`2` `auth.json` registry. The useful standalone command grammar is
+`agentx --list-providers [--output-format text|json]`; the required selector
+and optional output option may occur in either order and each may occur only
+once. A final bare `--` terminator is accepted, but no prompt or other option
+(including help or version) is valid. A client buffers stdout, accepts it only
+after process exit `0`, validates the top-level integer version before decoding
+descriptors, and discards all buffered bytes on nonzero exit.
+
+The output is newline-terminated and contains no other top-level member,
+event, diagnostic, or NDJSON initialization record. Validate the exact final
+document plus newline against the complete registry credential union before
+the first stdout write. Strict-registry, projection, or framing failure emits
+no document bytes. A writer failure exits nonzero without retry or fallback
+and may retain a prefix already accepted by that writer. The descriptor
+excludes endpoint URL, deployment, API-version selector, key, binding,
+authentication object, credential path, and header data. An editor starts a
+new process using the returned `value`/`id` as exact `--provider <id>` and then
+obtains normal selected-session metadata through `WIRE-023`/`WIRE-024`.
 
 ## Permission race
 
@@ -461,6 +622,33 @@ Finite background work may hold the ordinary result after the acknowledgement. L
     records; verify text compatibility remains unchanged. Attempt import or an
     attachment reference without the advertised capability and verify an
     explicit rejection before provider transport.
+25. Start with a selected nondefault provider. Verify `system/init` emits its
+exact provider ID, provider type, model, and ordered declared reasoning
+capabilities, but no unselected descriptor or provider routing field.
+26. Initialize a registry containing several providers with different models
+and reasoning subsets. Verify `providers` is complete and in source order,
+`providers[].value` equals provider ID, one descriptor is selected, the
+effective default is represented independently, and all flat/nested reasoning
+fields agree. Verify `models` retains one selected logical-model compatibility
+descriptor with the selected provider ID and exact effort declaration.
+27. Configure endpoint, deployment, API-version selector, API key, and other
+provider-specific credential data with distinctive sentinels. Verify neither
+initialization form emits any sentinel, routing field, provider binding, or
+credential path and the catalog is not truncated to the selected provider.
+28. Send `set_model` with a logical model and with `providers[0].value`, then try
+an unrecognized `set_provider` request. Verify `set_model` gives the
+subtype-specific restart instruction, `set_provider` gives the generic
+unsupported-control error, and neither changes the live selection. Attempt to
+resume a session with another provider and verify the persisted binding fails
+closed before replay or provider I/O.
+29. Run prelaunch discovery against a multi-provider registry with no default.
+Verify one version-1 JSON document contains all `WIRE-024` descriptors in file
+order with all `selected:false`, no SDK init record, and no provider or session
+construction. Start a second process with one returned ID and compare its
+`initialize.providers` catalog: every descriptor is semantically identical
+except that exactly the chosen one is selected. Inject routing sentinels and
+credentials across the complete document framing and verify discovery stdout
+remains empty on every unsafe projection.
 
 ## Non-normative provenance
 

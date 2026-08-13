@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -60,10 +61,11 @@ const (
 )
 
 var (
-	ErrBusy            = errors.New("session already has an active turn")
-	ErrDuplicatePrompt = errors.New("prompt identifier was already accepted")
-	ErrMaxTurns        = errors.New("maximum model turns reached")
-	ErrContextLimit    = errors.New("model input context limit reached")
+	ErrBusy                               = errors.New("session already has an active turn")
+	ErrDuplicatePrompt                    = errors.New("prompt identifier was already accepted")
+	ErrMaxTurns                           = errors.New("maximum model turns reached")
+	ErrContextLimit                       = errors.New("model input context limit reached")
+	ErrUnsupportedRestoredReasoningEffort = errors.New("restore reasoning effort is unsupported by the configured model endpoint")
 )
 
 type eventDeliveryError struct {
@@ -142,9 +144,12 @@ type Config struct {
 	SessionID       protocol.SessionID
 	Model           string
 	ReasoningEffort string
-	Instructions    string
-	MaxTurns        int
-	MaxOutputTokens int
+	// SupportedReasoningEfforts constrains endpoint-specific reasoning
+	// selection. An empty list retains the provider-neutral global vocabulary.
+	SupportedReasoningEfforts []string
+	Instructions              string
+	MaxTurns                  int
+	MaxOutputTokens           int
 	// InputContextTokens is an application-owned upper bound for model input.
 	// Zero selects the conservative default only for gpt-5.6-sol.
 	InputContextTokens int
@@ -214,33 +219,42 @@ type attachmentQuarantineEntry struct {
 }
 
 type Outcome struct {
-	SessionID         protocol.SessionID
-	TurnID            protocol.TurnID
-	PromptID          string
-	Status            protocol.TurnResultStatus
-	Text              string
-	StopReason        string
-	ModelTurns        int
-	Usage             protocol.Usage
-	Duration          time.Duration
-	APIDuration       time.Duration
-	PermissionDenials []PermissionDenial
+	SessionID          protocol.SessionID
+	TurnID             protocol.TurnID
+	PromptID           string
+	Status             protocol.TurnResultStatus
+	Text               string
+	StopReason         string
+	ModelTurns         int
+	Usage              protocol.Usage
+	Duration           time.Duration
+	APIDuration        time.Duration
+	PermissionDenials  []PermissionDenial
+	InputContextTokens int
+	MaxOutputTokens    int
 }
 
 type Status struct {
-	SessionID       protocol.SessionID
-	Model           string
-	ReasoningEffort string
-	Active          bool
-	ProjectedItems  int
-	Usage           protocol.Usage
+	SessionID          protocol.SessionID
+	Model              string
+	ReasoningEffort    string
+	InputContextTokens int
+	MaxOutputTokens    int
+	Active             bool
+	ProjectedItems     int
+	Usage              protocol.Usage
 }
 
 func New(config Config) (*Engine, error) {
 	if config.SessionID == "" || strings.TrimSpace(config.Model) == "" || config.Provider == nil || config.Capabilities == nil {
 		return nil, publicConfigError(config, errors.New("engine configuration is incomplete"), "engine configuration is incomplete")
 	}
-	if config.ReasoningEffort != "" && !validReasoningEffort(config.ReasoningEffort) {
+	supportedReasoningEfforts, err := normalizeSupportedReasoningEfforts(config.SupportedReasoningEfforts)
+	if err != nil {
+		return nil, publicConfigError(config, err, "supported reasoning efforts are invalid")
+	}
+	config.SupportedReasoningEfforts = supportedReasoningEfforts
+	if config.ReasoningEffort != "" && !reasoningEffortSupported(config.ReasoningEffort, config.SupportedReasoningEfforts) {
 		return nil, publicConfigError(config, errors.New("unsupported reasoning effort"), "unsupported reasoning effort")
 	}
 	if config.MaxTurns <= 0 {
@@ -290,19 +304,30 @@ func New(config Config) (*Engine, error) {
 		promptMessages: make(map[string]protocol.Message),
 		quarantined:    make(map[attachment.ID]string),
 		usage:          usage,
-		status:         Status{SessionID: config.SessionID, Model: config.Model, ReasoningEffort: config.ReasoningEffort, Usage: usage},
-		thresholds:     thresholds,
+		status: Status{
+			SessionID:          config.SessionID,
+			Model:              config.Model,
+			ReasoningEffort:    config.ReasoningEffort,
+			InputContextTokens: config.InputContextTokens,
+			MaxOutputTokens:    config.MaxOutputTokens,
+			Usage:              usage,
+		},
+		thresholds: thresholds,
 	}, nil
 }
 
 func (e *Engine) SessionID() protocol.SessionID { return e.config.SessionID }
 
 func (e *Engine) Status() Status {
+	return e.publicStatus(e.statusSnapshot())
+}
+
+func (e *Engine) statusSnapshot() Status {
 	e.statusMu.RLock()
 	defer e.statusMu.RUnlock()
 	status := e.status
 	status.Usage = cloneUsage(status.Usage)
-	return e.publicStatus(status)
+	return status
 }
 
 // HasPromptID reports whether a host idempotency key is already represented by
@@ -439,18 +464,18 @@ func (e *Engine) CompactContext(ctx context.Context) error {
 }
 
 func (e *Engine) SetReasoningEffort(ctx context.Context, effort string) error {
-	if !validReasoningEffort(effort) {
+	if !reasoningEffortSupported(effort, e.config.SupportedReasoningEfforts) {
 		return e.publicError(errors.New("unsupported reasoning effort"))
-	}
-	candidate := e.config
-	candidate.ReasoningEffort = effort
-	if err := validateEngineIdentityProjection(candidate); err != nil {
-		return e.publicError(err)
 	}
 	if err := e.lockTurn(); err != nil {
 		return err
 	}
 	defer e.turnMu.Unlock()
+	candidate := e.config
+	candidate.ReasoningEffort = effort
+	if err := validateEngineIdentityProjection(candidate); err != nil {
+		return e.publicError(err)
+	}
 	if e.lastEvent == nil && len(e.history) == 0 {
 		e.config.ReasoningEffort = effort
 		e.publishStatus()
@@ -482,6 +507,9 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 	snapshot = snapshot.ActiveConversation().ReconcileUnresolved()
 	if snapshot.SessionID != "" && snapshot.SessionID != e.config.SessionID {
 		return e.publicError(errors.New("restore session mismatch"))
+	}
+	if err := validateRestoredReasoningEfforts(snapshot.Events, e.config.SupportedReasoningEfforts); err != nil {
+		return e.publicError(err)
 	}
 	e.history = nil
 	e.permissionDenials = nil
@@ -576,8 +604,7 @@ func (e *Engine) Restore(snapshot transcript.Snapshot) error {
 				continue
 			}
 			if event.Metadata.Key == reasoningEffortKey {
-				var effort string
-				if len(event.Metadata.Value) <= 32 && json.Unmarshal(event.Metadata.Value, &effort) == nil && validReasoningEffort(effort) {
+				if effort, ok := decodeReasoningEffortMetadata(event.Metadata.Value); ok && reasoningEffortSupported(effort, e.config.SupportedReasoningEfforts) {
 					restoredEffort = effort
 				}
 				continue
@@ -726,6 +753,12 @@ func (e *Engine) SubmitPrompt(ctx context.Context, text, promptID string) (Outco
 // manifests are verified before the durable user event and no caller path or
 // binary content is retained in engine history.
 func (e *Engine) SubmitMessage(ctx context.Context, message protocol.Message, promptID string) (Outcome, error) {
+	status := e.statusSnapshot()
+	outcome := Outcome{
+		SessionID: status.SessionID, Status: protocol.TurnResultError,
+		Usage:              status.Usage,
+		InputContextTokens: status.InputContextTokens, MaxOutputTokens: status.MaxOutputTokens,
+	}
 	message.Role = protocol.RoleUser
 	message.PromptID = ""
 	message.APIMessageID = ""
@@ -743,28 +776,29 @@ func (e *Engine) SubmitMessage(ctx context.Context, message protocol.Message, pr
 		}
 	}
 	if !hasInput {
-		return Outcome{}, errors.New("empty user input")
+		return outcome, errors.New("empty user input")
 	}
 	if err := message.Validate(); err != nil {
-		return Outcome{}, err
+		return outcome, err
 	}
 	if err := protocol.ValidatePromptID(promptID); err != nil {
-		return Outcome{}, err
+		return outcome, err
 	}
 	if err := e.verifyMessageAttachments(ctx, message); err != nil {
-		return Outcome{}, err
+		return outcome, err
 	}
 	if err := e.lockTurn(); err != nil {
-		return Outcome{}, err
+		return outcome, err
 	}
 	defer e.turnMu.Unlock()
 	if e.HasPromptID(promptID) {
-		return Outcome{SessionID: e.config.SessionID, PromptID: promptID}, e.publicError(ErrDuplicatePrompt)
+		outcome.PromptID = promptID
+		return outcome, e.publicError(ErrDuplicatePrompt)
 	}
 	e.mu.Lock()
 	if e.active {
 		e.mu.Unlock()
-		return Outcome{}, ErrBusy
+		return outcome, ErrBusy
 	}
 	e.active = true
 	e.mu.Unlock()
@@ -778,14 +812,12 @@ func (e *Engine) SubmitMessage(ctx context.Context, message protocol.Message, pr
 
 	turnValue, err := identity.NewTurn()
 	if err != nil {
-		return Outcome{}, err
+		return outcome, err
 	}
 	turnID := protocol.TurnID(turnValue)
 	started := e.currentTimeOutsideTurnLock()
-	outcome := Outcome{
-		SessionID: e.config.SessionID, TurnID: turnID, PromptID: promptID,
-		Status: protocol.TurnResultError,
-	}
+	outcome.TurnID = turnID
+	outcome.PromptID = promptID
 
 	userEvent, err := protocol.NewMessageEvent(e.config.SessionID, turnID, protocol.RoleUser, message.Content...)
 	if err != nil {
@@ -2413,7 +2445,83 @@ func validReasoningEffort(effort string) bool {
 	}
 }
 
+func normalizeSupportedReasoningEfforts(efforts []string) ([]string, error) {
+	if len(efforts) == 0 {
+		return nil, nil
+	}
+	normalized := make([]string, 0, len(efforts))
+	seen := make(map[string]struct{}, len(efforts))
+	for _, effort := range efforts {
+		if !validReasoningEffort(effort) {
+			return nil, errors.New("supported reasoning efforts contain an invalid value")
+		}
+		if _, exists := seen[effort]; exists {
+			return nil, errors.New("supported reasoning efforts contain a duplicate value")
+		}
+		seen[effort] = struct{}{}
+		normalized = append(normalized, effort)
+	}
+	return normalized, nil
+}
+
+func reasoningEffortSupported(effort string, supported []string) bool {
+	if !validReasoningEffort(effort) {
+		return false
+	}
+	if len(supported) == 0 {
+		return true
+	}
+	for _, candidate := range supported {
+		if effort == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func validateRestoredReasoningEfforts(events []protocol.Event, supported []string) error {
+	if len(supported) == 0 {
+		return nil
+	}
+	for _, event := range events {
+		if event.Persistence != protocol.PersistenceDurable || event.Kind != protocol.EventKindSessionMetadata || event.Metadata == nil || event.Metadata.Key != reasoningEffortKey {
+			continue
+		}
+		effort, ok := decodeReasoningEffortMetadata(event.Metadata.Value)
+		if !ok {
+			continue
+		}
+		if !reasoningEffortSupported(effort, supported) {
+			return ErrUnsupportedRestoredReasoningEffort
+		}
+	}
+	return nil
+}
+
+func decodeReasoningEffortMetadata(raw json.RawMessage) (string, bool) {
+	// JSON permits arbitrary surrounding SP, HTAB, CR, and LF. Bound the
+	// semantic token after removing only that JSON whitespace so padding cannot
+	// make a recognized durable effort bypass endpoint-subset validation or
+	// restoration, while an attacker-controlled oversized string remains
+	// ignored as invalid legacy metadata.
+	compact := bytes.Trim(raw, " \t\r\n")
+	if len(compact) == 0 || len(compact) > 32 {
+		return "", false
+	}
+	var effort string
+	if json.Unmarshal(compact, &effort) != nil || !validReasoningEffort(effort) {
+		return "", false
+	}
+	return effort, true
+}
+
 func (e *Engine) finish(ctx context.Context, outcome Outcome, status protocol.TurnResultStatus, stop string, cause error, started time.Time) (Outcome, error) {
+	if outcome.InputContextTokens <= 0 {
+		outcome.InputContextTokens = e.config.InputContextTokens
+	}
+	if outcome.MaxOutputTokens <= 0 {
+		outcome.MaxOutputTokens = e.config.MaxOutputTokens
+	}
 	outcome.Status = status
 	outcome.StopReason = stop
 	var finishedAt time.Time
@@ -2664,12 +2772,14 @@ func (e *Engine) publishStatus() {
 	active := e.active
 	e.mu.Unlock()
 	snapshot := Status{
-		SessionID:       e.config.SessionID,
-		Model:           e.config.Model,
-		ReasoningEffort: e.config.ReasoningEffort,
-		Active:          active,
-		ProjectedItems:  len(e.history),
-		Usage:           cloneUsage(e.usage),
+		SessionID:          e.config.SessionID,
+		Model:              e.config.Model,
+		ReasoningEffort:    e.config.ReasoningEffort,
+		InputContextTokens: e.config.InputContextTokens,
+		MaxOutputTokens:    e.config.MaxOutputTokens,
+		Active:             active,
+		ProjectedItems:     len(e.history),
+		Usage:              cloneUsage(e.usage),
 	}
 	e.statusMu.Lock()
 	e.status = snapshot

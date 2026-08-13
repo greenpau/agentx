@@ -111,6 +111,34 @@ func TestEventValidateKinds(t *testing.T) {
 	}
 }
 
+func TestSessionProviderBindingMetadataIsCompleteAndBounded(t *testing.T) {
+	base := SessionMetadata{
+		ProviderID: "sol-east", ProviderType: "azure_openai", Model: "gpt-5.6-sol",
+		ProviderBinding: strings.Repeat("a", 64),
+	}
+	if err := validateSessionMetadata(base); err != nil {
+		t.Fatalf("valid provider binding rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*SessionMetadata)
+	}{
+		{"partial", func(value *SessionMetadata) { value.Model = "" }},
+		{"type", func(value *SessionMetadata) { value.ProviderType = "openai" }},
+		{"binding length", func(value *SessionMetadata) { value.ProviderBinding = "abc" }},
+		{"binding alphabet", func(value *SessionMetadata) { value.ProviderBinding = strings.Repeat("z", 64) }},
+		{"provider whitespace", func(value *SessionMetadata) { value.ProviderID = "sol east" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			test.mutate(&candidate)
+			if err := validateSessionMetadata(candidate); err == nil {
+				t.Fatalf("invalid provider binding accepted: %#v", candidate)
+			}
+		})
+	}
+}
+
 func TestUsageValidateRejectsIncoherentAndOverflowingCounts(t *testing.T) {
 	tests := []Usage{
 		{Model: "gpt-5.6-sol", InputTokens: 1, CachedInputTokens: 2, TotalTokens: 2},

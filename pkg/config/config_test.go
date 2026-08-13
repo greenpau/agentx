@@ -13,16 +13,80 @@ import (
 )
 
 const testAuthJSON = `{
-  "version": 1,
-  "provider": "azure_openai",
-  "azure_openai": {
-    "endpoint": "https://example.openai.azure.com/",
-    "model": "gpt-5.6-sol",
-    "deployment": "file-deployment",
-    "api_key": "synthetic-file-key",
-    "api_version": "2024-12-01-preview"
-  }
+  "version": 2,
+  "providers": [
+    {
+      "id": "sol-5.6",
+      "type": "azure_openai",
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "high"
+        }
+      },
+      "azure_openai": {
+        "endpoint": "https://example.openai.azure.com/",
+        "model": "gpt-5.6-sol",
+        "deployment": "file-deployment",
+        "api_key": "synthetic-file-key",
+        "api_version": "2024-12-01-preview"
+      }
+    }
+  ]
 }`
+
+type authProviderFixture struct {
+	ID            string
+	Default       *bool
+	Endpoint      string
+	Model         string
+	Deployment    string
+	APIKey        string
+	APIVersion    string
+	Efforts       []string
+	DefaultEffort string
+}
+
+func providerFixture(id string) authProviderFixture {
+	return authProviderFixture{
+		ID: id, Endpoint: "https://" + id + ".example.test",
+		Model: id + "-model", Deployment: id + "-deployment",
+		APIKey: id + "-synthetic-key", APIVersion: "2026-07-01-preview",
+		Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high",
+	}
+}
+
+func boolFixture(value bool) *bool { return &value }
+
+func authRegistryJSON(t *testing.T, providers ...authProviderFixture) string {
+	t.Helper()
+	entries := make([]map[string]any, 0, len(providers))
+	for _, provider := range providers {
+		entry := map[string]any{
+			"id":   provider.ID,
+			"type": "azure_openai",
+			"capabilities": map[string]any{
+				"reasoning": map[string]any{
+					"efforts": provider.Efforts, "default_effort": provider.DefaultEffort,
+				},
+			},
+			"azure_openai": map[string]any{
+				"endpoint": provider.Endpoint, "model": provider.Model,
+				"deployment": provider.Deployment, "api_key": provider.APIKey,
+				"api_version": provider.APIVersion,
+			},
+		}
+		if provider.Default != nil {
+			entry["default"] = *provider.Default
+		}
+		entries = append(entries, entry)
+	}
+	encoded, err := json.Marshal(map[string]any{"version": 2, "providers": entries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
 
 func writeTestAuthFile(t *testing.T, content string) string {
 	t.Helper()
@@ -39,20 +103,51 @@ func writeTestAuthFile(t *testing.T, content string) string {
 	return path
 }
 
+func assertCredentialSafeError(t *testing.T, err error, credentials ...string) {
+	t.Helper()
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("error category = %v, want ErrInvalid", err)
+	}
+	if errors.Unwrap(err) != nil {
+		t.Fatalf("credential-safe error retained an unwrap-visible cause: %T", errors.Unwrap(err))
+	}
+	renderings := map[string]string{
+		"Error": err.Error(),
+		"%s":    fmt.Sprintf("%s", err),
+		"%v":    fmt.Sprintf("%v", err),
+		"%+v":   fmt.Sprintf("%+v", err),
+		"%#v":   fmt.Sprintf("%#v", err),
+		"%q":    fmt.Sprintf("%q", err),
+	}
+	for format, rendered := range renderings {
+		for _, credential := range credentials {
+			if credential != "" && strings.Contains(rendered, credential) {
+				t.Fatalf("%s rendering exposed credential %q: %q", format, credential, rendered)
+			}
+		}
+	}
+}
+
 func TestAuthFilePlaceholderIsTheSupportedSchema(t *testing.T) {
 	document, err := parseAuthFile([]byte(AuthFilePlaceholder))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Version != 1 || document.Provider != "azure_openai" {
+	if document.Version != authFileSchemaVersion || len(document.Providers) != 1 {
 		t.Fatalf("placeholder identity = %#v", document)
 	}
-	if document.AzureOpenAI.Endpoint != "https://your-resource.openai.azure.com" ||
-		document.AzureOpenAI.Model != DefaultModel ||
-		document.AzureOpenAI.Deployment != DefaultModel ||
-		document.AzureOpenAI.APIKey != "replace-with-your-secret" ||
-		document.AzureOpenAI.APIVersion != "preview" {
-		t.Fatalf("placeholder Azure shape = %#v", document.AzureOpenAI)
+	provider := document.Providers[0]
+	if provider.ID != "sol-5.6" || provider.Type != "azure_openai" || !provider.Default ||
+		provider.Capabilities.Reasoning.DefaultEffort != "high" ||
+		len(provider.Capabilities.Reasoning.Efforts) != 6 {
+		t.Fatalf("placeholder provider shape = %#v", provider)
+	}
+	if provider.AzureOpenAI.Endpoint != "https://your-resource.openai.azure.com" ||
+		provider.AzureOpenAI.Model != DefaultModel ||
+		provider.AzureOpenAI.Deployment != DefaultModel ||
+		provider.AzureOpenAI.APIKey != "replace-with-your-secret" ||
+		provider.AzureOpenAI.APIVersion != "preview" {
+		t.Fatalf("placeholder Azure shape = %#v", provider.AzureOpenAI)
 	}
 }
 
@@ -65,22 +160,22 @@ func TestParseAuthFileRejectsUnsupportedAndAmbiguousJSON(t *testing.T) {
 	}{
 		{
 			name:     "top-level duplicate",
-			input:    `{"version":1,"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview"}}`,
+			input:    strings.Replace(testAuthJSON, `"version": 2`, `"version": 2, "version": 2`, 1),
 			contains: "duplicate",
 		},
 		{
 			name:     "escaped duplicate",
-			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","\u0061pi_key":"other","api_version":"preview"}}`,
+			input:    strings.Replace(testAuthJSON, `"api_key": "synthetic-file-key"`, `"api_key": "synthetic-file-key", "\u0061pi_key": "other"`, 1),
 			contains: "duplicate",
 		},
 		{
 			name:     "unknown top-level member",
-			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview"},"` + fieldMarker + `":"secret"}`,
+			input:    strings.Replace(testAuthJSON, `"version": 2,`, `"version": 2, "`+fieldMarker+`": "secret",`, 1),
 			contains: "unsupported object member",
 		},
 		{
 			name:     "unknown nested member",
-			input:    `{"version":1,"provider":"azure_openai","azure_openai":{"endpoint":"https://example.test","model":"gpt-5.6-sol","deployment":"gpt-5.6-sol","api_key":"key","api_version":"preview","` + fieldMarker + `":"secret"}}`,
+			input:    strings.Replace(testAuthJSON, `"api_version": "2024-12-01-preview"`, `"api_version": "2024-12-01-preview", "`+fieldMarker+`": "secret"`, 1),
 			contains: "unsupported object member",
 		},
 		{
@@ -90,23 +185,93 @@ func TestParseAuthFileRejectsUnsupportedAndAmbiguousJSON(t *testing.T) {
 		},
 		{
 			name:     "wrong version",
-			input:    strings.Replace(testAuthJSON, `"version": 1`, `"version": 2`, 1),
+			input:    strings.Replace(testAuthJSON, `"version": 2`, `"version": 1`, 1),
 			contains: "unsupported schema version",
 		},
 		{
 			name:     "fractional version",
-			input:    strings.Replace(testAuthJSON, `"version": 1`, `"version": 1.0`, 1),
+			input:    strings.Replace(testAuthJSON, `"version": 2`, `"version": 2.0`, 1),
 			contains: "version must be an integer",
 		},
 		{
-			name:     "wrong provider",
-			input:    strings.Replace(testAuthJSON, `"provider": "azure_openai"`, `"provider": "openai"`, 1),
-			contains: "unsupported provider",
+			name:     "wrong provider type",
+			input:    strings.Replace(testAuthJSON, `"type": "azure_openai"`, `"type": "openai"`, 1),
+			contains: "unsupported provider type",
 		},
 		{
-			name:     "missing provider",
-			input:    strings.Replace(testAuthJSON, `  "provider": "azure_openai",`+"\n", "", 1),
+			name:     "missing providers",
+			input:    `{"version":2}`,
 			contains: "missing a required object member",
+		},
+		{
+			name:     "wrong providers type",
+			input:    `{"version":2,"providers":{}}`,
+			contains: "providers must be an array",
+		},
+		{
+			name:     "empty providers",
+			input:    `{"version":2,"providers":[]}`,
+			contains: "at least one provider",
+		},
+		{
+			name:     "provider entry is not object",
+			input:    `{"version":2,"providers":["sol"]}`,
+			contains: "provider entries must be objects",
+		},
+		{
+			name:     "duplicate provider entry member",
+			input:    strings.Replace(testAuthJSON, `"id": "sol-5.6"`, `"id": "sol-5.6", "\u0069d": "other"`, 1),
+			contains: "duplicate",
+		},
+		{
+			name:     "provider default is not boolean",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","default":"true"}]}`,
+			contains: "default must be a boolean",
+		},
+		{
+			name:     "missing provider entry field",
+			input:    strings.Replace(testAuthJSON, `      "id": "sol-5.6",`+"\n", "", 1),
+			contains: "provider entry is missing",
+		},
+		{
+			name:     "wrong capabilities type",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":[]}]}`,
+			contains: "capabilities must be an object",
+		},
+		{
+			name:     "unknown capabilities member",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"unknown":{}}}]}`,
+			contains: "unsupported object member",
+		},
+		{
+			name:     "missing reasoning capabilities",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{}}]}`,
+			contains: "missing required reasoning capabilities",
+		},
+		{
+			name:     "wrong reasoning type",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":[]}}]}`,
+			contains: "reasoning capabilities must be an object",
+		},
+		{
+			name:     "reasoning efforts are not array",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":{"efforts":"high","default_effort":"high"}}}]}`,
+			contains: "reasoning efforts must be an array",
+		},
+		{
+			name:     "reasoning effort is not string",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":{"efforts":[42],"default_effort":"high"}}}]}`,
+			contains: "must contain only strings",
+		},
+		{
+			name:     "empty reasoning efforts",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":{"efforts":[],"default_effort":"high"}}}]}`,
+			contains: "at least one effort",
+		},
+		{
+			name:     "reasoning default is not string",
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":{"efforts":["high"],"default_effort":42}}}]}`,
+			contains: "default_effort must be a string",
 		},
 		{
 			name:     "missing Azure field",
@@ -115,7 +280,7 @@ func TestParseAuthFileRejectsUnsupportedAndAmbiguousJSON(t *testing.T) {
 		},
 		{
 			name:     "wrong Azure object type",
-			input:    `{"version":1,"provider":"azure_openai","azure_openai":[]}`,
+			input:    `{"version":2,"providers":[{"id":"sol","type":"azure_openai","capabilities":{"reasoning":{"efforts":["high"],"default_effort":"high"}},"azure_openai":[]}]}`,
 			contains: "must be an object",
 		},
 		{
@@ -170,6 +335,65 @@ func TestParseAuthFileRejectsUnsupportedAndAmbiguousJSON(t *testing.T) {
 	}
 }
 
+func TestParseAuthFileRejectsLegacyV1Schema(t *testing.T) {
+	legacy := `{
+  "version": 1,
+  "provider": "azure_openai",
+  "azure_openai": {
+    "endpoint": "https://example.openai.azure.com/",
+    "model": "gpt-5.6-sol",
+    "deployment": "legacy-deployment",
+    "api_key": "legacy-synthetic-key",
+    "api_version": "2024-12-01-preview"
+  }
+}`
+	if document, err := parseAuthFile([]byte(legacy)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy v1 document was accepted: %#v, %v", document, err)
+	}
+}
+
+func TestParseAuthFileErrorsProtectDecodedCredentialCollisions(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		credential string
+		input      func(string) string
+	}{
+		{
+			name:       "unsupported type after key",
+			credential: "unsupported provider type",
+			input: func(credential string) string {
+				input := strings.Replace(testAuthJSON, "synthetic-file-key", credential, 1)
+				return strings.Replace(input, `"type": "azure_openai"`, `"type": "unsupported"`, 1)
+			},
+		},
+		{
+			name:       "duplicate member after key",
+			credential: "duplicate object member",
+			input: func(credential string) string {
+				input := strings.Replace(testAuthJSON, "synthetic-file-key", credential, 1)
+				return strings.Replace(input, `"api_version": "2024-12-01-preview"`, `"api_version": "2024-12-01-preview", "api_version": "v1"`, 1)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseAuthFile([]byte(test.input(test.credential)))
+			assertCredentialSafeError(t, err, test.credential)
+		})
+	}
+}
+
+func TestParseAuthFileRejectsProviderCountAboveLimit(t *testing.T) {
+	providers := make([]authProviderFixture, 0, maxAuthFileProviders+1)
+	for index := 0; index <= maxAuthFileProviders; index++ {
+		providers = append(providers, providerFixture(fmt.Sprintf("provider-%02d", index)))
+	}
+	input := authRegistryJSON(t, providers...)
+	if document, err := parseAuthFile([]byte(input)); !errors.Is(err, ErrInvalid) ||
+		!strings.Contains(err.Error(), "providers exceed the limit") {
+		t.Fatalf("oversized provider registry = %#v, %v", document, err)
+	}
+}
+
 func TestParseAuthFileAcceptsReplacementCharacterAndValidSurrogatePair(t *testing.T) {
 	for _, replacement := range []string{
 		`"api_key": "synthetic-\ufffd-key"`,
@@ -181,7 +405,7 @@ func TestParseAuthFileAcceptsReplacementCharacterAndValidSurrogatePair(t *testin
 		if err != nil {
 			t.Fatalf("valid JSON string %s was rejected: %v", replacement, err)
 		}
-		if document.AzureOpenAI.APIKey == "" {
+		if len(document.Providers) != 1 || document.Providers[0].AzureOpenAI.APIKey == "" {
 			t.Fatalf("valid JSON string %s decoded empty", replacement)
 		}
 	}
@@ -254,13 +478,25 @@ func TestLoadAuthFileNormalizationProvenanceAndRedaction(t *testing.T) {
 		configuration.AuthFile != path {
 		t.Fatalf("configuration = %#v", configuration)
 	}
+	if configuration.SelectedProvider.ID != "sol-5.6" ||
+		!configuration.SelectedProvider.Default || !configuration.SelectedProvider.Selected ||
+		len(configuration.Providers) != 1 || !configuration.Providers[0].Selected {
+		t.Fatalf("selected singleton provider = %#v from %#v", configuration.SelectedProvider, configuration.Providers)
+	}
+	if configuration.SelectedProvider.Reasoning.DefaultEffort != "high" ||
+		len(configuration.Azure.SupportedReasoningEfforts) != 6 ||
+		len(configuration.ProviderBinding()) != 64 {
+		t.Fatalf("selected provider capabilities or binding = %#v / %q", configuration.SelectedProvider, configuration.ProviderBinding())
+	}
 	for _, key := range []string{
 		"AZURE_OPENAI_ENDPOINT",
 		"AZURE_OPENAI_MODEL_NAME",
 		"AZURE_OPENAI_DEPLOYMENT",
 		"AZURE_OPENAI_SUBSCRIPTION_KEY",
 		"AZURE_OPENAI_API_VERSION",
+		"provider",
 		"model",
+		"reasoning_effort",
 	} {
 		if configuration.Provenance[key] != SourceFile {
 			t.Fatalf("%s provenance = %q", key, configuration.Provenance[key])
@@ -269,7 +505,7 @@ func TestLoadAuthFileNormalizationProvenanceAndRedaction(t *testing.T) {
 	if strings.Contains(configuration.Azure.String(), "synthetic-file-key") ||
 		strings.Contains(fmt.Sprintf("%#v", configuration.Azure), "synthetic-file-key") ||
 		strings.Contains(fmt.Sprintf("%#v", configuration), "synthetic-file-key") ||
-		strings.Contains(configuration.Azure.Redact("x synthetic-file-key y"), "synthetic-file-key") {
+		strings.Contains(configuration.Redact("x synthetic-file-key y"), "synthetic-file-key") {
 		t.Fatal("secret was not redacted")
 	}
 	encoded, err := json.Marshal(configuration)
@@ -278,6 +514,417 @@ func TestLoadAuthFileNormalizationProvenanceAndRedaction(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "synthetic-file-key") || strings.Contains(string(encoded), path) {
 		t.Fatal("JSON serialization exposed a credential or auth-file path")
+	}
+}
+
+func TestLoadProviderSelectionMatrix(t *testing.T) {
+	t.Run("singleton is implicit default", func(t *testing.T) {
+		single := providerFixture("singleton")
+		path := writeTestAuthFile(t, authRegistryJSON(t, single))
+		configuration, err := Load(path, nil, Overrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if configuration.SelectedProvider.ID != single.ID ||
+			!configuration.SelectedProvider.Default || !configuration.SelectedProvider.Selected {
+			t.Fatalf("singleton selection = %#v", configuration.SelectedProvider)
+		}
+	})
+
+	t.Run("unique declared default", func(t *testing.T) {
+		sol := providerFixture("sol")
+		sol.Default = boolFixture(false)
+		terra := providerFixture("terra")
+		terra.Default = boolFixture(true)
+		path := writeTestAuthFile(t, authRegistryJSON(t, sol, terra))
+		configuration, err := Load(path, nil, Overrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if configuration.SelectedProvider.ID != terra.ID || configuration.Azure.APIKey != terra.APIKey ||
+			configuration.Providers[0].Selected || !configuration.Providers[1].Selected {
+			t.Fatalf("default selection = %#v from %#v", configuration.SelectedProvider, configuration.Providers)
+		}
+		if configuration.Provenance["provider"] != SourceFile {
+			t.Fatalf("default provider provenance = %q", configuration.Provenance["provider"])
+		}
+	})
+
+	t.Run("multiple without default require instruction or explicit selector", func(t *testing.T) {
+		sol := providerFixture("sol")
+		terra := providerFixture("terra")
+		path := writeTestAuthFile(t, authRegistryJSON(t, sol, terra))
+		_, err := Load(path, nil, Overrides{})
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"default": true`) ||
+			!strings.Contains(err.Error(), "--provider <id>") {
+			t.Fatalf("missing-default error = %v", err)
+		}
+		for _, secret := range []string{sol.APIKey, terra.APIKey} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("missing-default error exposed credential %q: %v", secret, err)
+			}
+		}
+
+		configuration, err := Load(path, nil, Overrides{Provider: terra.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if configuration.SelectedProvider.ID != terra.ID || configuration.Azure.APIKey != terra.APIKey ||
+			configuration.Provenance["provider"] != SourceFlag {
+			t.Fatalf("explicit provider selection = %#v / %q", configuration.SelectedProvider, configuration.Provenance["provider"])
+		}
+	})
+
+	t.Run("unknown explicit selector", func(t *testing.T) {
+		profile := providerFixture("known")
+		path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+		_, err := Load(path, nil, Overrides{Provider: "unknown"})
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `--provider does not identify`) ||
+			strings.Contains(err.Error(), `"unknown"`) {
+			t.Fatalf("unknown-provider error = %v", err)
+		}
+	})
+}
+
+func TestLoadErrorsProtectCompleteProviderCredentialUnion(t *testing.T) {
+	t.Run("unknown selector is value opaque", func(t *testing.T) {
+		profile := providerFixture("known")
+		profile.APIKey = "selector-secret-marker"
+		path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+		_, err := Load(path, nil, Overrides{Provider: profile.APIKey})
+		assertCredentialSafeError(t, err, profile.APIKey)
+	})
+
+	t.Run("missing default instructions collide with an unselected key", func(t *testing.T) {
+		first := providerFixture("sol")
+		first.APIKey = "selected-secret-marker"
+		second := providerFixture("terra")
+		second.APIKey = "--provider"
+		path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+		_, err := Load(path, nil, Overrides{})
+		assertCredentialSafeError(t, err, first.APIKey, second.APIKey)
+	})
+
+	t.Run("normalization freezes keys before semantic validation", func(t *testing.T) {
+		first := providerFixture("-invalid")
+		first.APIKey = "first-secret-marker"
+		second := providerFixture("terra")
+		second.APIKey = "invalid configuration"
+		path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+		_, err := Load(path, nil, Overrides{})
+		assertCredentialSafeError(t, err, first.APIKey, second.APIKey)
+	})
+
+	t.Run("unselected key protects selected reasoning failure", func(t *testing.T) {
+		first := providerFixture("sol")
+		first.Default = boolFixture(true)
+		first.Efforts = []string{"low", "medium"}
+		first.DefaultEffort = "low"
+		second := providerFixture("terra")
+		second.APIKey = "high"
+		second.Efforts = []string{"low", "medium"}
+		second.DefaultEffort = "low"
+		path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+		_, err := Load(path, nil, Overrides{ReasoningEffort: "high"})
+		assertCredentialSafeError(t, err, first.APIKey, second.APIKey)
+	})
+
+	t.Run("model mismatch diagnostic collides with selected key", func(t *testing.T) {
+		profile := providerFixture("sol")
+		profile.APIKey = "--model"
+		path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+		_, err := Load(path, nil, Overrides{Model: "different-model"})
+		assertCredentialSafeError(t, err, profile.APIKey)
+	})
+
+	t.Run("environment validation diagnostic collides with selected key", func(t *testing.T) {
+		profile := providerFixture("sol")
+		profile.APIKey = "process"
+		path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+		environ := make([]string, maxEnvironmentEntryCount+1)
+		for index := range environ {
+			environ[index] = fmt.Sprintf("SAFE_%04d=value", index)
+		}
+		_, err := Load(path, environ, Overrides{})
+		assertCredentialSafeError(t, err, profile.APIKey)
+	})
+}
+
+func TestLoadRejectsAmbiguousProviderRegistry(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		mutate   func(*authProviderFixture, *authProviderFixture)
+		contains string
+	}{
+		{
+			name: "duplicate defaults",
+			mutate: func(first, second *authProviderFixture) {
+				first.Default = boolFixture(true)
+				second.Default = boolFixture(true)
+			},
+			contains: "multiple providers with default true",
+		},
+		{
+			name: "duplicate IDs",
+			mutate: func(first, second *authProviderFixture) {
+				second.ID = first.ID
+			},
+			contains: "duplicate provider id",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			first := providerFixture("sol")
+			second := providerFixture("terra")
+			test.mutate(&first, &second)
+			path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+			if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
+				!strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("ambiguous provider registry error = %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidProviderIDs(t *testing.T) {
+	for _, id := range []string{
+		"",
+		"-leading-hyphen",
+		"provider with spaces",
+		"provider/with/slashes",
+		"prøvider",
+		strings.Repeat("p", 65),
+	} {
+		t.Run(fmt.Sprintf("%q", id), func(t *testing.T) {
+			profile := providerFixture(id)
+			path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+			if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
+				!strings.Contains(err.Error(), "provider id must be 1-64 ASCII") {
+				t.Fatalf("invalid provider ID %q error = %v", id, err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidReasoningCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		efforts       []string
+		defaultEffort string
+		contains      string
+	}{
+		{name: "duplicate effort", efforts: []string{"low", "high", "low"}, defaultEffort: "high", contains: "duplicate effort"},
+		{name: "unsupported effort", efforts: []string{"low", "turbo"}, defaultEffort: "low", contains: "unsupported effort"},
+		{name: "default not member", efforts: []string{"low", "medium"}, defaultEffort: "high", contains: "present in efforts"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			profile := providerFixture("sol")
+			profile.Efforts = test.efforts
+			profile.DefaultEffort = test.defaultEffort
+			path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+			if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
+				!strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("reasoning capability error = %v", err)
+			}
+		})
+	}
+}
+
+func TestReasoningEffortUsesSelectedProviderSubsetAndPrecedence(t *testing.T) {
+	profile := providerFixture("sol")
+	profile.Efforts = []string{"low", "medium"}
+	profile.DefaultEffort = "low"
+	path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+
+	for _, test := range []struct {
+		name       string
+		environ    []string
+		overrides  Overrides
+		wantEffort string
+		wantSource Source
+	}{
+		{name: "file default", wantEffort: "low", wantSource: SourceFile},
+		{name: "process", environ: []string{"AGENTX_REASONING_EFFORT=medium"}, wantEffort: "medium", wantSource: SourceProcess},
+		{name: "flag over process", environ: []string{"AGENTX_REASONING_EFFORT=low"}, overrides: Overrides{ReasoningEffort: "medium"}, wantEffort: "medium", wantSource: SourceFlag},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configuration, err := Load(path, test.environ, test.overrides)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if configuration.Azure.ReasoningEffort != test.wantEffort ||
+				configuration.Provenance["reasoning_effort"] != test.wantSource {
+				t.Fatalf("reasoning effort = %q/%q, want %q/%q", configuration.Azure.ReasoningEffort, configuration.Provenance["reasoning_effort"], test.wantEffort, test.wantSource)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		environ   []string
+		overrides Overrides
+	}{
+		{name: "unsupported process effort", environ: []string{"AGENTX_REASONING_EFFORT=high"}},
+		{name: "unsupported flag effort", overrides: Overrides{ReasoningEffort: "high"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Load(path, test.environ, test.overrides); !errors.Is(err, ErrInvalid) ||
+				!strings.Contains(err.Error(), "not supported by the selected provider") {
+				t.Fatalf("unsupported selected-provider effort error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeCredentialSanitizerIncludesEveryProvider(t *testing.T) {
+	sol := providerFixture("sol")
+	sol.Default = boolFixture(true)
+	terra := providerFixture("terra")
+	path := writeTestAuthFile(t, authRegistryJSON(t, sol, terra))
+	configuration, err := Load(path, nil, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sanitizer := configuration.CredentialSanitizer()
+	if sanitizer.LiteralCount() != 2 {
+		t.Fatalf("credential literal count = %d, want 2", sanitizer.LiteralCount())
+	}
+	message := "selected=" + sol.APIKey + " unselected=" + terra.APIKey
+	redacted := configuration.Redact(message)
+	for _, credential := range []string{sol.APIKey, terra.APIKey} {
+		if !sanitizer.Contains(credential) || strings.Contains(redacted, credential) {
+			t.Fatalf("complete provider union did not protect %q: %q", credential, redacted)
+		}
+	}
+	encoded, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, credential := range []string{sol.APIKey, terra.APIKey} {
+		if strings.Contains(string(encoded), credential) {
+			t.Fatalf("runtime JSON exposed provider credential %q: %s", credential, encoded)
+		}
+	}
+}
+
+func TestProviderBindingAllowsKeyRotationButDetectsRouteChanges(t *testing.T) {
+	profile := providerFixture("sol")
+	path := writeTestAuthFile(t, authRegistryJSON(t, profile))
+	first, err := Load(path, nil, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.APIKey = "rotated-opaque-credential"
+	rotatedPath := writeTestAuthFile(t, authRegistryJSON(t, profile))
+	rotated, err := Load(rotatedPath, nil, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ProviderBinding() != rotated.ProviderBinding() {
+		t.Fatal("API-key rotation changed the noncredential provider binding")
+	}
+	profile.Deployment = "replacement-deployment"
+	changedPath := writeTestAuthFile(t, authRegistryJSON(t, profile))
+	changed, err := Load(changedPath, nil, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ProviderBinding() == changed.ProviderBinding() {
+		t.Fatal("deployment change did not change the provider binding")
+	}
+}
+
+func TestLoadRejectsProviderCatalogCredentialCollision(t *testing.T) {
+	const credential = "catalog-secret-marker"
+	first := providerFixture(credential)
+	first.Default = boolFixture(true)
+	first.Endpoint = "https://first.example.test"
+	first.Model = "first-model"
+	first.Deployment = "first-deployment"
+	second := providerFixture("terra")
+	second.APIKey = credential
+	path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+	_, err := Load(path, nil, Overrides{})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "public provider metadata overlaps") {
+		t.Fatalf("provider-catalog credential collision error = %v", err)
+	}
+	if strings.Contains(err.Error(), credential) {
+		t.Fatalf("provider-catalog collision error exposed credential: %v", err)
+	}
+}
+
+func TestLoadRejectsCompleteRegistryCredentialCollisionsWithNormalizedRoutes(t *testing.T) {
+	first := providerFixture("sol")
+	first.Default = boolFixture(true)
+	second := providerFixture("terra")
+	normalizedEndpoint, err := normalizeEndpoint(first.Endpoint, first.APIVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := providerRouteBinding("azure_openai", normalizedEndpoint, first.Model, first.Deployment, first.APIVersion)
+
+	tests := []struct {
+		name       string
+		credential string
+		mutate     func(*authProviderFixture)
+	}{
+		{name: "model", credential: first.Model},
+		{name: "deployment", credential: first.Deployment},
+		{name: "API version", credential: first.APIVersion},
+		{name: "binding", credential: binding},
+		{
+			name: "semantic endpoint path", credential: "秘密",
+			mutate: func(provider *authProviderFixture) {
+				provider.Endpoint = "https://sol.example.test/秘密"
+			},
+		},
+		{
+			name: "wire endpoint path", credential: "%E7%A7%98%E5%AF%86",
+			mutate: func(provider *authProviderFixture) {
+				provider.Endpoint = "https://sol.example.test/秘密"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := first
+			if test.mutate != nil {
+				test.mutate(&candidate)
+			}
+			unselected := second
+			unselected.APIKey = test.credential
+			path := writeTestAuthFile(t, authRegistryJSON(t, candidate, unselected))
+			_, loadErr := Load(path, nil, Overrides{})
+			assertCredentialSafeError(t, loadErr, candidate.APIKey, unselected.APIKey)
+			if !strings.Contains(loadErr.Error(), "normalized provider routing") {
+				t.Fatalf("route-collision error = %v", loadErr)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsCredentialInEveryReachableProviderCatalogState(t *testing.T) {
+	first := providerFixture("sol")
+	second := providerFixture("terra")
+	// This physical fragment exists only when the second descriptor is selected,
+	// proving normalization checks more than the first/default projection.
+	second.APIKey = `"id":"terra","type":"azure_openai","model":"terra-model","default":false,"selected":true`
+	path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+	_, err := Load(path, nil, Overrides{Provider: second.ID})
+	assertCredentialSafeError(t, err, first.APIKey, second.APIKey)
+	if !strings.Contains(err.Error(), "public provider metadata overlaps") {
+		t.Fatalf("provider-catalog state collision error = %v", err)
+	}
+}
+
+func TestExplicitProviderCannotEvadeSelectedScalarCredentialCollision(t *testing.T) {
+	first := providerFixture("sol")
+	second := providerFixture("terra")
+	second.APIKey = "true"
+	path := writeTestAuthFile(t, authRegistryJSON(t, first, second))
+	_, err := Load(path, nil, Overrides{Provider: second.ID})
+	assertCredentialSafeError(t, err, first.APIKey, second.APIKey)
+	if !strings.Contains(err.Error(), "public provider metadata overlaps") {
+		t.Fatalf("selected-scalar collision error = %v", err)
 	}
 }
 
@@ -402,8 +1049,10 @@ func TestProcessEnvironmentInputIsBounded(t *testing.T) {
 
 func TestLoadRejectsUnconfiguredModelOverride(t *testing.T) {
 	path := writeTestAuthFile(t, testAuthJSON)
-	if _, err := Load(path, nil, Overrides{Model: "different-model"}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("model override error = %v", err)
+	for _, model := range []string{"different-model", " " + DefaultModel, DefaultModel + " ", "\t" + DefaultModel + "\n"} {
+		if _, err := Load(path, nil, Overrides{Model: model}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("model override %q error = %v", model, err)
+		}
 	}
 	configuration, err := Load(path, nil, Overrides{Model: DefaultModel})
 	if err != nil {
@@ -435,6 +1084,28 @@ func TestLoadPreservesCredentialWhitespaceForValidation(t *testing.T) {
 	if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) ||
 		!strings.Contains(err.Error(), "whitespace") {
 		t.Fatalf("credential whitespace was normalized before validation: %v", err)
+	}
+}
+
+func TestLoadRejectsProviderRoutingSurroundingWhitespace(t *testing.T) {
+	tests := []struct {
+		name string
+		old  string
+		new  string
+	}{
+		{name: "endpoint", old: `"https://example.openai.azure.com/"`, new: `" https://example.openai.azure.com/"`},
+		{name: "model", old: `"gpt-5.6-sol"`, new: `"gpt-5.6-sol "`},
+		{name: "deployment", old: `"file-deployment"`, new: `"\tfile-deployment"`},
+		{name: "API version", old: `"2024-12-01-preview"`, new: `" 2024-12-01-preview "`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			content := strings.Replace(testAuthJSON, test.old, test.new, 1)
+			path := writeTestAuthFile(t, content)
+			if _, err := Load(path, nil, Overrides{}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "surrounding whitespace") {
+				t.Fatalf("provider routing whitespace was normalized before validation: %v", err)
+			}
+		})
 	}
 }
 
@@ -567,6 +1238,9 @@ func TestAzureRejectsControlCharactersAndOversizedIdentityFields(t *testing.T) {
 		{"credential internal unicode whitespace", func(value *Azure) { value.APIKey = "synthetic\u00a0key" }},
 		{"credential format character", func(value *Azure) { value.APIKey = "synthetic\u200bkey" }},
 		{"credential invalid UTF-8", func(value *Azure) { value.APIKey = string([]byte{'k', 0xff, 'y'}) }},
+		{"model surrounding whitespace", func(value *Azure) { value.ModelName = " " + DefaultModel }},
+		{"deployment surrounding whitespace", func(value *Azure) { value.Deployment = DefaultModel + " " }},
+		{"API version surrounding whitespace", func(value *Azure) { value.APIVersion = " preview" }},
 		{"API version control", func(value *Azure) { value.APIVersion = "preview\u0085next" }},
 		{"model oversized", func(value *Azure) { value.ModelName = strings.Repeat("m", 257) }},
 	}
@@ -578,6 +1252,21 @@ func TestAzureRejectsControlCharactersAndOversizedIdentityFields(t *testing.T) {
 				t.Fatalf("unsafe Azure configuration accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestAzureValidateProtectsCredentialCollisionsWithoutExposingCause(t *testing.T) {
+	endpoint, err := normalizeEndpoint("https://example.test", "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, credential := range []string{"model", `"`} {
+		configuration := Azure{
+			Endpoint: endpoint, ModelName: "", Deployment: DefaultModel, APIKey: credential,
+			APIVersion: "v1", ReasoningEffort: "high", RequestTimeout: time.Second,
+			StreamWatchdog: time.Second, MaxRetries: 1,
+		}
+		assertCredentialSafeError(t, configuration.Validate(), configuration.APIKey)
 	}
 }
 

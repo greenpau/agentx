@@ -27,13 +27,13 @@ This document defines provider selection, credential-source precedence, helper e
 | --- | --- |
 | first-party | direct API key, bearer token, or AgentX account OAuth |
 | AWS Bedrock | AWS credential chain, optional bearer token, managed refresh command |
-| Azure OpenAI | versioned application-owned `auth.json` API key |
+| Azure OpenAI | strict version-2 application-owned `auth.json` provider registry and profile API keys |
 | Azure Foundry | Foundry API key or Azure identity token provider |
 | Google Vertex | Google application credentials/token and project/region |
 
 Conflicting provider selectors fail startup or follow one explicit documented precedence. Never attach first-party OAuth/key credentials to a cloud-provider endpoint.
 
-`AUTH-002` — Keep provider selection, selected model, region/resource/project, credential source, and base URL as attributed bootstrap facts. Changing provider requires a client/context rebuild and clears provider-specific credential caches.
+`AUTH-002` — Keep provider selection, selected profile ID, selected model, region/resource/project, credential source, and base URL as attributed bootstrap facts. Changing provider requires a client/context rebuild and clears provider-specific credential caches.
 
 `AUTH-003` — First-party authentication is disabled when bare mode is active, a cloud provider is selected, or an external first-party credential source intentionally takes precedence. Managed OAuth contexts have special fallback restrictions in `AUTH-012`.
 
@@ -56,7 +56,7 @@ Return both `hasToken` and source identity. Detection of helper configuration mu
 
 `AUTH-013` — For an AgentX-only Unix relay, OAuth enablement follows the launcher's placeholder OAuth signal. Local settings cannot flip the auth shape because the relay injects the real credential and expects matching protocol headers.
 
-`AUTH-014` — Treat every nonempty selected model credential as an exact secret literal at process-owned egress boundaries. Build one immutable union for each sink before replacement; never chain independently selected markers. Before constructing any streaming sanitizer, prove that the union has a set-safe terminal marker; a nonempty union without one is a composition error, not a successfully constructed stream that silently suppresses safe bytes. Inspect raw and canonical JSON encodings as well as every decoded key, string leaf, scalar spelling, and duplicate object-member occurrence; a last-write-wins map projection is not safety evidence for an earlier duplicate member. At model-provider request construction, reject any complete credential literal found in the exact final URL, decoded URL or query fields, or canonical non-auth header block before `HTTPClient.Do`. The intended Azure API-key header may contain the selected key exactly, including duplicate membership in the frozen union, but fails composition if another union member is embedded in its value. Cross-field permutation inspection accepts at most five separately framed values; a larger record fails closed before attempting attacker-controlled factorial ordering. After projection, construct and validate the exact physical emission—including escapes, keys, values, structural separators, wrappers, length/framing bytes, and line terminators—so no later append can reconstruct a literal after the check. Malformed model tool arguments whose escaped meaning cannot be inspected must be replaced before persistence with a credential-independent, schema-invalid argument projection that still receives exact-one terminal settlement; never retain their raw spelling for replay. Sanitize before persistence, authority parsing, truncation, framing, hooks, progress, and model continuation. Reapply the complete sanitizer after any normalization that replaces, removes, or joins bytes—such as unsafe-control replacement—because normalization can construct a credential absent from the raw input. An error wrapper that retains a raw secret-bearing cause only to preserve `errors.Is` classification must either discard every other cause capability or implement fail-closed formatting for ordinary, detailed, and Go-syntax verbs; a safe `Error` method and absent `Unwrap` method do not make `%#v` safe. When no set-safe replacement exists at a bounded nonstreaming seam, carry explicit suppression through downstream adapters so they do not synthesize prose around an empty result. Capability calls may receive bounded projection behavior and maximum lookahead, but never a reflectable credential set or raw literal.
+`AUTH-014` — Treat every nonempty configured model credential, selected or not, as an exact secret literal at process-owned egress boundaries. Build one immutable union for each sink before replacement; never chain independently selected markers. Before constructing any streaming sanitizer, prove that the union has a set-safe terminal marker; a nonempty union without one is a composition error, not a successfully constructed stream that silently suppresses safe bytes. Inspect raw and canonical JSON encodings as well as every decoded key, string leaf, scalar spelling, and duplicate object-member occurrence; a last-write-wins map projection is not safety evidence for an earlier duplicate member. At model-provider request construction, reject any complete credential literal found in the exact final URL, decoded URL or query fields, or canonical non-auth header block before `HTTPClient.Do`. The intended Azure API-key header may contain the selected key exactly, including duplicate membership in the frozen union, but fails composition if another union member is embedded in its value. Cross-field permutation inspection accepts at most five separately framed values; a larger record fails closed before attempting attacker-controlled factorial ordering. After projection, construct and validate the exact physical emission—including escapes, keys, values, structural separators, wrappers, length/framing bytes, and line terminators—so no later append can reconstruct a literal after the check. Malformed model tool arguments whose escaped meaning cannot be inspected must be replaced before persistence with a credential-independent, schema-invalid argument projection that still receives exact-one terminal settlement; never retain their raw spelling for replay. Sanitize before persistence, authority parsing, truncation, framing, hooks, progress, and model continuation. Reapply the complete sanitizer after any normalization that replaces, removes, or joins bytes—such as unsafe-control replacement—because normalization can construct a credential absent from the raw input. An error wrapper that retains a raw secret-bearing cause only to preserve `errors.Is` classification must either discard every other cause capability or implement fail-closed formatting for ordinary, detailed, and Go-syntax verbs; a safe `Error` method and absent `Unwrap` method do not make `%#v` safe. When no set-safe replacement exists at a bounded nonstreaming seam, carry explicit suppression through downstream adapters so they do not synthesize prose around an empty result. Capability calls may receive bounded projection behavior and maximum lookahead, but never a reflectable credential set or raw literal.
 
 `AUTH-015` — Provider diagnostics and model-client identity renderings are complete-value credential boundaries. Parse `Retry-After` immediately into private scheduling state and discard its raw wire spelling before constructing an error, retry observation, callback value, or terminal wrapper. Apply the complete credential union to the fully composed `ProviderError`, retry observation, and retry-exhaustion message after labels and separators are present; ordinary, detailed, quoted, string, and Go-syntax formatting must all use that safe projection rather than traverse private or structured fields. Retry callbacks receive a detached observation whose mutation cannot alter active retry classification or delay, while the terminal wrapper may retain a safe unwrap chain for `errors.Is`/`errors.As`. Diagnostic formatting for a configured model client is generic: endpoint, model, deployment, API version, and other configured identity fields are not rendered because any may equal or contain the API key.
 
@@ -115,68 +115,181 @@ through every credential lstat, open, reread, and final identity check. Open
 the literal child descriptor-relative to that root; never re-resolve the
 credential through the mutable application-home pathname.
 
-`AUTH-045` — The standalone Go Azure OpenAI profile has exactly one model
-credential source: the literal `auth.json` child of the application home
-resolved by `GCFG-PATH-001G`. After `GCFG-PATH-006` bootstrap and before full
-command-line parsing, every invocation requires that path to exist, including
+`AUTH-045` — The standalone Go Azure OpenAI registry's sole model-credential
+container is the literal `auth.json` child of the application home resolved by
+`GCFG-PATH-001G`. After `GCFG-PATH-006` bootstrap and before full command-line
+parsing, every invocation requires that path to exist, including
 malformed input, help, version, and the standalone MCP tool host. Non-model
 surfaces perform only the existence gate: they do not parse credentials or
 construct a provider client. Both that gate and a model-backed read use the
 descriptor-pinned home required by `AUTH-044`, then reverify the frozen textual
 home identity before proceeding. A missing or unusable direct-file diagnostic
 must name the expected path, include the stable guide URL
-`https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md`,
-and show this credential-independent placeholder shape:
+`https://github.com/greenpau/agentx/blob/main/USER_GUIDE.md`, and show this
+credential-independent placeholder shape:
 
 ```json
 {
-  "version": 1,
-  "provider": "azure_openai",
-  "azure_openai": {
-    "endpoint": "https://your-resource.openai.azure.com",
-    "model": "gpt-5.6-sol",
-    "deployment": "gpt-5.6-sol",
-    "api_key": "replace-with-your-secret",
-    "api_version": ""
-  }
+  "version": 2,
+  "providers": [
+    {
+      "id": "sol-5.6",
+      "type": "azure_openai",
+      "default": true,
+      "capabilities": {
+        "reasoning": {
+          "efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+          "default_effort": "high"
+        }
+      },
+      "azure_openai": {
+        "endpoint": "https://your-resource.openai.azure.com",
+        "model": "gpt-5.6-sol",
+        "deployment": "gpt-5.6-sol",
+        "api_key": "replace-with-your-secret",
+        "api_version": "preview"
+      }
+    }
+  ]
 }
 ```
 
 A model-backed start reads at most 64 KiB under `AUTH-044` and strictly decodes
-one UTF-8 JSON object with no trailing value. The top level has exactly
-`version`, `provider`, and `azure_openai`; `version` is integer `1`;
-`provider` is the exact string `azure_openai`; and `azure_openai` has exactly
-the five string fields shown above. Endpoint, model, deployment, and API key
-are nonempty; an empty API-version string selects the provider's default v1
-route without an API-version query. A nonempty API version selects the
-versioned route and is sent literally after local syntax validation. Values
-such as `preview` are not aliases for the provider's latest preview and are
-not silently upgraded, rewritten, or retried as another version. When the
-provider rejects that configured value and states a supported minimum, report
-one bounded configuration-remediation error and require the operator to edit
-the application-home `auth.json`; never mutate credential configuration during
-a request. A strictly validated provider-reported minimum is public remediation
+one UTF-8 JSON object with no trailing value. The top level has exactly integer
+`version` and array `providers`; `version` is exactly `2`, and `providers`
+contains 1–32 entries. Version 1, its singular `provider`/`azure_openai`
+object, and every other schema version are unsupported and receive no migration
+or compatibility interpretation.
+
+Each provider entry has exactly four required members—`id`, `type`,
+`capabilities`, and `azure_openai`—plus optional boolean `default`. An ID is an exact,
+case-sensitive 1–64-byte ASCII selector that begins with a letter or digit and
+otherwise contains only letters, digits, `.`, `_`, or `-`; IDs are unique. The
+only currently supported type is exact `azure_openai`. `capabilities` has
+exactly required object `reasoning`. That object has exactly required
+`efforts` and `default_effort`: `efforts` is a nonempty array of at most six
+unique strings drawn from `none`, `low`, `medium`, `high`, `xhigh`, and `max`,
+and `default_effort` is one of the declared values. The `azure_openai` object
+has exactly the five string fields shown above. Reject unknown or duplicate
+members at every object depth, unsupported provider types, wrong types,
+missing members, duplicate IDs or efforts, an empty providers/efforts array,
+and unpaired JSON surrogate escapes without rejecting a valid literal or
+escaped U+FFFD replacement character. Validate every entry, including an
+unselected entry, before provider selection, extension discovery, persistent
+session materialization, or provider construction.
+
+Endpoint, model, deployment, and API key are nonempty. Require an absolute
+HTTPS endpoint with no user information, query, or fragment. The loopback-only
+HTTP exception is a separately explicit direct-constructor test seam that
+application configuration loading never enables. Model and deployment are each
+at most 256 UTF-8 bytes. The API key is at most 16 KiB and has no Unicode
+whitespace, surrounding HTTP-header whitespace, control, format, line, or
+paragraph characters. A nonempty API version is at most 128 UTF-8 bytes;
+model, deployment, and API version reject the same unsafe
+control/format/line/paragraph character classes.
+Reject surrounding whitespace in endpoint, model, deployment, and API version
+rather than normalizing it into a different provider-visible routing identity.
+
+An empty API-version string selects the provider's default v1 route without an
+API-version query. The exact selectors `v1` and `preview` also select the v1
+route and are sent literally as the API-version query; every other nonempty
+selector uses the versioned route and is likewise sent literally after local
+syntax validation. These two route-family aliases do not reinterpret
+`preview` as the provider's latest preview: no configured selector is silently
+upgraded, rewritten, or retried as another version. When the provider rejects that
+configured value and states a supported minimum, report one bounded
+configuration-remediation error and require the operator to edit the
+application-home `auth.json`; never mutate credential configuration during a
+request. A strictly validated provider-reported minimum is public remediation
 metadata and may be shown without echoing the current configured value. Advise
 the operator to select a provider-supported dated value at or after that
 minimum; selecting the empty default-v1 route is a separate explicit operator
-choice only when the provider and deployment support it. DEBUG may classify the route family and whether the version came
-from the default or configuration, but it does not reveal the exact configured
-version, endpoint, deployment, URL/query, header, body, or file contents.
-Reject unknown or duplicate members at either level, unsupported
-versions/providers, and wrong types. Reject unpaired JSON surrogate escapes
-without rejecting a valid literal or escaped U+FFFD replacement character.
-Require an absolute HTTPS endpoint with no user information, query, or
-fragment. The loopback-only HTTP exception is a separately explicit
-direct-constructor test seam that application configuration loading never
-enables. Model and deployment are each at most 256 UTF-8 bytes. The API key
-is at most 16 KiB, has no Unicode whitespace, surrounding HTTP-header
-whitespace, control, format, line, or paragraph characters. A nonempty API
-version is at most 128 UTF-8 bytes; model, deployment, and API version reject
-the same unsafe control/format/line/paragraph character classes. Reject any
-invalid endpoint or model/deployment mapping before extension discovery, persistent session
-materialization, or provider construction. The selected `api_key` immediately
-joins the immutable redaction union. No other configuration source may provide
-or override the model credential.
+choice only when the provider and deployment support it. DEBUG may classify
+the route family and whether the version came from the default or
+configuration, but it does not reveal the exact configured version, endpoint,
+deployment, URL/query, header, body, or file contents. No other configuration
+source may provide or override a model credential.
+
+`AUTH-046` — Normalize and validate the complete registry before selecting one
+profile. An explicit `--provider ID` is an exact, case-sensitive selector and
+wins over a declared default; an unknown ID fails. With no explicit selector,
+a sole entry is selected and treated as the default without requiring the
+field. With several entries, select the one and only `default: true`; if none
+is declared, fail with instructions to add `"default": true` to exactly one
+entry or invoke with `--provider <id>`. More than one declared default is
+invalid even when an explicit selector is supplied. `--model` may only assert
+the selected profile's exact logical model; it never resolves or selects a
+profile. A provider request failure never selects another registry entry,
+changes the default, or retries against a different endpoint. Changing the
+selected provider requires a new client/context and, in the standalone
+application, a new process invocation.
+
+Persist the selected provider ID, type, logical model, and an opaque binding in
+durable session metadata. Derive that binding from the selected type,
+normalized endpoint, logical model, deployment, and API-version selector; do
+not include the API key, so key rotation alone remains resumable. Resume and
+fork must fail before replay when metadata predates this binding, the selected
+ID differs, the recorded type/model differs, or the route binding changed.
+Provider-ID mismatch remediation identifies the recorded exact `--provider`
+selection; route mismatch requires restoring the recorded nonsecret routing
+tuple rather than silently crossing endpoints.
+
+`AUTH-047` — Treat each provider's reasoning declaration as authoritative
+operator-supplied endpoint capability metadata, not remote introspection. The
+effective effort is the selected profile's `default_effort`, overridden by
+`AGENTX_REASONING_EFFORT` and then `--effort`; every effective or live value
+must remain in the selected profile's declared subset. Enforce the subset at
+configuration, shared-engine construction and mutation, durable restore, and
+Azure request construction. A globally recognized but profile-unsupported
+durable effort fails restore clearly instead of being ignored or sent to the
+new endpoint.
+
+Expose a credential-free descriptor for every configured provider in stable
+file order: ID, type, logical model, default/selected state, supported efforts,
+and default effort. Structured system initialization exposes the selected
+identity and reasoning capabilities; the correlated initialization response
+exposes all descriptors through its provider/model catalog. Never include an
+endpoint, deployment, API-version selector, API key, or provider binding in
+that public catalog, and never imply live provider switching when the process
+is fixed to one profile.
+
+Before publishing the catalog, build one immutable bounded union containing
+every configured provider API key, selected or not, and reject public metadata
+that overlaps or reconstructs any member. Compose that complete provider union
+with all configured MCP and frozen hook credentials before opening shared
+model, transcript, task, diagnostic, terminal, or SDK sinks. A composition that
+exceeds its workload bound or has no safe terminal projection fails closed;
+an unselected key receives the same output, persistence, and error protection
+as the selected key.
+
+`AUTH-048` — Expose strict provider-registry discovery without requiring a
+provider selection or constructing a semantic session. After the common
+descriptor-pinned application-home and `auth.json` presence gates, the
+standalone `--list-providers` operation performs the same bounded version-2
+read, duplicate-member rejection, complete-registry normalization, default
+at-most-one-declared-default check, route validation, public-metadata collision
+check, and complete API-key-union construction as model-backed startup. It does not
+resolve an explicit, singleton, or declared default; read environment effort
+overrides; construct a provider client; inspect a workspace; discover
+extensions; create project memory; open a transcript; or create a session. A
+valid multi-provider registry with no declared default therefore remains
+discoverable, while multiple declared defaults and every other invalid
+registry remain errors.
+
+The machine projection is one versioned JSON object whose `providers` array
+uses exactly the public descriptor shape in `WIRE-024`, preserves source
+order, represents the singleton's effective default, and sets `selected:false`
+on every entry because discovery fixes no process profile. Human text carries
+the same identity, model, default, and reasoning information. Both projections
+are assembled and validated as complete physical records against the full
+credential union before the first byte is written. They never expose endpoint
+URLs, deployments, API-version selectors, keys, bindings, authentication
+objects, credential paths, or request headers. Configuration, projection, or
+framing failure leaves discovery stdout empty. A writer failure exits nonzero,
+does not retry or fall back, and retains the ordinary possibility that the
+writer accepted a prefix before failing. An editor uses
+the returned provider `value`/`id` as an exact `--provider <id>` argument when
+starting a separate model-backed process.
 
 ## First-party OAuth authorization
 
@@ -298,21 +411,71 @@ remain fail-closed and retain the same guide, expected path, and placeholder
 shape without reading a target.
 
 **AUTH-A12 — Strict schema and sole credential source.** With private
-`auth.json`, accept the exact version-1 Azure object and construct one client
-from its values. Independently reject an unknown field, duplicate field,
-second JSON value, unsupported version/provider, wrong type, empty
-endpoint/model/deployment/API key, insecure file, and oversized file before
-provider or persistent-session construction. Verify an empty API-version string
-selects the v1 default with no version query, and verify the diagnostic
-placeholder uses that empty selector. Configure the literal value `preview`,
-return a provider minimum-version rejection with `x-should-retry:true`, and
-verify the specialized nonretryable classifier wins: there is one attempt, no
-fallback or configuration mutation, a strictly validated minimum may appear as
-remediation, and no exact configured value appears in safe diagnostics. Pin the original application-home root, rename that
-directory, and put a different valid `auth.json` at the old pathname: the
-credential loader reads only the original descriptor-rooted child, while the
-application boundary rejects the changed textual home identity. No other file
-path participates in credential selection.
+`auth.json`, accept the exact version-2 registry with one Azure provider and
+construct one client from its selected values. Independently reject the old
+version-1 singular object, an unknown or duplicate member at every depth, a
+second JSON value, unsupported version/type, wrong type, empty or over-limit
+providers/efforts arrays, missing capability members, duplicate IDs/efforts,
+wrong-typed or multiply declared defaults, an empty
+endpoint/model/deployment/API key, an insecure file, and an oversized file
+before provider or persistent-session construction. Verify the
+diagnostic placeholder is the exact credential-independent version-2 shape.
+Verify an empty API-version string selects the v1 default with no version query,
+and exact `v1` and `preview` selectors retain that route family while appearing
+literally in the query. Configure the literal value `preview`, return a provider minimum-version
+rejection with `x-should-retry:true`, and verify the specialized nonretryable
+classifier wins: there is one attempt, no provider fallback or configuration
+mutation, a strictly validated minimum may appear as remediation, and no exact
+configured value appears in safe diagnostics. Pin the original
+application-home root, rename that directory, and put a different valid
+`auth.json` at the old pathname: the credential loader reads only the original
+descriptor-rooted child, while the application boundary rejects the changed
+textual home identity. No other file path participates in credential
+selection.
+
+**AUTH-A13 — Deterministic provider selection and durable binding.** Configure
+two distinct loopback-backed provider entries. Verify a sole entry is selected
+without a default field; one declared default wins when no selector is present;
+an exact explicit selector wins over that default; an unknown selector and
+multiple defaults fail; and a multi-entry registry with neither selector nor
+default fails with concrete `"default": true` and `--provider <id>`
+instructions. An explicit selector may select from that no-default registry.
+Send one request and prove that only the selected deployment, endpoint, and key
+are used. Make that endpoint fail and verify no other profile is contacted.
+Persist a session, then verify matching provider metadata resumes, a different
+provider ID directs the operator to the recorded selector, a changed
+type/model/route binding and pre-binding session fail before replay, and API-key
+rotation alone preserves the binding.
+
+**AUTH-A14 — Reasoning catalog and complete registry credential union.** Give
+two provider entries distinct keys, logical models, effort subsets, and
+defaults. Verify selected-profile default, environment, CLI, live `/effort`,
+restore, and Azure request enforcement; a globally valid effort outside the
+selected subset makes zero provider calls and a durable unsupported effort
+fails restore without changing live state. Verify system initialization reports
+the selected provider and exact reasoning declaration, while correlated
+initialization reports every provider in file order with exact
+default/selected/capability metadata and no endpoint, deployment, API version,
+binding, or key. Make public metadata collide with either provider key and
+verify configuration fails without exposing the key. Finally reflect the
+unselected key through structured output, diagnostics, transcript/task data,
+and a cross-field composition after adding MCP/hook credentials; the complete
+frozen union rejects or redacts every form before emission or persistence.
+
+**AUTH-A15 — Provider discovery before selection.** Configure three valid
+providers with distinct models, ordered reasoning subsets, and no declared
+default. Invoke `--list-providers --output-format json` and verify one
+versioned object contains all three `WIRE-024` descriptors in file order, all
+with `selected:false`, no effective default, and no routing or credential
+field. Verify no workspace lookup, provider request, client, extension,
+project-memory, transcript, or session artifact is created. Repeat with one
+provider and verify its descriptor is the effective default; repeat with two
+declared defaults and verify strict failure with empty stdout. Make a key equal
+to a fixed catalog fragment and another key reconstruct across adjacent JSON
+or text fields; both projections fail before writing. Finally select one
+returned ID in a new model-backed process and verify its structured
+`initialize.providers` elements are byte-semantically identical except that
+exactly the chosen descriptor now has `selected:true`.
 
 ## Non-normative provenance
 

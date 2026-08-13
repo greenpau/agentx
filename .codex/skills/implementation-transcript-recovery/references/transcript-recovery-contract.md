@@ -37,7 +37,9 @@ parent cursor.
 - `isSidechain`, optional team/agent name, and optional agent ID;
 - optional prompt ID on user input;
 - the full semantic message, including message UUID/timestamp;
-- session stamp: session ID, cwd, client entrypoint, user type, product version, source-control branch, and optional plan slug.
+- session stamp: session ID, selected provider ID and type, logical model,
+  opaque provider-binding fingerprint, cwd, client entrypoint, user type,
+  product version, source-control branch, and optional plan slug.
 
 Session-stamp fields are assigned by the destination session after copied message fields so resume/fork cannot retain the source session's ownership metadata.
 
@@ -217,16 +219,17 @@ For a stale segment followed by a plain boundary, prune before the absolute last
 
 1. load and repair the target graph and metadata;
 2. select the conversation leaf/chain;
-3. decide fork versus adoption;
-4. switch session identity and owner directory atomically when adopting;
-5. open the owning attachment store and verify every selected manifest/blob
+3. validate the provider binding repeated on every selected record;
+4. decide fork versus adoption;
+5. switch session identity and owner directory atomically when adopting;
+6. open the owning attachment store and verify every selected manifest/blob
    identity, digest, and size;
-6. restore cost and metadata;
-7. restore cwd/worktree and invalidate cwd-sensitive caches;
-8. restore file history, attribution, collapse state, attachment quarantine,
+7. restore cost and metadata;
+8. restore cwd/worktree and invalidate cwd-sensitive caches;
+9. restore file history, attribution, collapse state, attachment quarantine,
    todo compatibility, and agent selection;
-9. reconcile unresolved tool use and replacement state;
-10. adopt or materialize the correct destination file.
+10. reconcile unresolved tool use and replacement state;
+11. adopt or materialize the correct destination file.
 
 **TX-061 — Non-fork resume.** Reuse the loaded session ID unless an explicit override is supplied. Use the transcript file's directory as the owning project directory for cross-project/worktree resume. Reset any stale fresh-session file pointer, restore cost, adopt the existing file, and reuse its verified immutable attachment store without consulting an original import path.
 
@@ -241,6 +244,27 @@ For a stale segment followed by a plain boundary, prune before the absolute last
 **TX-066 — Mid-session resume cleanup.** Before switching away from a previously restored worktree, clear its live worktree marker and attempt to return to its original cwd. Invalidate memory, prompt-section, and plan-directory caches whether or not the directory change succeeds.
 
 **TX-067 — Unresolved side-effect uncertainty.** Resume never reruns an unresolved mutating call and never infers whether it succeeded from current filesystem state. In the specified compatibility behavior, omit an assistant message whose tool-use blocks are all unresolved from the resumed live conversation. If a retained assistant group contains both resolved and unresolved IDs, provider-request normalization may insert an in-memory synthetic error result for missing IDs; strict pairing mode fails instead. Neither projection appends proof of the external effect, and the raw on-disk event remains audit evidence.
+
+**TX-067A — Provider-bound replay and fork.** Repeat the destination session's
+selected provider ID, provider type, logical model, and opaque provider-binding
+fingerprint on every durable record. Derive the fingerprint deterministically
+from the noncredential routing tuple: provider type, normalized endpoint route,
+logical model, deployment, and exact API selector. Exclude the API key so key
+rotation alone preserves continuity, and never persist the key or recover it
+from the fingerprint.
+
+For resume, continue, and fork, validate every selected source record against
+one selected version-2 profile before any source event is restored into the
+engine, copied with source attachments into a destination fork, published as a
+completed fork, or sent to provider transport. The provider ID must match
+exactly; its type and logical model must still match the profile; and its
+fingerprint must match the current noncredential routing tuple. A missing tuple
+on a legacy unbound record, a partially populated tuple, mixed bindings across
+records, another provider ID, or any type, model, endpoint-route, deployment,
+or API-selector drift fails locally. A provider-ID mismatch should direct the
+user to restart with `--provider <recorded-id>`; other drift should direct the
+user to restore the recorded profile routing. Never replay or fork an unbound
+or mismatched history under a guessed endpoint.
 
 ## Native session inventory and deletion
 
@@ -585,6 +609,17 @@ the source store. Delete or collect an unreferenced blob without affecting a
 referenced sibling, then delete the native session and verify its attachment
 store is removed under the recoverable session-deletion protocol. Backup and
 remote copies remain outside that guarantee.
+
+**TX-A23 — Provider-bound continuity.** Persist several records under one
+profile and verify each repeats the same provider ID, type, logical model, and
+binding fingerprint. Rotate only its API key and verify resume and fork remain
+eligible. Then independently change the provider ID, type, logical model,
+normalized endpoint route, deployment, API selector, and one later record's
+fingerprint; each attempt fails before engine replay, session adoption,
+destination fork or attachment publication, and provider transport. A wrong ID
+names the recorded `--provider` remediation. A wholly or partially unbound
+legacy record fails with instructions to start a new session rather than being
+silently attached to the current default.
 
 ## Non-normative provenance
 

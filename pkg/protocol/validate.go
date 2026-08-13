@@ -287,6 +287,9 @@ func validateSessionMetadata(v SessionMetadata) error {
 			return err
 		}
 	}
+	if err := ValidateSessionProviderBinding(v); err != nil {
+		return err
+	}
 	for _, field := range []struct {
 		name  string
 		value string
@@ -305,6 +308,49 @@ func validateSessionMetadata(v SessionMetadata) error {
 		return errors.New("session path or branch metadata exceeds 16384 bytes")
 	}
 	return nil
+}
+
+// ValidateSessionProviderBinding validates the optional provider-binding tuple
+// independently from the rest of a session stamp. All-empty metadata remains
+// parseable so recovery can issue the dedicated legacy-session diagnostic;
+// once any member is present, the complete tuple is mandatory.
+func ValidateSessionProviderBinding(v SessionMetadata) error {
+	providerFields := v.ProviderID != "" || v.ProviderType != "" || v.ProviderBinding != "" || v.Model != ""
+	if providerFields {
+		if v.ProviderID == "" || v.ProviderType == "" || v.ProviderBinding == "" || v.Model == "" {
+			return errors.New("session provider binding metadata is incomplete")
+		}
+		if !validProviderID(v.ProviderID) {
+			return errors.New("provider id is invalid")
+		}
+		if v.ProviderType != "azure_openai" {
+			return errors.New("provider type is invalid")
+		}
+		if len(v.Model) > 256 || strings.TrimSpace(v.Model) == "" || strings.IndexFunc(v.Model, unicode.IsControl) >= 0 {
+			return errors.New("session model metadata is invalid")
+		}
+		if len(v.ProviderBinding) != 64 || strings.Trim(v.ProviderBinding, "0123456789abcdef") != "" {
+			return errors.New("provider binding is invalid")
+		}
+	}
+	return nil
+}
+
+func validProviderID(value string) bool {
+	if len(value) < 1 || len(value) > 64 {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		alphaNumeric := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9'
+		if alphaNumeric {
+			continue
+		}
+		if index == 0 || character != '.' && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate checks message role and block-level union constraints.

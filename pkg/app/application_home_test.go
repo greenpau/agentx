@@ -392,8 +392,9 @@ func TestMissingAuthStopsInformationSurfaceWithSetupGuidance(t *testing.T) {
 	diagnostic := err.Error()
 	for _, required := range []string{
 		config.UserGuideURL,
-		`"version": 1`,
-		`"provider": "azure_openai"`,
+		`"version": 2`,
+		`"providers"`,
+		`"type": "azure_openai"`,
 		`"azure_openai"`,
 		`"endpoint"`,
 		`"model"`,

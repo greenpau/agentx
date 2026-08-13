@@ -3,11 +3,15 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/greenpau/agentx/pkg/cli"
+	"github.com/greenpau/agentx/pkg/config"
 	"github.com/greenpau/agentx/pkg/platform"
 	"github.com/greenpau/agentx/pkg/protocol"
 	"github.com/greenpau/agentx/pkg/transcript"
@@ -70,6 +74,100 @@ func TestIncompleteForkIsNotContinuableUntilPublished(t *testing.T) {
 	}
 	if latest, err := manager.Latest(t.Context()); err != nil || latest != "ses_incomplete" {
 		t.Fatalf("published fork was not selected: latest=%q err=%v", latest, err)
+	}
+}
+
+func TestForkRestoreFailureRemainsUnpublished(t *testing.T) {
+	const (
+		sourceID      = "ses_reasoning_source"
+		destinationID = "ses_reasoning_destination"
+	)
+	agentxHome := filepath.Join(t.TempDir(), "agentx-home")
+	writeTestAuthRegistry(t, agentxHome, []testAuthFileProvider{{
+		ID: "sol-limited", Type: "azure_openai", Default: true,
+		Capabilities: testAuthFileCapabilities{Reasoning: testAuthFileReasoning{
+			Efforts: []string{"low", "high"}, DefaultEffort: "high",
+		}},
+		AzureOpenAI: testAzureOpenAIAuthFile{
+			Endpoint: "https://example.test", Model: "gpt-5.6-sol", Deployment: "deployment",
+			APIKey: "fork-reasoning-test-key", APIVersion: "preview",
+		},
+	}})
+	t.Setenv("AGENTX_HOME", agentxHome)
+	workspace := t.TempDir()
+	runtimeConfig, err := config.Load(filepath.Join(agentxHome, config.DefaultAuthFile), nil, config.Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceDir := testSessionDir(agentxHome, workspace, sourceID)
+	if err := os.MkdirAll(sourceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, ".session.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metadata := protocol.SessionMetadata{
+		WorkingDirectory: workspace, ProviderID: runtimeConfig.SelectedProvider.ID,
+		ProviderType: runtimeConfig.SelectedProvider.Type, Model: runtimeConfig.SelectedProvider.Model,
+		ProviderBinding: runtimeConfig.ProviderBinding(),
+	}
+	store, err := transcript.Open(t.Context(), transcript.Config{
+		Path: filepath.Join(sourceDir, "transcript.jsonl"), SessionID: sourceID,
+		SessionMetadata: metadata, SyncOnAppend: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := protocol.NewMessageEvent(sourceID, "turn_source", protocol.RoleUser, protocol.TextBlock("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append(t.Context(), user); err != nil {
+		t.Fatal(err)
+	}
+	effort, _ := json.Marshal("xhigh")
+	reasoningEvent, err := protocol.NewBaseEvent(sourceID, "", protocol.EventKindSessionMetadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reasoningEvent.Visibility = protocol.VisibilityInternal
+	reasoningEvent.Metadata = &protocol.MetadataEvent{Key: "reasoning_effort", Value: effort}
+	if err := store.Append(t.Context(), reasoningEvent); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	session, buildErr := buildSession(t.Context(), buildOptions{
+		CLI: cli.Options{
+			Print: true, Bare: true, Resume: sourceID, ForkSession: true,
+			SessionID: destinationID, MaxTurns: 1,
+		},
+		Workspace: workspace, Sink: discardSink{}, Stderr: io.Discard,
+	})
+	if session != nil {
+		_ = session.Close()
+		t.Fatal("fork with unsupported durable effort started")
+	}
+	if buildErr == nil || !strings.Contains(buildErr.Error(), "session reasoning effort is unsupported by the selected provider") || strings.Contains(buildErr.Error(), "fork-reasoning-test-key") {
+		t.Fatalf("fork restore error = %v", buildErr)
+	}
+
+	_, home, err := applicationHomeForContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := transcript.NewSessionManager(home.sessions, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.State(t.Context(), destinationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Exists || !state.IncompleteFork || state.Resumable {
+		t.Fatalf("failed fork publication state = %#v", state)
 	}
 }
 

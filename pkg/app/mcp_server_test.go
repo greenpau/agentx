@@ -294,15 +294,17 @@ func writeMCPAuthFixture(t *testing.T, home, secret string) string {
 	}
 	authPath := filepath.Join(home, "auth.json")
 	document := map[string]any{
-		"version":  1,
-		"provider": "azure_openai",
-		"azure_openai": map[string]any{
-			"endpoint":    "https://example.test",
-			"model":       "gpt-5.6-sol",
-			"deployment":  "gpt-5.6-sol",
-			"api_key":     secret,
-			"api_version": "preview",
-		},
+		"version": 2,
+		"providers": []any{map[string]any{
+			"id": "test-provider", "type": "azure_openai", "default": true,
+			"capabilities": map[string]any{"reasoning": map[string]any{
+				"efforts": []string{"high"}, "default_effort": "high",
+			}},
+			"azure_openai": map[string]any{
+				"endpoint": "https://example.test", "model": "gpt-5.6-sol",
+				"deployment": "gpt-5.6-sol", "api_key": secret, "api_version": "preview",
+			},
+		}},
 	}
 	data, err := json.Marshal(document)
 	if err != nil {

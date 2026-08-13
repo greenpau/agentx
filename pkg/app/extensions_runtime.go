@@ -777,6 +777,10 @@ func mcpResultSanitizer(configs []mcp.Config, server string) (*redact.Set, error
 // transcript, task journal, and SDK stream. Provider-scoped sets remain useful
 // for attribution, but they cannot protect a shared serialization boundary.
 func runtimeCredentialSanitizer(apiKey string, configs []mcp.Config) (*redact.Set, error) {
+	return runtimeCredentialSanitizerSet(redact.New(apiKey), configs)
+}
+
+func runtimeCredentialSanitizerSet(base *redact.Set, configs []mcp.Config) (*redact.Set, error) {
 	seen := make(map[string]struct{})
 	values := make([]string, 0)
 	totalBytes := 0
@@ -796,9 +800,6 @@ func runtimeCredentialSanitizer(apiKey string, configs []mcp.Config) (*redact.Se
 		totalBytes += len(value)
 		return nil
 	}
-	if err := add(apiKey); err != nil {
-		return nil, err
-	}
 	for _, config := range configs {
 		configured, err := mcp.CredentialLiterals(config)
 		if err != nil {
@@ -810,7 +811,10 @@ func runtimeCredentialSanitizer(apiKey string, configs []mcp.Config) (*redact.Se
 			}
 		}
 	}
-	result := redact.New(values...)
+	result := redact.Union(base, redact.New(values...))
+	if result.LiteralCount() > mcp.MaxCredentialLiterals || result.TotalLiteralBytes() > mcp.MaxCredentialLiteralBytes {
+		return nil, errors.New("session credential material exceeds redaction workload limit")
+	}
 	if !result.Empty() && result.TerminalMarker() == "" {
 		return nil, errors.New("session credential material has no safe streaming projection")
 	}

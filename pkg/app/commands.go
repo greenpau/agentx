@@ -65,11 +65,13 @@ func existingAbsoluteSlashPath(input string) bool {
 func (r *runtimeSession) localCommandOutcome(result command.Result, runErr error, started time.Time) engine.Outcome {
 	status := r.engine.Status()
 	outcome := engine.Outcome{
-		SessionID: status.SessionID,
-		Status:    protocol.TurnResultSuccess,
-		Text:      r.sanitize(result.Output),
-		Usage:     status.Usage,
-		Duration:  time.Since(started),
+		SessionID:          status.SessionID,
+		Status:             protocol.TurnResultSuccess,
+		Text:               r.sanitize(result.Output),
+		Usage:              status.Usage,
+		Duration:           time.Since(started),
+		InputContextTokens: status.InputContextTokens,
+		MaxOutputTokens:    status.MaxOutputTokens,
 	}
 	if runErr != nil {
 		outcome.Status = protocol.TurnResultError
@@ -96,7 +98,7 @@ func (r *runtimeSession) RunLocalCommand(ctx context.Context, name string, args 
 	case "model":
 		status := r.engine.Status()
 		if raw != "" && raw != status.Model {
-			return command.Result{}, fmt.Errorf("model is fixed by auth.json to %s", status.Model)
+			return command.Result{}, fmt.Errorf("model is fixed by provider %q to %s; restart with --provider <id>", r.config.SelectedProvider.ID, status.Model)
 		}
 		return command.Result{Kind: command.ResultLocal, Output: status.Model}, nil
 	case "effort":
@@ -140,7 +142,7 @@ func (r *runtimeSession) RunLocalCommand(ctx context.Context, name string, args 
 		for id, state := range r.services.features {
 			availability[id] = features.Evaluate(state)
 		}
-		data, _ := json.MarshalIndent(map[string]any{"session_id": status.SessionID, "model": status.Model, "reasoning_effort": status.ReasoningEffort, "projected_items": status.ProjectedItems, "workspace": r.workspace, "workspace_trusted": r.services.trusted, "tools": len(r.registry.Descriptors()), "platform": r.services.platform, "features": availability}, "", "  ")
+		data, _ := json.MarshalIndent(map[string]any{"session_id": status.SessionID, "provider": r.config.SelectedProvider.ID, "provider_type": r.config.SelectedProvider.Type, "model": status.Model, "reasoning_effort": status.ReasoningEffort, "supported_reasoning_efforts": r.config.SelectedProvider.Reasoning.Efforts, "projected_items": status.ProjectedItems, "workspace": r.workspace, "workspace_trusted": r.services.trusted, "tools": len(r.registry.Descriptors()), "platform": r.services.platform, "features": availability}, "", "  ")
 		return command.Result{Kind: command.ResultLocal, Output: string(data)}, nil
 	case "cost":
 		usage := r.engine.Status().Usage

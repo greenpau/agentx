@@ -49,6 +49,10 @@ See the [headless and SDK architecture diagram](assets/architecture.drawio) for 
 - Route native session inventory and deletion through their provider-free CLI
   adapter before semantic-session construction; do not imply that equivalent
   duplex SDK controls exist.
+- Route `--list-providers` through strict provider-registry discovery before
+  workspace or semantic-session construction. Publish the same credential-free
+  descriptor grammar as SDK initialization, but select no profile so an editor
+  can discover a valid multi-provider/no-default registry before launch.
 - Recompute tools and late-arriving extension clients at turn boundaries rather than freezing the first-turn registry.
 - Keep transport-specific reconnection outside the stdio protocol; both must preserve the same event order and correlation semantics.
 - Fail closed on permission/control errors and fail fast on malformed protocol framing.

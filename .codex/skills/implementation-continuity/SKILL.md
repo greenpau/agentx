@@ -22,6 +22,16 @@ does not share a mutable pathname or depend on the source file. Missing or
 tampered media blocks resume/fork attribution instead of becoming a
 placeholder asserted as user content.
 
+Provider continuity is equally explicit. Repeat the selected provider ID,
+provider type, logical model, and opaque noncredential route fingerprint on
+every durable record, then validate the complete tuple before replay, fork
+publication, attachment restoration, or provider I/O. Exclude the API key from
+the fingerprint so key rotation alone remains resumable; include the normalized
+endpoint route, deployment, and exact API selector so route drift fails closed.
+A provider-ID mismatch directs the user to the recorded `--provider ID`.
+`--continue` selects the workspace's latest eligible session before this gate;
+it does not silently search for a session matching the current provider.
+
 ## Specialized workflows
 
 - Use [implementation-transcript-recovery](../implementation-transcript-recovery/SKILL.md) to implement the append-only transcript protocol, native session inventory and deletion, message graph, sidechains, metadata, branching, tombstones, resume, fork, and consistency repair.
@@ -40,3 +50,6 @@ placeholder asserted as user content.
   forks contain independent verified blobs; incomplete uploads and committed
   imports absent from durable history are collected without removing blobs
   still referenced by any durable event in that session.
+- Rotating only a profile's API key preserves resume/fork eligibility;
+  provider/type/model/endpoint-route/deployment/API-selector drift, mixed
+  bindings, and unbound legacy history fail before replay or provider I/O.

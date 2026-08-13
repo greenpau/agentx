@@ -39,6 +39,7 @@ type Options struct {
 	JSONSchema             string
 	SDKURL                 string
 	CWD                    string
+	Provider               string
 	Model                  string
 	Effort                 string
 	PermissionMode         string
@@ -52,6 +53,7 @@ type Options struct {
 	Resume                 string
 	Continue               bool
 	ForkSession            bool
+	ListProviders          bool
 	ListSessions           bool
 	DeleteSession          string
 	SessionRevision        string
@@ -118,7 +120,16 @@ func Parse(args []string) (Options, error) {
 			if candidate == "--" {
 				return "", &UsageError{Message: name + " requires a value before --"}
 			}
-			if managementSelectorToken(candidate) {
+			// Provider IDs use the closed auth-profile grammar and cannot begin
+			// with a hyphen. Reject an option-looking token here instead of
+			// consuming a repeated selector (or another option) as an unknown
+			// provider ID and reaching configuration/provider selection.
+			if name == "--provider" && strings.HasPrefix(candidate, "-") {
+				return "", &UsageError{
+					Message: fmt.Sprintf("%s requires a value before %s", name, candidate),
+				}
+			}
+			if standaloneSelectorToken(candidate) {
 				return "", &UsageError{
 					Message: fmt.Sprintf("%s requires a value before %s", name, candidate),
 				}
@@ -151,6 +162,8 @@ func Parse(args []string) (Options, error) {
 			opts.Continue = true
 		case "--fork-session":
 			opts.ForkSession = true
+		case "--list-providers":
+			opts.ListProviders = true
 		case "--list-sessions":
 			opts.ListSessions = true
 		case "--no-session-persistence":
@@ -201,6 +214,12 @@ func Parse(args []string) (Options, error) {
 				return Options{}, err
 			}
 			opts.CWD = value
+		case "--provider":
+			value, err := next()
+			if err != nil {
+				return Options{}, err
+			}
+			opts.Provider = value
 		case "--model":
 			value, err := next()
 			if err != nil {
@@ -342,7 +361,7 @@ func Parse(args []string) (Options, error) {
 // parsing. A structured format is always headless, and redirected text output
 // uses the one-shot adapter unless the standalone MCP host was selected.
 func InferPrint(options Options, stdoutTerminal bool) Options {
-	if options.SessionManagementRequested() {
+	if options.ProviderDiscoveryRequested() || options.SessionManagementRequested() {
 		return options
 	}
 	if !options.MCPServer && (options.OutputFormat != OutputText || options.InputFormat == InputStreamJSON || len(options.Attachments) > 0 || !stdoutTerminal) {
@@ -357,7 +376,7 @@ func InferPrint(options Options, stdoutTerminal bool) Options {
 // because no headless model turn can start from them.
 func HeadlessRequested(args []string, stdoutTerminal bool) bool {
 	options, err := Parse(args)
-	if err != nil || options.Help || options.Version || options.MCPServer || options.SessionManagementRequested() {
+	if err != nil || options.Help || options.Version || options.MCPServer || options.ProviderDiscoveryRequested() || options.SessionManagementRequested() {
 		return false
 	}
 	return InferPrint(options, stdoutTerminal).Print
@@ -376,8 +395,14 @@ func (o Options) Validate() error {
 }
 
 func (o Options) validate(finalSurface bool) error {
+	if discovery, err := o.validateProviderDiscovery(); discovery || err != nil {
+		return err
+	}
 	if management, err := o.validateSessionManagement(); management || err != nil {
 		return err
+	}
+	if o.optionCount("--provider") > 1 {
+		return &UsageError{Message: "--provider may be specified only once"}
 	}
 	if o.Verbose {
 		return &UsageError{Message: "--verbose is unavailable because no verbose diagnostic projection is installed"}
@@ -385,10 +410,16 @@ func (o Options) validate(finalSurface bool) error {
 	if o.SDKURL != "" {
 		return &UsageError{Message: "--sdk-url is unavailable in this local execution profile"}
 	}
+	if o.optionWasExplicit("--provider") && o.Provider == "" {
+		return &UsageError{Message: "--provider requires a non-empty ID"}
+	}
+	if o.optionWasExplicit("--model") && o.Model == "" {
+		return &UsageError{Message: "--model requires a non-empty exact logical model"}
+	}
 	if o.MCPServer {
 		if o.Print || o.OutputFormat != OutputText || o.InputFormat != InputText || strings.TrimSpace(o.Prompt) != "" ||
 			o.Resume != "" || o.Continue || o.ForkSession || o.SessionID != "" || o.Bare || o.TrustWorkspace ||
-			o.OutputStyle != "" || o.MCPConfig != "" || o.Model != "" || o.Effort != "" || o.SystemPrompt != "" ||
+			o.OutputStyle != "" || o.MCPConfig != "" || o.Provider != "" || o.Model != "" || o.Effort != "" || o.SystemPrompt != "" ||
 			o.SystemPromptFile != "" || o.AppendSystemPrompt != "" || o.AppendSystemPromptFile != "" ||
 			len(o.Attachments) != 0 {
 			return &UsageError{Message: "--mcp-server is a standalone stdio surface and cannot be combined with conversation options"}
@@ -460,6 +491,37 @@ func (o Options) validate(finalSurface bool) error {
 		}
 	}
 	return nil
+}
+
+// ProviderDiscoveryRequested reports whether the command line selected the
+// provider-neutral registry discovery operation.
+func (o Options) ProviderDiscoveryRequested() bool {
+	return o.ListProviders || o.optionWasExplicit("--list-providers")
+}
+
+func (o Options) validateProviderDiscovery() (bool, error) {
+	if !o.ProviderDiscoveryRequested() {
+		return false, nil
+	}
+	if o.hadPositionals || o.Prompt != "" {
+		return true, &UsageError{Message: "provider discovery does not accept a prompt"}
+	}
+	seen := make(map[string]struct{}, len(o.explicitOptions))
+	for _, name := range o.explicitOptions {
+		if _, exists := seen[name]; exists {
+			return true, &UsageError{Message: fmt.Sprintf("%s may be specified only once for provider discovery", name)}
+		}
+		seen[name] = struct{}{}
+	}
+	for _, name := range o.explicitOptions {
+		if name != "--list-providers" && name != "--output-format" {
+			return true, &UsageError{Message: fmt.Sprintf("%s cannot be combined with provider discovery", name)}
+		}
+	}
+	if o.OutputFormat != OutputText && o.OutputFormat != OutputJSON {
+		return true, &UsageError{Message: "provider discovery supports only text or json output"}
+	}
+	return true, nil
 }
 
 // SessionManagementRequested reports whether the command line selected a
@@ -550,26 +612,31 @@ func (o Options) validateSessionManagement() (bool, error) {
 }
 
 func (o Options) optionWasExplicit(name string) bool {
+	return o.optionCount(name) > 0
+}
+
+func (o Options) optionCount(name string) int {
+	count := 0
 	for _, explicit := range o.explicitOptions {
 		if explicit == name {
-			return true
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 func booleanOption(name string) bool {
 	switch name {
-	case "-p", "--print", "-h", "--help", "-v", "--version", "-d", "--debug", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--list-sessions", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
+	case "-p", "--print", "-h", "--help", "-v", "--version", "-d", "--debug", "--verbose", "--bare", "--trust-workspace", "--mcp-server", "--include-partial-messages", "--replay-user-messages", "--continue", "-c", "--fork-session", "--list-providers", "--list-sessions", "--no-session-persistence", "--owned-process-tree", "--dangerously-skip-permissions", "--bypass-permissions":
 		return true
 	default:
 		return false
 	}
 }
 
-func managementSelectorToken(value string) bool {
+func standaloneSelectorToken(value string) bool {
 	name, _, _ := strings.Cut(value, "=")
-	return name == "--list-sessions" || name == "--delete-session"
+	return name == "--list-providers" || name == "--list-sessions" || name == "--delete-session"
 }
 
 func appendList(target []string, value string) []string {
@@ -598,13 +665,17 @@ Core options:
   --input-format FORMAT          text or stream-json
   --include-partial-messages     Emit normalized model deltas in stream-json
   --replay-user-messages         Echo schema-valid user replay acknowledgements
-  --model NAME                   Override the logical model from auth.json
+  --provider ID                  Select an auth.json provider profile by exact ID
+  --model NAME                   Assert the selected provider's logical model
   --effort LEVEL                 none, low, medium, high, xhigh, or max
   --permission-mode MODE         default, acceptEdits, plan, dontAsk, bypassPermissions
   --allowed-tools LIST           Comma-separated allow rules
   --disallowed-tools LIST        Comma-separated deny rules
   --dangerously-skip-permissions Explicitly request bypassPermissions mode
   --max-turns N                  Bound recursive model turns
+
+Provider discovery:
+  --list-providers               List provider profiles and declared capabilities
 
 Continuity and context:
   --resume SESSION               Resume a durable session

@@ -497,6 +497,129 @@ func TestNewRejectsInvalidReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestStatusReportsEffectiveModelTokenLimits(t *testing.T) {
+	query, err := New(Config{
+		SessionID: "ses_status_limits", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+		Provider: &fakeProvider{}, Capabilities: &fakeCapabilities{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := query.Status()
+	if status.InputContextTokens != DefaultInputContextTokens || status.MaxOutputTokens != DefaultMaxOutputTokens {
+		t.Fatalf("default status limits = input %d output %d", status.InputContextTokens, status.MaxOutputTokens)
+	}
+
+	query, err = New(Config{
+		SessionID: "ses_status_explicit_limits", Model: "gpt-5.5-terra", ReasoningEffort: "medium",
+		InputContextTokens: 400_000, MaxOutputTokens: 48_000,
+		Provider: &fakeProvider{}, Capabilities: &fakeCapabilities{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status = query.Status()
+	if status.InputContextTokens != 400_000 || status.MaxOutputTokens != 48_000 {
+		t.Fatalf("explicit status limits = input %d output %d", status.InputContextTokens, status.MaxOutputTokens)
+	}
+	query.publishStatus()
+	status = query.Status()
+	if status.InputContextTokens != 400_000 || status.MaxOutputTokens != 48_000 {
+		t.Fatalf("published status limits = input %d output %d", status.InputContextTokens, status.MaxOutputTokens)
+	}
+}
+
+func TestEngineEnforcesSupportedReasoningEfforts(t *testing.T) {
+	base := func() Config {
+		return Config{
+			SessionID: "ses_supported_effort", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+			Provider: &fakeProvider{}, Capabilities: &fakeCapabilities{},
+		}
+	}
+
+	for _, test := range []struct {
+		name      string
+		supported []string
+		effort    string
+	}{
+		{name: "invalid capability", supported: []string{"high", "ultra"}, effort: "high"},
+		{name: "duplicate capability", supported: []string{"high", "high"}, effort: "high"},
+		{name: "initial effort outside subset", supported: []string{"low", "medium"}, effort: "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configuration := base()
+			configuration.SupportedReasoningEfforts = test.supported
+			configuration.ReasoningEffort = test.effort
+			if _, err := New(configuration); err == nil {
+				t.Fatal("invalid reasoning capability configuration was accepted")
+			}
+		})
+	}
+
+	t.Run("explicit subset is immutable", func(t *testing.T) {
+		supported := []string{"low", "high"}
+		configuration := base()
+		configuration.SupportedReasoningEfforts = supported
+		query, err := New(configuration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		supported[0] = "xhigh"
+		supported[1] = "max"
+		if err := query.SetReasoningEffort(t.Context(), "low"); err != nil {
+			t.Fatalf("set declared effort: %v", err)
+		}
+		if err := query.SetReasoningEffort(t.Context(), "xhigh"); err == nil {
+			t.Fatal("effort outside the construction-time subset was accepted")
+		}
+		if status := query.Status(); status.ReasoningEffort != "low" {
+			t.Fatalf("rejected effort changed status: %+v", status)
+		}
+	})
+
+	t.Run("empty subset retains global vocabulary", func(t *testing.T) {
+		configuration := base()
+		configuration.SupportedReasoningEfforts = []string{}
+		query, err := New(configuration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := query.SetReasoningEffort(t.Context(), "max"); err != nil {
+			t.Fatalf("set globally valid effort: %v", err)
+		}
+	})
+
+	t.Run("concurrent live changes are serialized", func(t *testing.T) {
+		configuration := base()
+		configuration.SupportedReasoningEfforts = []string{"low", "medium", "high"}
+		query, err := New(configuration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const setters = 96
+		efforts := [...]string{"low", "medium", "high"}
+		errorsBySetter := make(chan error, setters)
+		var start sync.WaitGroup
+		start.Add(1)
+		for index := 0; index < setters; index++ {
+			effort := efforts[index%len(efforts)]
+			go func() {
+				start.Wait()
+				errorsBySetter <- query.SetReasoningEffort(t.Context(), effort)
+			}()
+		}
+		start.Done()
+		for index := 0; index < setters; index++ {
+			if err := <-errorsBySetter; err != nil {
+				t.Fatalf("concurrent setter failed: %v", err)
+			}
+		}
+		if got := query.Status().ReasoningEffort; !reasoningEffortSupported(got, configuration.SupportedReasoningEfforts) {
+			t.Fatalf("concurrent setters left unsupported effort %q", got)
+		}
+	})
+}
+
 func TestEnginePreTurnErrorsDoNotExposeConfiguredCredentialValues(t *testing.T) {
 	assertSafeError := func(t *testing.T, err error, secret string) {
 		t.Helper()
@@ -1032,6 +1155,108 @@ func TestRestoreIgnoresInvalidReasoningEffortMetadata(t *testing.T) {
 	}
 	if status := query.Status(); status.ReasoningEffort != "xhigh" {
 		t.Fatalf("invalid restored effort replaced validated state: %+v", status)
+	}
+}
+
+func TestRestoreRejectsReasoningEffortOutsideSupportedSubset(t *testing.T) {
+	newQuery := func(t *testing.T) *Engine {
+		t.Helper()
+		query, err := New(Config{
+			SessionID: "ses_effort_subset_restore", Model: "gpt-5.6-sol", ReasoningEffort: "high",
+			SupportedReasoningEfforts: []string{"low", "high"},
+			Provider:                  &fakeProvider{}, Capabilities: &fakeCapabilities{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return query
+	}
+	metadataEvent := func(effort string) protocol.Event {
+		value, err := json.Marshal(effort)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return protocol.Event{
+			Version: protocol.CurrentVersion, ID: "evt_effort_subset", SessionID: "ses_effort_subset_restore", Sequence: 1,
+			Timestamp: time.Unix(1, 0).UTC(), Kind: protocol.EventKindSessionMetadata,
+			Visibility: protocol.VisibilityInternal, Persistence: protocol.PersistenceDurable, Origin: protocol.OriginRuntime,
+			Metadata: &protocol.MetadataEvent{Key: reasoningEffortKey, Value: value},
+		}
+	}
+
+	query := newQuery(t)
+	err := query.Restore(transcript.Snapshot{
+		SessionID: "ses_effort_subset_restore", MaxSequence: 1,
+		Events: []protocol.Event{metadataEvent("xhigh")},
+	})
+	if err == nil || !errors.Is(err, ErrUnsupportedRestoredReasoningEffort) || !strings.Contains(err.Error(), "restore reasoning effort is unsupported") {
+		t.Fatalf("unsupported durable effort error = %v", err)
+	}
+	if status := query.Status(); status.ReasoningEffort != "high" {
+		t.Fatalf("failed restore changed status: %+v", status)
+	}
+
+	query = newQuery(t)
+	if err := query.Restore(transcript.Snapshot{
+		SessionID: "ses_effort_subset_restore", MaxSequence: 1,
+		Events: []protocol.Event{metadataEvent("low")},
+	}); err != nil {
+		t.Fatalf("restore supported durable effort: %v", err)
+	}
+	if status := query.Status(); status.ReasoningEffort != "low" {
+		t.Fatalf("supported durable effort was not restored: %+v", status)
+	}
+
+	query = newQuery(t)
+	historical := metadataEvent("xhigh")
+	historical.ID = "evt_effort_historical"
+	current := metadataEvent("low")
+	current.ID = "evt_effort_current"
+	current.Sequence = 2
+	current.Timestamp = time.Unix(2, 0).UTC()
+	if err := query.Restore(transcript.Snapshot{
+		SessionID: "ses_effort_subset_restore", MaxSequence: 2,
+		Events: []protocol.Event{historical, current},
+	}); err == nil || !errors.Is(err, ErrUnsupportedRestoredReasoningEffort) || !strings.Contains(err.Error(), "restore reasoning effort is unsupported") {
+		t.Fatalf("historical unsupported effort was not rejected: %v", err)
+	}
+	if status := query.Status(); status.ReasoningEffort != "high" {
+		t.Fatalf("failed historical-effort restore changed live state: %+v", status)
+	}
+
+	query = newQuery(t)
+	paddedUnsupported := metadataEvent("xhigh")
+	paddedUnsupported.Metadata.Value = append(
+		append([]byte(" \t\r\n                                  "), paddedUnsupported.Metadata.Value...),
+		[]byte("                                  \n\t ")...,
+	)
+	if len(paddedUnsupported.Metadata.Value) <= 32 {
+		t.Fatal("padded unsupported effort did not exercise the oversized physical encoding")
+	}
+	if err := query.Restore(transcript.Snapshot{
+		SessionID: "ses_effort_subset_restore", MaxSequence: 1,
+		Events: []protocol.Event{paddedUnsupported},
+	}); err == nil || !errors.Is(err, ErrUnsupportedRestoredReasoningEffort) {
+		t.Fatalf("padded unsupported effort bypassed endpoint subset: %v", err)
+	}
+	if status := query.Status(); status.ReasoningEffort != "high" {
+		t.Fatalf("failed padded-effort restore changed live state: %+v", status)
+	}
+
+	query = newQuery(t)
+	paddedSupported := metadataEvent("low")
+	paddedSupported.Metadata.Value = append(
+		append([]byte("                                  \n"), paddedSupported.Metadata.Value...),
+		[]byte("\r\n                                  ")...,
+	)
+	if err := query.Restore(transcript.Snapshot{
+		SessionID: "ses_effort_subset_restore", MaxSequence: 1,
+		Events: []protocol.Event{paddedSupported},
+	}); err != nil {
+		t.Fatalf("restore padded supported durable effort: %v", err)
+	}
+	if status := query.Status(); status.ReasoningEffort != "low" {
+		t.Fatalf("padded supported effort was not restored: %+v", status)
 	}
 }
 

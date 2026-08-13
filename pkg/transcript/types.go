@@ -77,8 +77,9 @@ type ReadOptions struct {
 	MaxDiagnostics    int
 	MaxFileBytes      int64
 	MaxEvents         int
-	// ValidateRecord inspects every successfully decoded physical JSONL record
-	// before it can enter recovery, and the final complete Snapshot projection.
+	// ValidateRecord inspects every syntactically valid physical JSONL record
+	// before typed Event decoding or recovery, and the final complete Snapshot
+	// projection.
 	ValidateRecord func([]byte) error
 }
 
