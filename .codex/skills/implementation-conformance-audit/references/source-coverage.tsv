@@ -1,5 +1,5 @@
 path	lines	bytes	sha256	primary_owner	contract_scope
-main.go	101	3111	5c4e5087757477d54c4b6d406d3ef2fbb450353ed6aa42f0f8a4c55087c34729	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
+main.go	101	3111	2114b08c7c0a52e6ec167b1587bed29d75ed382409d6ed177c8be54b34a2447e	implementation-platform-lifecycle	portable filesystem/process/OS integration, cleanup, updater mechanism, or shared primitive
 pkg/app/app.go	355	11699	bf9909251368eef721e3ead78ae3f15b0a3ef829e1cd172cd34f251e382b88fc	implementation-headless-sdk	CLI/headless/SDK framing, control, event projection, or structured I/O behavior
 pkg/app/application_home.go	282	10174	a85835058ade4fecedbeb0d99676cb80a8788a1eaf3a5af2e4c49d06e9024a6a	implementation-startup-settings	entrypoint, configuration, migration, trust, policy, or startup registry behavior
 pkg/app/capabilities.go	291	10491	764544f6cc7bb3c0ed792ef65ebfbb81e304c6a02c19ecca465ae31c780264b7	implementation-tool-protocol	generic tool schema, orchestration, hook/permission integration, progress, or result behavior
